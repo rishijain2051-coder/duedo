@@ -12,11 +12,20 @@ export class HttpError extends Error {
   }
 }
 
-/** Runs a handler, returning JSON and mapping HttpError / unknown errors to responses. */
+/**
+ * Runs a handler for a PROTECTED data route: requires a valid login session
+ * (401 otherwise), then returns JSON and maps HttpError / unknown errors.
+ * Public endpoints (auth, cron, health) build their NextResponse directly and
+ * do not use this helper.
+ */
 export async function json<T>(
   fn: () => Promise<T>,
   okStatus = 200,
 ): Promise<NextResponse> {
+  const session = await getSession();
+  if (!session) {
+    return NextResponse.json({ message: "Not authenticated" }, { status: 401 });
+  }
   try {
     const data = await fn();
     return NextResponse.json(data as object, { status: okStatus });

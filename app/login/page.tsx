@@ -23,12 +23,18 @@ export default function LoginPage() {
   const [email, setEmail] = useState("");
 
   useEffect(() => {
+    // If already logged in, skip the login screen.
     api.auth
-      .members()
-      .then(setMembers)
-      .catch((e) => setError((e as Error).message))
-      .finally(() => setLoading(false));
-  }, []);
+      .me()
+      .then(() => router.replace("/"))
+      .catch(() =>
+        api.auth
+          .members()
+          .then(setMembers)
+          .catch((e) => setError((e as Error).message))
+          .finally(() => setLoading(false)),
+      );
+  }, [router]);
 
   function goToApp() {
     router.replace("/");
