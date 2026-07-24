@@ -9,6 +9,7 @@ import {
   Pencil,
   Trash2,
   Loader2,
+  Send,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -44,6 +45,7 @@ export default function RemindersPage() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [filter, setFilter] = useState<StatusFilter>("active");
 
   const [formOpen, setFormOpen] = useState(false);
@@ -163,6 +165,20 @@ export default function RemindersPage() {
     }
   }
 
+  async function notifyFamily(r: Reminder) {
+    if (!confirm(`Email the whole family about "${r.title}" now?`)) return;
+    setNotice(null);
+    setError(null);
+    try {
+      const res = await api.reminders.notifyFamily(r.id);
+      setNotice(
+        `Family notified about "${res.title}" — ${res.emailed} email${res.emailed === 1 ? "" : "s"} sent to ${res.notified} member${res.notified === 1 ? "" : "s"}.`,
+      );
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+
   const noMembers = members.length === 0;
 
   return (
@@ -177,6 +193,12 @@ export default function RemindersPage() {
       {error && (
         <div className="rounded-md border border-destructive/40 bg-destructive/10 px-4 py-2 text-sm text-red-400">
           {error}
+        </div>
+      )}
+
+      {notice && (
+        <div className="rounded-md border border-green-500/40 bg-green-500/10 px-4 py-2 text-sm text-green-400">
+          {notice}
         </div>
       )}
 
@@ -284,6 +306,15 @@ export default function RemindersPage() {
                                 <CheckCircle2 className="h-4 w-4" />
                               </Button>
                             )}
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              title="Notify whole family"
+                              className="text-blue-500 hover:bg-blue-500/10"
+                              onClick={() => notifyFamily(r)}
+                            >
+                              <Send className="h-4 w-4" />
+                            </Button>
                             <Button
                               variant="ghost"
                               size="icon"

@@ -103,6 +103,11 @@ export const api = {
         method: "POST",
         body: JSON.stringify(data),
       }),
+    notifyFamily: (id: string) =>
+      request<{ emailed: number; notified: number; title: string }>(
+        `/reminders/${id}/notify-family`,
+        { method: "POST" },
+      ),
   },
   reports: {
     dashboard: (assignedToId?: string) =>

@@ -20,10 +20,17 @@ export interface DispatchSummary {
   notificationsCreated: number;
 }
 
+function daysUntil(dueDate: Date, startOfToday: Date): number {
+  const dueMidnight = new Date(
+    Date.UTC(dueDate.getUTCFullYear(), dueDate.getUTCMonth(), dueDate.getUTCDate()),
+  );
+  return Math.round((dueMidnight.getTime() - startOfToday.getTime()) / DAY_MS);
+}
+
 /**
- * Daily reminder engine (triggered by Vercel Cron). Finds active reminders due
- * within each member's window (or overdue), emails them a digest, and records one
- * notification per reminder per day so re-runs are idempotent.
+ * Daily reminder engine (Vercel Cron). Emails each reminder ONCE — when it is due
+ * (or the first run on/after its due date) — never repeatedly day after day.
+ * A reminder re-arms after completion because its due date rolls forward.
  */
 export async function dispatchDueReminders(): Promise<DispatchSummary> {
   const now = new Date();
@@ -31,16 +38,26 @@ export async function dispatchDueReminders(): Promise<DispatchSummary> {
     Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
   );
 
+  // Only reminders that are actually due or overdue (nothing in advance).
   const reminders = await prisma.reminder.findMany({
-    where: { status: "active" },
+    where: { status: "active", dueDate: { lte: now } },
     include: { category: true, assignedTo: true },
   });
 
-  const notifiedToday = await prisma.notification.findMany({
-    where: { createdAt: { gte: startOfToday }, reminderId: { not: null } },
-    select: { reminderId: true },
-  });
-  const alreadyNotified = new Set(notifiedToday.map((n) => n.reminderId as string));
+  // For each reminder, find the newest notification already sent for it.
+  const ids = reminders.map((r) => r.id);
+  const priorNotifs = ids.length
+    ? await prisma.notification.findMany({
+        where: { reminderId: { in: ids } },
+        select: { reminderId: true, createdAt: true },
+      })
+    : [];
+  const latestNotif = new Map<string, Date>();
+  for (const n of priorNotifs) {
+    const rid = n.reminderId as string;
+    const cur = latestNotif.get(rid);
+    if (!cur || n.createdAt > cur) latestNotif.set(rid, n.createdAt);
+  }
 
   const perUser = new Map<
     string,
@@ -48,13 +65,9 @@ export async function dispatchDueReminders(): Promise<DispatchSummary> {
   >();
 
   for (const r of reminders) {
-    if (alreadyNotified.has(r.id)) continue;
-    const dueMidnight = new Date(
-      Date.UTC(r.dueDate.getUTCFullYear(), r.dueDate.getUTCMonth(), r.dueDate.getUTCDate()),
-    );
-    const daysUntilDue = Math.round((dueMidnight.getTime() - startOfToday.getTime()) / DAY_MS);
-    const windowDays = r.assignedTo?.notifyDaysBefore ?? 3;
-    if (daysUntilDue > windowDays) continue;
+    // Already notified for this due-cycle? (notification created on/after this due date)
+    const last = latestNotif.get(r.id);
+    if (last && last >= r.dueDate) continue;
 
     const bucket = perUser.get(r.assignedToId) ?? { user: r.assignedTo, items: [], ids: [] };
     bucket.items.push({
@@ -62,7 +75,7 @@ export async function dispatchDueReminders(): Promise<DispatchSummary> {
       category: r.category?.name ?? "Uncategorized",
       amount: r.amount ?? null,
       dueDate: r.dueDate,
-      daysUntilDue,
+      daysUntilDue: daysUntil(r.dueDate, startOfToday),
     });
     bucket.ids.push(r.id);
     perUser.set(r.assignedToId, bucket);
@@ -73,15 +86,14 @@ export async function dispatchDueReminders(): Promise<DispatchSummary> {
   let notificationsCreated = 0;
   let usersNotified = 0;
 
-  for (const [userId, { user, items, ids }] of perUser) {
+  for (const [userId, { user, items, ids: rids }] of perUser) {
     if (items.length === 0) continue;
     usersNotified++;
 
     let channel = "in_app";
     if (user?.emailOptIn && user.email) {
       const { subject, html } = buildDigestEmail(user.name, items);
-      const sent = await sendMail({ to: user.email, subject, html });
-      if (sent) {
+      if (await sendMail({ to: user.email, subject, html })) {
         emailsSent++;
         channel = "email";
       }
@@ -89,7 +101,7 @@ export async function dispatchDueReminders(): Promise<DispatchSummary> {
 
     const rows = items.map((item, i) => ({
       userId,
-      reminderId: ids[i],
+      reminderId: rids[i],
       channel,
       message: buildInAppMessage(item),
     }));
@@ -105,6 +117,54 @@ export async function dispatchDueReminders(): Promise<DispatchSummary> {
     emailsSent,
     notificationsCreated,
   };
+}
+
+/**
+ * On-demand: email the WHOLE family about a single reminder right now, and drop an
+ * in-app notification for each member. Triggered by the "Notify family" button.
+ */
+export async function notifyFamilyAboutReminder(reminderId: string) {
+  const reminder = await prisma.reminder.findUnique({
+    where: { id: reminderId },
+    include: { category: true },
+  });
+  if (!reminder) return null;
+
+  const now = new Date();
+  const startOfToday = new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
+  );
+  const item: DigestItem = {
+    title: reminder.title,
+    category: reminder.category?.name ?? "Uncategorized",
+    amount: reminder.amount ?? null,
+    dueDate: reminder.dueDate,
+    daysUntilDue: daysUntil(reminder.dueDate, startOfToday),
+  };
+
+  const members = await prisma.user.findMany();
+  let emailed = 0;
+
+  for (const m of members) {
+    let channel = "in_app";
+    if (m.emailOptIn && m.email) {
+      const { subject, html } = buildFamilyEmail(m.name, item);
+      if (await sendMail({ to: m.email, subject, html })) {
+        emailed++;
+        channel = "email";
+      }
+    }
+    await prisma.notification.create({
+      data: {
+        userId: m.id,
+        reminderId,
+        channel,
+        message: `👨‍👩‍👧 Family reminder: ${buildInAppMessage(item)}`,
+      },
+    });
+  }
+
+  return { emailed, notified: members.length, title: reminder.title };
 }
 
 function statusLabel(daysUntilDue: number): string {
@@ -143,40 +203,15 @@ function escapeHtml(str: string): string {
     .replace(/'/g, "&#39;");
 }
 
-function buildDigestEmail(userName: string, items: DigestItem[]): { subject: string; html: string } {
-  const appName = process.env.APP_NAME || "PRO-SYS";
-  const sorted = [...items].sort((a, b) => a.daysUntilDue - b.daysUntilDue);
-  const overdue = sorted.filter((i) => i.daysUntilDue < 0).length;
-  const subject =
-    overdue > 0
-      ? `⚠️ ${appName}: ${overdue} overdue + ${sorted.length - overdue} upcoming reminder${sorted.length === 1 ? "" : "s"}`
-      : `${appName}: You have ${sorted.length} reminder${sorted.length === 1 ? "" : "s"} coming up`;
-
-  const rows = sorted
-    .map((i) => {
-      const urgent = i.daysUntilDue < 0;
-      const color = urgent ? "#dc2626" : i.daysUntilDue === 0 ? "#ea580c" : "#2563eb";
-      const amount = formatAmount(i.amount);
-      return `
-        <tr>
-          <td style="padding:12px 8px;border-bottom:1px solid #e5e7eb;font-weight:600;">${escapeHtml(i.title)}</td>
-          <td style="padding:12px 8px;border-bottom:1px solid #e5e7eb;color:#6b7280;">${escapeHtml(i.category)}</td>
-          <td style="padding:12px 8px;border-bottom:1px solid #e5e7eb;">${escapeHtml(formatDate(i.dueDate))}</td>
-          <td style="padding:12px 8px;border-bottom:1px solid #e5e7eb;">${amount || "—"}</td>
-          <td style="padding:12px 8px;border-bottom:1px solid #e5e7eb;color:${color};font-weight:600;">${escapeHtml(statusLabel(i.daysUntilDue))}</td>
-        </tr>`;
-    })
-    .join("");
-
-  const html = `
+function emailShell(appName: string, heading: string, greeting: string, rowsHtml: string): string {
+  return `
   <div style="font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;max-width:640px;margin:0 auto;color:#111827;">
     <div style="background:linear-gradient(135deg,#2563eb,#1e40af);padding:24px;border-radius:12px 12px 0 0;">
       <h1 style="margin:0;color:#ffffff;font-size:22px;">${escapeHtml(appName)}</h1>
-      <p style="margin:4px 0 0;color:#dbeafe;font-size:14px;">Your reminder digest</p>
+      <p style="margin:4px 0 0;color:#dbeafe;font-size:14px;">${escapeHtml(heading)}</p>
     </div>
     <div style="border:1px solid #e5e7eb;border-top:none;border-radius:0 0 12px 12px;padding:24px;">
-      <p style="margin-top:0;">Hi ${escapeHtml(userName)},</p>
-      <p>Here's what needs your attention:</p>
+      <p style="margin-top:0;">${escapeHtml(greeting)}</p>
       <table style="width:100%;border-collapse:collapse;font-size:14px;">
         <thead>
           <tr style="text-align:left;color:#6b7280;font-size:12px;text-transform:uppercase;">
@@ -184,10 +219,51 @@ function buildDigestEmail(userName: string, items: DigestItem[]): { subject: str
             <th style="padding:8px;">Due</th><th style="padding:8px;">Amount</th><th style="padding:8px;">Status</th>
           </tr>
         </thead>
-        <tbody>${rows}</tbody>
+        <tbody>${rowsHtml}</tbody>
       </table>
     </div>
   </div>`;
+}
 
+function itemRow(i: DigestItem): string {
+  const urgent = i.daysUntilDue < 0;
+  const color = urgent ? "#dc2626" : i.daysUntilDue === 0 ? "#ea580c" : "#2563eb";
+  const amount = formatAmount(i.amount);
+  return `
+    <tr>
+      <td style="padding:12px 8px;border-bottom:1px solid #e5e7eb;font-weight:600;">${escapeHtml(i.title)}</td>
+      <td style="padding:12px 8px;border-bottom:1px solid #e5e7eb;color:#6b7280;">${escapeHtml(i.category)}</td>
+      <td style="padding:12px 8px;border-bottom:1px solid #e5e7eb;">${escapeHtml(formatDate(i.dueDate))}</td>
+      <td style="padding:12px 8px;border-bottom:1px solid #e5e7eb;">${amount || "—"}</td>
+      <td style="padding:12px 8px;border-bottom:1px solid #e5e7eb;color:${color};font-weight:600;">${escapeHtml(statusLabel(i.daysUntilDue))}</td>
+    </tr>`;
+}
+
+function buildDigestEmail(userName: string, items: DigestItem[]): { subject: string; html: string } {
+  const appName = process.env.APP_NAME || "PRO-SYS";
+  const sorted = [...items].sort((a, b) => a.daysUntilDue - b.daysUntilDue);
+  const overdue = sorted.filter((i) => i.daysUntilDue < 0).length;
+  const subject =
+    overdue > 0
+      ? `⚠️ ${appName}: ${sorted.length} reminder${sorted.length === 1 ? "" : "s"} due now`
+      : `${appName}: ${sorted.length} reminder${sorted.length === 1 ? "" : "s"} due`;
+  const html = emailShell(
+    appName,
+    "Reminder due",
+    `Hi ${userName}, this is due:`,
+    sorted.map(itemRow).join(""),
+  );
+  return { subject, html };
+}
+
+function buildFamilyEmail(userName: string, item: DigestItem): { subject: string; html: string } {
+  const appName = process.env.APP_NAME || "PRO-SYS";
+  const subject = `${appName}: Family reminder — ${item.title}`;
+  const html = emailShell(
+    appName,
+    "Family reminder",
+    `Hi ${userName}, someone flagged this for the whole family:`,
+    itemRow(item),
+  );
   return { subject, html };
 }

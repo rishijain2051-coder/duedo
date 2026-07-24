@@ -104,9 +104,8 @@ curl https://<your-app>.vercel.app/api/cron/dispatch -H "Authorization: Bearer <
 
 ## How reminders get sent
 
-- `frontend/vercel.json` runs `GET /api/cron/dispatch` on a schedule (`30 3 * * *` = 09:00 IST).
-- **Vercel Cron is UTC** and, on the free Hobby plan, **runs at most once per day** — perfect for a daily digest, but no hourly reminders without Pro.
-- The job finds active reminders due within each member's `notifyDaysBefore` window (or overdue), emails the assignee, and records one notification per reminder per day (so re-runs never double-send).
+- **Automatic:** `frontend/vercel.json` runs `GET /api/cron/dispatch` daily (`30 3 * * *` = 09:00 IST; Vercel Cron is UTC, free Hobby = once/day). Each reminder is emailed **once, when it's due** (or the first run on/after its due date) — never day after day. Recurring reminders re-arm after completion.
+- **On demand:** the **"Notify family"** button on a reminder emails every family member about it immediately.
 
 ---
 

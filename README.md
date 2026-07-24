@@ -19,7 +19,10 @@ Each family member logs in by **picking their name and entering a personal PIN**
 
 ## Email reminders
 
-A once-daily job (Vercel Cron → `GET /api/cron/dispatch`, protected by `CRON_SECRET`) finds reminders due within each member's window (or overdue) and emails them a digest. Engine: `frontend/lib/dispatch.ts` + `frontend/lib/mail.ts`.
+- **Automatic:** a daily job (Vercel Cron → `GET /api/cron/dispatch`, protected by `CRON_SECRET`) emails a reminder **once, on its due date** — no daily repeats. Recurring reminders re-arm after completion.
+- **On demand:** the **"Notify family"** button on any reminder emails the whole family about it immediately.
+
+Engine: `frontend/lib/dispatch.ts` + `frontend/lib/mail.ts`.
 
 ## Deployment (free)
 

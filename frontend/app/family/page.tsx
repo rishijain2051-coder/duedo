@@ -14,7 +14,6 @@ const emptyForm = {
   name: "",
   email: "",
   phone: "",
-  notifyDaysBefore: "3",
   emailOptIn: "true",
   pin: "",
 };
@@ -40,7 +39,6 @@ export default function FamilyPage() {
       name: m.name,
       email: m.email,
       phone: m.phone ?? "",
-      notifyDaysBefore: String(m.notifyDaysBefore),
       emailOptIn: String(m.emailOptIn),
       pin: "",
     });
@@ -60,7 +58,6 @@ export default function FamilyPage() {
         name: form.name.trim(),
         email: form.email.trim(),
         phone: form.phone.trim() || undefined,
-        notifyDaysBefore: Number(form.notifyDaysBefore),
         emailOptIn: form.emailOptIn === "true",
         pin: form.pin.trim() || undefined,
       };
@@ -153,7 +150,6 @@ export default function FamilyPage() {
                     )}
                     {m.emailOptIn ? "Emails on" : "Emails off"}
                   </span>
-                  <span>Notify {m.notifyDaysBefore}d before</span>
                   {m.phone && <span>{m.phone}</span>}
                 </div>
               </CardContent>
@@ -206,28 +202,15 @@ export default function FamilyPage() {
               }
             />
           </Field>
-          <div className="grid grid-cols-2 gap-4">
-            <Field label="Notify days before">
-              <Input
-                type="number"
-                min="0"
-                max="30"
-                value={form.notifyDaysBefore}
-                onChange={(e) =>
-                  setForm({ ...form, notifyDaysBefore: e.target.value })
-                }
-              />
-            </Field>
-            <Field label="Email reminders">
-              <Select
-                value={form.emailOptIn}
-                onChange={(e) => setForm({ ...form, emailOptIn: e.target.value })}
-              >
-                <option value="true">On</option>
-                <option value="false">Off</option>
-              </Select>
-            </Field>
-          </div>
+          <Field label="Email reminders">
+            <Select
+              value={form.emailOptIn}
+              onChange={(e) => setForm({ ...form, emailOptIn: e.target.value })}
+            >
+              <option value="true">On</option>
+              <option value="false">Off</option>
+            </Select>
+          </Field>
           <div className="flex justify-end gap-2 pt-2">
             <Button type="button" variant="outline" onClick={() => setOpen(false)}>
               Cancel
