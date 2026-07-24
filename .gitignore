@@ -1,0 +1,26 @@
+# dependencies
+node_modules/
+
+# secrets / env (never commit real env files)
+.env
+.env.*
+!.env.example
+
+# next.js
+.next/
+out/
+
+# builds
+dist/
+build/
+*.tsbuildinfo
+
+# logs
+*.log
+npm-debug.log*
+
+# editor / OS
+.DS_Store
+.vercel
+.idea/
+.vscode/

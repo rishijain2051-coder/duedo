@@ -1,0 +1,88 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id               String   @id @default(uuid())
+  name             String
+  email            String   @unique
+  password_hash    String? // stores the bcrypt hash of the member's login PIN
+  role             String   @default("member") // 'admin' or 'member'
+  phone            String? // optional, reserved for future SMS/WhatsApp channels
+  emailOptIn       Boolean  @default(true) // receive reminder emails
+  notifyDaysBefore Int      @default(3) // start emailing this many days before due date
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  reminders     Reminder[]
+  notifications Notification[]
+  activities    ActivityLog[]
+}
+
+model Category {
+  id        String   @id @default(uuid())
+  name      String
+  icon      String?
+  color     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  reminders Reminder[]
+}
+
+model Reminder {
+  id             String    @id @default(uuid())
+  title          String
+  description    String?
+  categoryId     String
+  category       Category  @relation(fields: [categoryId], references: [id])
+  assignedToId   String
+  assignedTo     User      @relation(fields: [assignedToId], references: [id])
+  priority       String    @default("normal") // low, normal, high
+  status         String    @default("active") // draft, active, completed, archived
+  dueDate        DateTime
+  nextDueDate    DateTime?
+  recurrenceRule String? // One Time, Daily, Weekly, Monthly, Yearly, etc.
+  amount         Float?    @default(0)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  history ReminderHistory[]
+}
+
+model ReminderHistory {
+  id          String   @id @default(uuid())
+  reminderId  String
+  reminder    Reminder @relation(fields: [reminderId], references: [id])
+  completedOn DateTime @default(now())
+  amount      Float?
+  status      String
+  remarks     String?
+}
+
+model Notification {
+  id         String   @id @default(uuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id])
+  reminderId String? // which reminder triggered this (used for daily de-duplication)
+  channel    String   @default("in_app") // in_app | email
+  message    String
+  read       Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  @@index([reminderId, channel, createdAt])
+  @@index([userId, read])
+}
+
+model ActivityLog {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  action    String
+  entity    String
+  timestamp DateTime @default(now())
+}
