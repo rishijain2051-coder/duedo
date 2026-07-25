@@ -97,7 +97,7 @@ export default function SettingsPage() {
           <CardTitle>About</CardTitle>
         </CardHeader>
         <CardContent className="text-sm text-muted-foreground">
-          <p>PRO-SYS — Life Reminder Management System.</p>
+          <p>PRO-SYS — reminders for the whole family.</p>
           <p className="mt-1">
             No login: anyone with this link can view and manage the family
             reminders. Keep the URL private.

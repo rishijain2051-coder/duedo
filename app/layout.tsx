@@ -3,8 +3,8 @@ import "./globals.css";
 import { AppFrame } from "@/components/app-frame";
 
 export const metadata: Metadata = {
-  title: "PRO-SYS | Life ERP",
-  description: "Life Reminder Management System",
+  title: "PRO-SYS — Family Reminders",
+  description: "Keep the whole family on top of bills, birthdays, renewals, and everything due.",
 };
 
 export default function RootLayout({

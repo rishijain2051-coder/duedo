@@ -1,6 +1,6 @@
 # PRO-SYS
 
-Life Reminder Management System — a "Life ERP" that helps a family remember and manage every recurring responsibility from one place.
+A simple reminder app for the whole family — never miss a bill, birthday, renewal, or anything else that's due.
 
 ## Architecture
 

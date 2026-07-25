@@ -33,7 +33,7 @@ export function Sidebar() {
         <h1 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-primary to-blue-400">
           PRO-SYS
         </h1>
-        <p className="text-xs text-muted-foreground mt-1">Life Management ERP</p>
+        <p className="text-xs text-muted-foreground mt-1">Family Reminders</p>
       </div>
 
       <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
