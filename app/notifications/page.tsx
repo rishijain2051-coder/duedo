@@ -52,10 +52,10 @@ export default function NotificationsPage() {
   const unread = items.filter((n) => !n.read).length;
 
   return (
-    <div className="flex-1 space-y-4 p-6 md:p-8">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-3xl font-bold tracking-tight">Notifications</h2>
+    <div className="flex-1 space-y-4 p-4 md:p-8">
+      <div className="flex items-center justify-between gap-2">
+        <div className="min-w-0">
+          <h2 className="text-2xl md:text-3xl font-bold tracking-tight">Notifications</h2>
           <p className="text-sm text-muted-foreground">
             Family notifications · {unread} unread
           </p>

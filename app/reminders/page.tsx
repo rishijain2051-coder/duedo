@@ -182,11 +182,11 @@ export default function RemindersPage() {
   const noMembers = members.length === 0;
 
   return (
-    <div className="flex-1 space-y-4 p-6 md:p-8">
-      <div className="flex items-center justify-between">
-        <h2 className="text-3xl font-bold tracking-tight">Reminders</h2>
+    <div className="flex-1 space-y-4 p-4 md:p-8">
+      <div className="flex items-center justify-between gap-2">
+        <h2 className="text-2xl md:text-3xl font-bold tracking-tight">Reminders</h2>
         <Button onClick={openCreate} disabled={noMembers}>
-          <Plus className="mr-2 h-4 w-4" /> New Reminder
+          <Plus className="mr-2 h-4 w-4" /> <span className="hidden sm:inline">New </span>Reminder
         </Button>
       </div>
 
@@ -212,7 +212,7 @@ export default function RemindersPage() {
         </div>
       )}
 
-      <div className="flex gap-2">
+      <div className="flex gap-2 overflow-x-auto pb-1">
         {STATUS_FILTERS.map((f) => (
           <button
             key={f}
@@ -245,101 +245,152 @@ export default function RemindersPage() {
               No reminders here yet.
             </p>
           ) : (
-            <div className="overflow-x-auto rounded-md border">
-              <table className="w-full text-left text-sm">
-                <thead className="bg-muted/50 text-xs uppercase text-muted-foreground">
-                  <tr>
-                    <th className="px-4 py-3 font-medium">Title</th>
-                    <th className="px-4 py-3 font-medium">Category</th>
-                    <th className="px-4 py-3 font-medium">Member</th>
-                    <th className="px-4 py-3 font-medium">Amount</th>
-                    <th className="px-4 py-3 font-medium">Due</th>
-                    <th className="px-4 py-3 font-medium">Recurrence</th>
-                    <th className="px-4 py-3 font-medium">Status</th>
-                    <th className="px-4 py-3 text-right font-medium">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border">
-                  {visible.map((r) => {
-                    const st = reminderStatus(r);
-                    const color = r.category?.color ?? "#64748b";
-                    return (
-                      <tr key={r.id} className="transition-colors hover:bg-muted/40">
-                        <td className="px-4 py-3 font-medium">{r.title}</td>
-                        <td className="px-4 py-3">
-                          <span
-                            className="rounded-full px-2 py-1 text-xs font-semibold"
-                            style={{ backgroundColor: `${color}22`, color }}
-                          >
-                            {r.category?.name ?? "—"}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 text-muted-foreground">
-                          {r.assignedTo?.name ?? "—"}
-                        </td>
-                        <td className="px-4 py-3">{formatCurrency(r.amount)}</td>
-                        <td className="px-4 py-3">
-                          <span className="flex items-center gap-2">
-                            <CalendarIcon className="h-4 w-4 text-muted-foreground" />
-                            {formatDate(r.dueDate)}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 text-muted-foreground">
-                          {r.recurrenceRule}
-                        </td>
-                        <td className={`px-4 py-3 font-medium ${st.className}`}>
+            <>
+              {/* Mobile card list */}
+              <div className="space-y-3 md:hidden">
+                {visible.map((r) => {
+                  const st = reminderStatus(r);
+                  const color = r.category?.color ?? "#64748b";
+                  return (
+                    <div key={r.id} className="rounded-lg border p-3 space-y-2">
+                      <div className="flex items-start justify-between gap-2">
+                        <h4 className="font-medium leading-tight">{r.title}</h4>
+                        <span className={`shrink-0 text-xs font-medium ${st.className}`}>
                           {st.label}
-                        </td>
-                        <td className="px-4 py-3">
-                          <div className="flex justify-end gap-1">
-                            {r.status === "active" && (
+                        </span>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                        <span
+                          className="rounded-full px-2 py-0.5 font-semibold"
+                          style={{ backgroundColor: `${color}22`, color }}
+                        >
+                          {r.category?.name ?? "—"}
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <CalendarIcon className="h-3 w-3" />
+                          {formatDate(r.dueDate)}
+                        </span>
+                        {r.amount ? <span>{formatCurrency(r.amount)}</span> : null}
+                        {r.assignedTo?.name && <span>· {r.assignedTo.name}</span>}
+                      </div>
+                      <div className="flex justify-end gap-1 pt-1 border-t border-border/50">
+                        {r.status === "active" && (
+                          <Button variant="ghost" size="icon" title="Complete" className="h-8 w-8 text-green-500 hover:bg-green-500/10" onClick={() => { setCompleting(r); setCompleteAmount(r.amount ? String(r.amount) : ""); }}>
+                            <CheckCircle2 className="h-4 w-4" />
+                          </Button>
+                        )}
+                        <Button variant="ghost" size="icon" title="Notify family" className="h-8 w-8 text-blue-500 hover:bg-blue-500/10" onClick={() => notifyFamily(r)}>
+                          <Send className="h-4 w-4" />
+                        </Button>
+                        <Button variant="ghost" size="icon" title="Edit" className="h-8 w-8" onClick={() => openEdit(r)}>
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                        <Button variant="ghost" size="icon" title="Delete" className="h-8 w-8 text-destructive hover:bg-destructive/10" onClick={() => remove(r)}>
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Desktop table */}
+              <div className="hidden md:block overflow-x-auto rounded-md border">
+                <table className="w-full text-left text-sm">
+                  <thead className="bg-muted/50 text-xs uppercase text-muted-foreground">
+                    <tr>
+                      <th className="px-4 py-3 font-medium">Title</th>
+                      <th className="px-4 py-3 font-medium">Category</th>
+                      <th className="px-4 py-3 font-medium">Member</th>
+                      <th className="px-4 py-3 font-medium">Amount</th>
+                      <th className="px-4 py-3 font-medium">Due</th>
+                      <th className="px-4 py-3 font-medium">Recurrence</th>
+                      <th className="px-4 py-3 font-medium">Status</th>
+                      <th className="px-4 py-3 text-right font-medium">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {visible.map((r) => {
+                      const st = reminderStatus(r);
+                      const color = r.category?.color ?? "#64748b";
+                      return (
+                        <tr key={r.id} className="transition-colors hover:bg-muted/40">
+                          <td className="px-4 py-3 font-medium">{r.title}</td>
+                          <td className="px-4 py-3">
+                            <span
+                              className="rounded-full px-2 py-1 text-xs font-semibold"
+                              style={{ backgroundColor: `${color}22`, color }}
+                            >
+                              {r.category?.name ?? "—"}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-muted-foreground">
+                            {r.assignedTo?.name ?? "—"}
+                          </td>
+                          <td className="px-4 py-3">{formatCurrency(r.amount)}</td>
+                          <td className="px-4 py-3">
+                            <span className="flex items-center gap-2">
+                              <CalendarIcon className="h-4 w-4 text-muted-foreground" />
+                              {formatDate(r.dueDate)}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-muted-foreground">
+                            {r.recurrenceRule}
+                          </td>
+                          <td className={`px-4 py-3 font-medium ${st.className}`}>
+                            {st.label}
+                          </td>
+                          <td className="px-4 py-3">
+                            <div className="flex justify-end gap-1">
+                              {r.status === "active" && (
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  title="Complete"
+                                  className="text-green-500 hover:bg-green-500/10"
+                                  onClick={() => {
+                                    setCompleting(r);
+                                    setCompleteAmount(r.amount ? String(r.amount) : "");
+                                  }}
+                                >
+                                  <CheckCircle2 className="h-4 w-4" />
+                                </Button>
+                              )}
                               <Button
                                 variant="ghost"
                                 size="icon"
-                                title="Complete"
-                                className="text-green-500 hover:bg-green-500/10"
-                                onClick={() => {
-                                  setCompleting(r);
-                                  setCompleteAmount(r.amount ? String(r.amount) : "");
-                                }}
+                                title="Notify whole family"
+                                className="text-blue-500 hover:bg-blue-500/10"
+                                onClick={() => notifyFamily(r)}
                               >
-                                <CheckCircle2 className="h-4 w-4" />
+                                <Send className="h-4 w-4" />
                               </Button>
-                            )}
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              title="Notify whole family"
-                              className="text-blue-500 hover:bg-blue-500/10"
-                              onClick={() => notifyFamily(r)}
-                            >
-                              <Send className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              title="Edit"
-                              onClick={() => openEdit(r)}
-                            >
-                              <Pencil className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              title="Delete"
-                              className="text-destructive hover:bg-destructive/10"
-                              onClick={() => remove(r)}
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                title="Edit"
+                                onClick={() => openEdit(r)}
+                              >
+                                <Pencil className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                title="Delete"
+                                className="text-destructive hover:bg-destructive/10"
+                                onClick={() => remove(r)}
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </>
           )}
         </CardContent>
       </Card>
@@ -359,7 +410,7 @@ export default function RemindersPage() {
               autoFocus
             />
           </Field>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid sm:grid-cols-2 gap-4">
             <Field label="Category *">
               <Select
                 value={form.categoryId}
@@ -389,7 +440,7 @@ export default function RemindersPage() {
               </Select>
             </Field>
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid sm:grid-cols-2 gap-4">
             <Field label="Due date *">
               <Input
                 type="date"
@@ -407,7 +458,7 @@ export default function RemindersPage() {
               />
             </Field>
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid sm:grid-cols-2 gap-4">
             <Field label="Recurrence">
               <Select
                 value={form.recurrenceRule}

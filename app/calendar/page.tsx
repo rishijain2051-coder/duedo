@@ -7,7 +7,8 @@ import { Button } from "@/components/ui/button";
 import { api } from "@/services/api";
 import type { Reminder } from "@/types";
 
-const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const DAYS_SHORT = ["S", "M", "T", "W", "T", "F", "S"];
+const DAYS_FULL = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MONTHS = [
   "January", "February", "March", "April", "May", "June",
   "July", "August", "September", "October", "November", "December",
@@ -68,10 +69,10 @@ export default function CalendarPage() {
   };
 
   return (
-    <div className="flex-1 space-y-4 p-6 md:p-8">
-      <div className="flex items-center justify-between">
-        <h2 className="text-3xl font-bold tracking-tight">Calendar</h2>
-        <div className="flex items-center gap-3">
+    <div className="flex-1 space-y-4 p-4 md:p-8">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <h2 className="text-2xl md:text-3xl font-bold tracking-tight">Calendar</h2>
+        <div className="flex items-center gap-2">
           <Button
             variant="outline"
             size="icon"
@@ -79,7 +80,7 @@ export default function CalendarPage() {
           >
             <ChevronLeft className="h-4 w-4" />
           </Button>
-          <span className="w-40 text-center text-lg font-semibold">
+          <span className="w-36 md:w-40 text-center text-base md:text-lg font-semibold">
             {MONTHS[month]} {year}
           </span>
           <Button
@@ -89,7 +90,7 @@ export default function CalendarPage() {
           >
             <ChevronRight className="h-4 w-4" />
           </Button>
-          <Button variant="default" onClick={goToday}>
+          <Button variant="default" size="sm" onClick={goToday}>
             Today
           </Button>
         </div>
@@ -98,12 +99,13 @@ export default function CalendarPage() {
       <Card>
         <CardContent className="p-0">
           <div className="grid grid-cols-7 border-b border-border">
-            {DAYS.map((d) => (
+            {DAYS_FULL.map((d, i) => (
               <div
                 key={d}
-                className="p-3 text-center text-sm font-semibold text-muted-foreground"
+                className="p-2 md:p-3 text-center text-xs md:text-sm font-semibold text-muted-foreground"
               >
-                {d}
+                <span className="sm:hidden">{DAYS_SHORT[i]}</span>
+                <span className="hidden sm:inline">{d}</span>
               </div>
             ))}
           </div>
@@ -112,7 +114,7 @@ export default function CalendarPage() {
               <Loader2 className="mr-2 h-5 w-5 animate-spin" /> Loading…
             </div>
           ) : (
-            <div className="grid grid-cols-7 auto-rows-[110px] divide-x divide-y divide-border">
+            <div className="grid grid-cols-7 auto-rows-[70px] sm:auto-rows-[90px] md:auto-rows-[110px] divide-x divide-y divide-border">
               {cells.map((day, i) => {
                 if (day === null)
                   return <div key={i} className="bg-muted/10" />;
@@ -133,7 +135,7 @@ export default function CalendarPage() {
                     >
                       {day}
                     </span>
-                    {items.slice(0, 3).map((r) => {
+                    {items.slice(0, 2).map((r) => {
                       const color = r.category?.color ?? "#64748b";
                       return (
                         <div
@@ -146,9 +148,9 @@ export default function CalendarPage() {
                         </div>
                       );
                     })}
-                    {items.length > 3 && (
-                      <div className="px-1.5 text-xs text-muted-foreground">
-                        +{items.length - 3} more
+                    {items.length > 2 && (
+                      <div className="px-1 text-[10px] md:text-xs text-muted-foreground">
+                        +{items.length - 2} more
                       </div>
                     )}
                   </div>

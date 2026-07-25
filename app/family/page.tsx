@@ -83,10 +83,10 @@ export default function FamilyPage() {
   }
 
   return (
-    <div className="flex-1 space-y-4 p-6 md:p-8">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-3xl font-bold tracking-tight">Family</h2>
+    <div className="flex-1 space-y-4 p-4 md:p-8">
+      <div className="flex items-center justify-between gap-2">
+        <div className="min-w-0">
+          <h2 className="text-2xl md:text-3xl font-bold tracking-tight">Family</h2>
           <p className="text-sm text-muted-foreground">
             Each member gets their own reminder emails. No passwords needed.
           </p>
@@ -127,7 +127,7 @@ export default function FamilyPage() {
                       <p className="text-sm text-muted-foreground">{m.email}</p>
                     </div>
                   </div>
-                  <div className="flex gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+                  <div className="flex gap-1 md:opacity-0 md:transition-opacity md:group-hover:opacity-100">
                     <Button variant="ghost" size="icon" onClick={() => openEdit(m)}>
                       <Pencil className="h-4 w-4" />
                     </Button>

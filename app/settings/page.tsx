@@ -30,8 +30,8 @@ export default function SettingsPage() {
   }
 
   return (
-    <div className="flex-1 space-y-4 p-6 md:p-8">
-      <h2 className="text-3xl font-bold tracking-tight">Settings</h2>
+    <div className="flex-1 space-y-4 p-4 md:p-8">
+      <h2 className="text-2xl md:text-3xl font-bold tracking-tight">Settings</h2>
 
       <Card>
         <CardHeader>
@@ -99,8 +99,8 @@ export default function SettingsPage() {
         <CardContent className="text-sm text-muted-foreground">
           <p>PRO-SYS — reminders for the whole family.</p>
           <p className="mt-1">
-            No login: anyone with this link can view and manage the family
-            reminders. Keep the URL private.
+            Each family member logs in with their name and a personal PIN.
+            Everyone sees all reminders.
           </p>
         </CardContent>
       </Card>

@@ -124,7 +124,7 @@ export default function LoginPage() {
                   onChange={(e) => setEmail(e.target.value)}
                 />
               </Field>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid sm:grid-cols-2 gap-4">
                 <Field label="Create a PIN (4–6 digits)">
                   <Input
                     inputMode="numeric"
