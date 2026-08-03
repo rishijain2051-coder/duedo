@@ -26,6 +26,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Field, Input, Select } from "@/components/ui/form";
 import { useApp } from "@/components/app-context";
+import { Credit } from "@/components/credit";
 import {
   api,
   type ActiveLogin,
@@ -1210,6 +1211,7 @@ export default function SettingsPage() {
             Timezone: {settings?.timezone ?? "—"} · Reminders are checked every
             minute.
           </p>
+          <Credit className="mt-3" />
         </CardContent>
       </Card>
     </div>

@@ -7,6 +7,7 @@ import { startAuthentication } from "@simplewebauthn/browser";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Field, Input } from "@/components/ui/form";
+import { Credit } from "@/components/credit";
 import { setCacheOwner } from "@/lib/cache";
 import { api } from "@/services/api";
 
@@ -139,7 +140,7 @@ export default function LoginPage() {
     typeof window !== "undefined" && "PublicKeyCredential" in window;
 
   return (
-    <div className="flex min-h-screen w-full items-center justify-center bg-background p-4">
+    <div className="flex min-h-screen w-full flex-col items-center justify-center gap-4 bg-background p-4">
       <Card className="w-full max-w-sm">
         <CardHeader className="space-y-1 pb-6 text-center">
           <CardTitle className="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-primary to-primary-soft">
@@ -340,6 +341,7 @@ export default function LoginPage() {
           )}
         </CardContent>
       </Card>
+      <Credit />
     </div>
   );
 }

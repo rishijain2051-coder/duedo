@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useApp } from "@/components/app-context";
+import { Credit } from "@/components/credit";
 
 // No "Family" entry any more: reminders are private per account, so there is
 // nothing shared to browse. Account approval lives in Settings, for admins only.
@@ -73,6 +74,7 @@ function NavLinks() {
             </span>
           )}
         </Link>
+        <Credit className="mt-3 px-3" />
       </div>
     </>
   );
