@@ -1,10 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import {
   Bell,
   BellRing,
-  Check,
+
   Clock,
   Loader2,
   Mail,
@@ -19,7 +20,8 @@ import {
   Sun,
   Trash2,
   UserCog,
-  X,
+  Users,
+
 } from "lucide-react";
 import { startRegistration } from "@simplewebauthn/browser";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -27,6 +29,7 @@ import { Button } from "@/components/ui/button";
 import { Field, Input, Select } from "@/components/ui/form";
 import { useApp } from "@/components/app-context";
 import { Credit } from "@/components/credit";
+import { FamilySettings } from "@/components/family-settings";
 import {
   api,
   type ActiveLogin,
@@ -49,7 +52,6 @@ import {
   ACCENTS,
   IDLE_TIMEOUT_OPTIONS,
   type AccentId,
-  type ManagedUser,
   type ThemeMode,
 } from "@/types";
 
@@ -159,7 +161,6 @@ export default function SettingsPage() {
   const [passkeys, setPasskeys] = useState<PasskeySummary[]>([]);
   const [devices, setDevices] = useState<PushDevice[]>([]);
   const [logins, setLogins] = useState<ActiveLogin[]>([]);
-  const [accounts, setAccounts] = useState<ManagedUser[]>([]);
 
   const [name, setName] = useState("");
   const [timezone, setTimezone] = useState("Asia/Kolkata");
@@ -188,11 +189,6 @@ export default function SettingsPage() {
     setLogins(ses);
   }, []);
 
-  const refreshAccounts = useCallback(async () => {
-    if (!isAdmin) return;
-    setAccounts(await api.users.list().catch(() => [] as ManagedUser[]));
-  }, [isAdmin]);
-
   useEffect(() => {
     if (settings) {
       setName(settings.name);
@@ -208,9 +204,6 @@ export default function SettingsPage() {
     void hasLocalSubscription().then(setSubscribedHere);
   }, [refreshLists]);
 
-  useEffect(() => {
-    void refreshAccounts();
-  }, [refreshAccounts]);
 
   async function save(
     key: string,
@@ -406,46 +399,6 @@ export default function SettingsPage() {
     }
   }
 
-  async function actOnAccount(
-    u: ManagedUser,
-    action: "approve" | "reject" | "remove",
-  ) {
-    if (action === "remove") {
-      if (
-        !confirm(
-          `Delete ${u.name} (${u.email})?\n\n` +
-            `Everything they own goes with it — reminders, categories, history and ` +
-            `devices. Rejecting is the reversible option; this is not.`,
-        )
-      )
-        return;
-    }
-    if (action === "reject" && !confirm(`Reject ${u.name}? They can't sign in.`)) {
-      return;
-    }
-    setBusy(`acct-${u.id}`);
-    setError(null);
-    setNotice(null);
-    try {
-      if (action === "approve") await api.users.approve(u.id);
-      else if (action === "reject") await api.users.reject(u.id);
-      else await api.users.remove(u.id);
-      await refreshAccounts();
-      await refreshSettings();
-      flash(
-        action === "approve"
-          ? `${u.name} can now sign in.`
-          : action === "reject"
-            ? `${u.name} has been rejected.`
-            : `${u.name} has been deleted.`,
-      );
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setBusy(null);
-    }
-  }
-
   async function doCheckUpdate() {
     setBusy("update");
     setError(null);
@@ -461,7 +414,6 @@ export default function SettingsPage() {
   const pushSupported = isPushSupported();
   const mustInstall = needsInstallFirst();
   const perm = permission();
-  const pending = accounts.filter((a) => a.status === "pending");
 
   return (
     <div className="flex-1 space-y-4 p-4 md:p-8">
@@ -494,12 +446,20 @@ export default function SettingsPage() {
               <Input value={settings?.email ?? ""} readOnly disabled />
             </Field>
           </div>
+          {/* Says what is actually true. Other *users* can't see your personal
+              reminders, but an admin of this install can — pretending otherwise
+              would be a privacy promise the app doesn't keep. */}
           <p className="text-xs text-muted-foreground">
-            Your reminders are private to this account
-            {settings?.role === "admin"
-              ? " — and as an admin you can approve new accounts below."
-              : "."}
+            Your personal reminders aren&apos;t visible to other users. An
+            administrator of this install can view them for support, and every time
+            they do it is recorded in the audit log.
           </p>
+          {settings?.accountType === "family" && (
+            <p className="text-xs text-muted-foreground">
+              Reminders you put on a family list are visible to everyone in that
+              family.
+            </p>
+          )}
           <Button
             onClick={() => save("name", { name }, "Name updated.")}
             disabled={busy !== null || name === settings?.name || name.trim().length < 2}
@@ -509,6 +469,42 @@ export default function SettingsPage() {
           </Button>
         </CardContent>
       </Card>
+
+      {/* ---------------- Families ---------------- */}
+      {settings?.accountType === "family" ? (
+        <FamilySettings onNotice={flash} onError={setError} />
+      ) : (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Users className="h-5 w-5" /> Family sharing
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              This is a single-person account. Turn on family sharing to create or
+              join a household with a shared reminder list — your existing
+              reminders stay personal and private either way.
+            </p>
+            <Button
+              variant="outline"
+              disabled={busy !== null}
+              onClick={() =>
+                save(
+                  "accountType",
+                  { accountType: "family" },
+                  "Family sharing is on. Create or join a family below.",
+                )
+              }
+            >
+              {busy === "accountType" && (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              )}
+              Turn on family sharing
+            </Button>
+          </CardContent>
+        </Card>
+      )}
 
       {/* ---------------- Appearance ---------------- */}
       <Card>
@@ -1038,124 +1034,28 @@ export default function SettingsPage() {
         </CardContent>
       </Card>
 
-      {/* ---------------- Admin: accounts ---------------- */}
+      {/* Account management lives in the admin panel now, not here — two places
+          to approve the same signup is how one of them ends up stale. */}
       {isAdmin && (
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <UserCog className="h-5 w-5" /> Accounts
-              {pending.length > 0 && (
+              {(settings?.pendingApprovals ?? 0) > 0 && (
                 <span className="rounded-full bg-destructive px-2 py-0.5 text-xs font-bold text-white">
-                  {pending.length} waiting
+                  {settings?.pendingApprovals} waiting
                 </span>
               )}
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
             <p className="text-sm text-muted-foreground">
-              Anyone can sign up, but nobody can sign in until you approve them.
-              You can&apos;t change your own row here — that&apos;s what stops the
-              last admin locking everyone out.
+              Approvals, roles, PIN resets, families, delivery health and the audit
+              log are all in the admin panel.
             </p>
-
-            {accounts.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No other accounts yet.</p>
-            ) : (
-              <ul className="divide-y divide-border rounded-md border">
-                {accounts.map((u) => (
-                  <li key={u.id} className="px-3 py-2.5 text-sm">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <div className="min-w-0">
-                        <p className="truncate font-medium">
-                          {u.name}
-                          {u.self && (
-                            <span className="ml-2 text-xs font-normal text-primary">
-                              you
-                            </span>
-                          )}
-                          {u.role === "admin" && (
-                            <span className="ml-2 rounded bg-muted px-1.5 py-0.5 text-[10px] font-semibold uppercase text-muted-foreground">
-                              admin
-                            </span>
-                          )}
-                        </p>
-                        <p className="truncate text-xs text-muted-foreground">
-                          {u.email} · joined{" "}
-                          {formatDateTime(u.createdAt, false, timeZone)}
-                        </p>
-                        <p className="text-xs">
-                          <span
-                            className={
-                              u.status === "active"
-                                ? "text-green-600 dark:text-green-400"
-                                : u.status === "pending"
-                                  ? "text-amber-600 dark:text-amber-400"
-                                  : "text-red-600 dark:text-red-400"
-                            }
-                          >
-                            {u.status}
-                          </span>
-                        </p>
-                      </div>
-
-                      {!u.self && (
-                        <div className="flex shrink-0 flex-wrap items-center gap-1">
-                          {u.status !== "active" && (
-                            <Button
-                              size="sm"
-                              onClick={() => actOnAccount(u, "approve")}
-                              disabled={busy !== null}
-                            >
-                              {busy === `acct-${u.id}` ? (
-                                <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
-                              ) : (
-                                <Check className="mr-1 h-3.5 w-3.5" />
-                              )}
-                              Approve
-                            </Button>
-                          )}
-                          {u.status !== "rejected" && (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => actOnAccount(u, "reject")}
-                              disabled={busy !== null}
-                            >
-                              <X className="mr-1 h-3.5 w-3.5" />
-                              Reject
-                            </Button>
-                          )}
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() =>
-                              api.users
-                                .setRole(u.id, u.role === "admin" ? "member" : "admin")
-                                .then(refreshAccounts)
-                                .then(() => flash(`${u.name}'s role updated.`))
-                                .catch((e) => setError((e as Error).message))
-                            }
-                            disabled={busy !== null}
-                          >
-                            {u.role === "admin" ? "Make member" : "Make admin"}
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            title="Delete account"
-                            className="text-destructive hover:bg-destructive/10"
-                            onClick={() => actOnAccount(u, "remove")}
-                            disabled={busy !== null}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      )}
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
+            <Link href="/admin">
+              <Button variant="outline">Open admin panel</Button>
+            </Link>
           </CardContent>
         </Card>
       )}

@@ -32,7 +32,16 @@ export async function POST(req: NextRequest) {
     const passkey = await prisma.passkey.findUnique({
       where: { id: body.id },
       include: {
-        user: { select: { id: true, name: true, email: true, role: true, status: true } },
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            role: true,
+            status: true,
+            accountType: true,
+          },
+        },
       },
     });
     if (!passkey) {

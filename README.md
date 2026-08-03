@@ -18,11 +18,52 @@ A **single Next.js 15 app** (this repo) containing both the UI and the API:
 
 One origin → one server, one deploy, no CORS.
 
-## Accounts: many people, private reminders
+## Two kinds of account
 
-Everyone gets their own account, and **everything you create is yours alone** —
-your reminders, categories, notifications and devices are scoped to your user id
-and nobody else can see them, admins included.
+Chosen at signup, switchable later either way:
+
+- **Single person** — your reminders, private to you. Nothing else to think about.
+- **Family** — the same private list, *plus* membership of one or more families,
+  each with a **shared reminder list** every member can see.
+
+A family is a group of separate accounts, not a shared login. Everyone keeps their
+own email, PIN, devices and preferences.
+
+### Families
+
+The person who creates a family is its **head**. They get a short **join code** to
+hand out; entering it raises a request the head approves — knowing the code alone
+never puts anyone on a shared list.
+
+Reminders live in one of two places, chosen when you create them: **Mine**
+(private) or a family's shared list. Each family reminder can be **assigned** to a
+member, and picks who gets alerted:
+
+| Notify | Who hears about it |
+| --- | --- |
+| Only me | The creator |
+| The assigned member | The assignee, falling back to the creator |
+| Everyone in the family | Every member |
+
+Any member can **complete or snooze** something on the shared list — that's what
+makes it shared. Editing, reassigning and changing the audience stay with the
+creator and the head, because those change the thing for everyone.
+
+The head can rename the family, rotate the join code, approve or remove members,
+hand over headship, and dissolve it. **Dissolving is refused while any reminder is
+still on the shared list** — clear them first, so it can never destroy work as a
+side effect. A head must hand over before leaving, so a family is never left with
+nobody able to administer it.
+
+## Accounts: approval and privacy
+
+Everyone gets their own account, and your personal reminders are **not visible to
+other users**.
+
+An **administrator of the install can view any account's reminders** for support,
+and every such view is written to the audit log. That's a deliberate trade of
+privacy for debuggability — worth knowing, since the app says so in Settings rather
+than promising something it doesn't deliver.
 
 - **Signing up** is self-service: name, email, and a 4–6 digit PIN.
 - **An admin must approve** a new account before it can sign in. Until then it sits
@@ -30,9 +71,19 @@ and nobody else can see them, admins included.
 - The **first account on a fresh install** is auto-approved and becomes the admin —
   otherwise there would be nobody to approve anyone. So register right after your
   first deploy.
-- Admins manage accounts under **Settings → Accounts**: approve, reject, promote to
-  admin, or delete. An admin can't act on their own row, which is what stops the
-  last admin locking everybody out.
+- Admins work in the **`/admin` panel**, not Settings:
+  - **Accounts** — the approval queue, search, roles, PIN resets for people locked
+    out, and a reminder viewer.
+  - **Families** — every household on the install; rename, appoint a head, remove
+    members, dissolve.
+  - **Health** — whether SMTP, VAPID and `CRON_SECRET` are actually set, the last
+    few dispatch runs with counts, and devices failing to receive. A broken
+    dispatcher and an idle one both send nothing; the run history is what tells
+    them apart.
+  - **Audit log** — approvals, role changes, deletions, family membership changes,
+    and every admin read of someone else's reminders.
+- An admin can't act on their own row, which is what stops the last admin locking
+  everybody out — and is why no "is this the last admin?" counting exists anywhere.
 
 ## Login
 
@@ -124,9 +175,12 @@ dev-only `?now=` override, so it takes seconds rather than real minutes:
 node --env-file=.env scripts/smoke-dispatch.mjs
 ```
 
-Per-account isolation — that one user can't read, edit, delete or snooze another's
-reminders, can't borrow their categories, can't reach the admin API, and that
-ownership can't be set from the request body:
+Isolation — that one user can't read, edit, delete or snooze another's reminders,
+can't borrow their categories, can't reach the admin API, and that ownership can't
+be set from the request body. Also **cross-family**: that two families can't see
+each other, that a family member can't see another member's *personal* list, that a
+plain member can't administer the family, and that a removed member loses access
+immediately:
 
 ```bash
 node --env-file=.env scripts/smoke-security.mjs

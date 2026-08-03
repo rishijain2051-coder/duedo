@@ -15,10 +15,13 @@
 import { PrismaClient } from "@prisma/client";
 import { Pool } from "pg";
 import { PrismaPg } from "@prisma/adapter-pg";
+import { assertScratchDatabase } from "./smoke-guard.mjs";
 
 const BASE = process.env.BASE_URL || "http://localhost:3000";
 const SECRET = process.env.CRON_SECRET;
 const EMAIL = "smoke-engine@example.invalid";
+const EMAIL2 = "smoke-engine2@example.invalid";
+const FAMILY = "Smoke Engine Family";
 const TZ = "Asia/Kolkata";
 
 if (!SECRET) {
@@ -62,8 +65,11 @@ async function tick(at) {
 }
 
 async function cleanup() {
-  await prisma.user.deleteMany({ where: { email: EMAIL } });
+  await prisma.family.deleteMany({ where: { name: FAMILY } });
+  await prisma.user.deleteMany({ where: { email: { in: [EMAIL, EMAIL2] } } });
 }
+
+await assertScratchDatabase(prisma);
 
 try {
   const subscribed = await prisma.pushSubscription.count({ where: { blockedAt: null } });
@@ -261,6 +267,121 @@ try {
   check("nothing emailed", optedOut.emailsSent, 0);
   check("push skips are counted", optedOut.pushesSkippedOptOut > 0, true);
   check("email skips are counted", optedOut.emailsSkippedOptOut > 0, true);
+
+  // ------------------------------------------------------------------ families
+  // A family reminder reaches several people, so dedupe has to be per recipient.
+  // Before ReminderDispatch carried userId, the first recipient's row silently
+  // suppressed everybody else's alert for the same fire.
+  console.log("\n9. A family reminder fans out to every member, once each");
+  const second = await prisma.user.create({
+    data: {
+      name: "Smoke Second",
+      email: EMAIL2,
+      status: "active",
+      role: "member",
+      accountType: "family",
+      timezone: TZ,
+      emailOptIn: false,
+      pushOptIn: false,
+    },
+  });
+  const family = await prisma.family.create({
+    data: {
+      name: FAMILY,
+      joinCode: `SMOKE${Date.now() % 1000}`,
+      members: {
+        create: [
+          { userId: user.id, role: "head" },
+          { userId: second.id, role: "member" },
+        ],
+      },
+      categories: { create: [{ name: "Shared", color: "#3b82f6" }] },
+    },
+    include: { categories: true },
+  });
+  const familyCategory = family.categories[0];
+
+  const dispatchesFor = (id) =>
+    prisma.reminderDispatch.findMany({
+      where: { reminderId: id },
+      select: { userId: true, kind: true },
+    });
+
+  const toAll = await prisma.reminder.create({
+    data: {
+      userId: user.id,
+      familyId: family.id,
+      audience: "family",
+      title: "Everyone",
+      categoryId: familyCategory.id,
+      dueAt: new Date(DUE + 600 * MIN),
+      leadOffsets: [],
+      createdAt: CREATED,
+    },
+  });
+  await tick(DUE + 601 * MIN);
+  let rows = await dispatchesFor(toAll.id);
+  check("one dispatch row per member", rows.length, 2);
+  check("both members are distinct", new Set(rows.map((r) => r.userId)).size, 2);
+  check("each member got a feed entry", await notifs(toAll.id), 2);
+
+  await tick(DUE + 602 * MIN);
+  check("a repeat tick adds nothing", (await dispatchesFor(toAll.id)).length, 2);
+
+  console.log("\n10. audience=assignee reaches only the assignee");
+  const toAssignee = await prisma.reminder.create({
+    data: {
+      userId: user.id,
+      familyId: family.id,
+      audience: "assignee",
+      assignedToId: second.id,
+      title: "Assigned",
+      categoryId: familyCategory.id,
+      dueAt: new Date(DUE + 700 * MIN),
+      leadOffsets: [],
+      createdAt: CREATED,
+    },
+  });
+  await tick(DUE + 701 * MIN);
+  rows = await dispatchesFor(toAssignee.id);
+  check("exactly one recipient", rows.length, 1);
+  check("and it is the assignee", rows[0]?.userId, second.id);
+
+  console.log("\n11. audience=owner keeps a family reminder to its creator");
+  const toOwner = await prisma.reminder.create({
+    data: {
+      userId: user.id,
+      familyId: family.id,
+      audience: "owner",
+      title: "Mine only",
+      categoryId: familyCategory.id,
+      dueAt: new Date(DUE + 800 * MIN),
+      leadOffsets: [],
+      createdAt: CREATED,
+    },
+  });
+  await tick(DUE + 801 * MIN);
+  rows = await dispatchesFor(toOwner.id);
+  check("exactly one recipient", rows.length, 1);
+  check("and it is the creator", rows[0]?.userId, user.id);
+
+  console.log("\n12. An unassigned assignee reminder falls back to the creator");
+  const unassigned = await prisma.reminder.create({
+    data: {
+      userId: user.id,
+      familyId: family.id,
+      audience: "assignee",
+      title: "Nobody assigned",
+      categoryId: familyCategory.id,
+      dueAt: new Date(DUE + 900 * MIN),
+      leadOffsets: [],
+      createdAt: CREATED,
+    },
+  });
+  await tick(DUE + 901 * MIN);
+  rows = await dispatchesFor(unassigned.id);
+  check("still reaches someone", rows.length, 1);
+  check("namely the creator", rows[0]?.userId, user.id);
 } finally {
   await cleanup();
   await prisma.$disconnect();

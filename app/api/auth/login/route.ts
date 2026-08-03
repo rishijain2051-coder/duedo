@@ -64,6 +64,7 @@ export async function POST(req: NextRequest) {
       email: user.email,
       role: user.role,
       status: user.status,
+      accountType: user.accountType,
     });
     res.cookies.set(SESSION_COOKIE, token, sessionCookieOptions);
     return res;

@@ -10,6 +10,7 @@
 import { PrismaClient } from "@prisma/client";
 import { Pool } from "pg";
 import { PrismaPg } from "@prisma/adapter-pg";
+import { assertScratchDatabase } from "./smoke-guard.mjs";
 
 const BASE = process.env.BASE_URL || "http://localhost:3000";
 
@@ -23,6 +24,7 @@ const prisma = new PrismaClient({ adapter: new PrismaPg(pool) });
 
 const ALICE = "smoke-alice@example.invalid";
 const BOB = "smoke-bob@example.invalid";
+const CAROL = "smoke-carol@example.invalid";
 
 let passed = 0;
 const failures = [];
@@ -67,8 +69,14 @@ function session() {
 }
 
 async function cleanup() {
-  await prisma.user.deleteMany({ where: { email: { in: [ALICE, BOB] } } });
+  // Families cascade from their members' rows only if empty, so drop them by name.
+  await prisma.family.deleteMany({
+    where: { name: { in: ["Smoke One", "Smoke Two"] } },
+  });
+  await prisma.user.deleteMany({ where: { email: { in: [ALICE, BOB, CAROL] } } });
 }
+
+await assertScratchDatabase(prisma);
 
 try {
   await cleanup(); // in case a previous run died half-way
@@ -260,7 +268,172 @@ try {
     200,
   );
 
-  console.log("\n8. Rejecting an account kills its live sessions");
+  // ---------------------------------------------------------------- families
+  // The riskiest surface added by account types: visibility is no longer a single
+  // userId equality, so a lost condition leaks a whole household.
+  console.log("\n8. Two families cannot see each other");
+  const carol = session();
+  await carol("POST", "/api/auth/register", {
+    name: "Smoke Carol",
+    email: CAROL,
+    pin: "3333",
+  });
+  await prisma.user.updateMany({
+    where: { email: CAROL },
+    data: { status: "active", role: "member", approvedAt: new Date() },
+  });
+  await carol("POST", "/api/auth/login", { email: CAROL, pin: "3333" });
+
+  const f1 = (await alice("POST", "/api/families", { name: "Smoke One" })).data;
+  const f2 = (await bob("POST", "/api/families", { name: "Smoke Two" })).data;
+  check("Alice created a family", Boolean(f1?.id), true);
+  check("Bob created his own", Boolean(f2?.id), true);
+  check("the join codes differ", f1.joinCode === f2.joinCode, false);
+
+  // A family reminder on Alice's shared list.
+  const f1Cat = (await alice("GET", `/api/categories?scope=${f1.id}`)).data?.[0];
+  const shared = (
+    await alice("POST", "/api/reminders", {
+      title: "Family One bill",
+      categoryId: f1Cat.id,
+      dueAt: "2026-12-05",
+      familyId: f1.id,
+      audience: "family",
+    })
+  ).data;
+  check("it landed on the family list", shared?.familyId, f1.id);
+
+  check(
+    "Bob's list doesn't include it",
+    ((await bob("GET", "/api/reminders")).data ?? []).some((r) => r.id === shared.id),
+    false,
+  );
+  check("Bob cannot read it", (await bob("GET", `/api/reminders/${shared.id}`)).status, 404);
+  check(
+    "Bob cannot complete it",
+    (await bob("POST", `/api/reminders/${shared.id}/complete`, {})).status,
+    404,
+  );
+  check(
+    "Bob cannot scope-query another family",
+    ((await bob("GET", `/api/reminders?scope=${f1.id}`)).data ?? []).length,
+    0,
+  );
+  check(
+    "Bob cannot read its categories",
+    (await bob("GET", `/api/categories?scope=${f1.id}`)).status,
+    404,
+  );
+  check(
+    "Bob cannot file a reminder into it",
+    (await bob("POST", "/api/reminders", {
+      title: "intruder",
+      categoryId: f1Cat.id,
+      dueAt: "2026-12-06",
+      familyId: f1.id,
+    })).status,
+    404,
+  );
+  check(
+    "Bob cannot administer it",
+    (await bob("PATCH", `/api/families/${f1.id}`, { name: "hijacked" })).status,
+    404,
+  );
+  check(
+    "Bob cannot see its join requests",
+    (await bob("GET", `/api/families/${f1.id}/requests`)).status,
+    404,
+  );
+  check(
+    "Bob cannot dissolve it",
+    (await bob("DELETE", `/api/families/${f1.id}`)).status,
+    404,
+  );
+
+  console.log("\n9. A member is not a head");
+  const joined = await carol("POST", "/api/families/join", { joinCode: f1.joinCode });
+  check("Carol's request is pending", joined.data?.status, "pending");
+  check(
+    "pending means no access yet",
+    ((await carol("GET", `/api/reminders?scope=${f1.id}`)).data ?? []).length,
+    0,
+  );
+
+  const reqs = (await alice("GET", `/api/families/${f1.id}/requests`)).data ?? [];
+  check("Alice sees the request", reqs.length, 1);
+  await alice("PATCH", `/api/families/${f1.id}/requests`, {
+    requestId: reqs[0].id,
+    approve: true,
+  });
+
+  check(
+    "Carol now sees the shared reminder",
+    ((await carol("GET", `/api/reminders?scope=${f1.id}`)).data ?? []).some(
+      (r) => r.id === shared.id,
+    ),
+    true,
+  );
+  check(
+    "but not Alice's personal list",
+    ((await carol("GET", "/api/reminders?scope=mine")).data ?? []).length,
+    0,
+  );
+  check(
+    "Carol cannot rotate the join code",
+    (await carol("PATCH", `/api/families/${f1.id}`, { rotateCode: true })).status,
+    403,
+  );
+  check(
+    "Carol cannot approve requests",
+    (await carol("PATCH", `/api/families/${f1.id}/requests`, {
+      requestId: reqs[0].id,
+      approve: true,
+    })).status,
+    403,
+  );
+  check(
+    "Carol cannot remove Alice",
+    (await carol("DELETE", `/api/families/${f1.id}/members?userId=${aliceId}`)).status,
+    403,
+  );
+  check(
+    "Carol cannot dissolve the family",
+    (await carol("DELETE", `/api/families/${f1.id}`)).status,
+    403,
+  );
+  check(
+    "Carol may complete a family reminder",
+    (await carol("POST", `/api/reminders/${shared.id}/snooze`, { minutes: 60 })).status,
+    200,
+  );
+  check(
+    "Carol cannot assign it to an outsider",
+    (await carol("PATCH", `/api/reminders/${shared.id}`, { assignedToId: bobId })).status,
+    403,
+  );
+
+  console.log("\n10. Dissolving is refused while reminders remain");
+  check(
+    "Alice cannot dissolve it yet",
+    (await alice("DELETE", `/api/families/${f1.id}`)).status,
+    409,
+  );
+
+  console.log("\n11. A removed member loses access immediately");
+  const carolId = (await prisma.user.findUnique({ where: { email: CAROL } })).id;
+  await alice("DELETE", `/api/families/${f1.id}/members?userId=${carolId}`);
+  check(
+    "Carol can no longer read it",
+    (await carol("GET", `/api/reminders/${shared.id}`)).status,
+    404,
+  );
+  check(
+    "and it stayed on the family list",
+    (await prisma.reminder.findUnique({ where: { id: shared.id } }))?.familyId,
+    f1.id,
+  );
+
+  console.log("\n12. Rejecting an account kills its live sessions");
   await prisma.user.update({ where: { id: bobId }, data: { status: "rejected" } });
   check("Bob's session is dropped", (await bob("GET", "/api/reminders")).status, 401);
 

@@ -43,14 +43,19 @@ export type ReminderAction = "edit" | "complete";
 /**
  * Checks the caller may perform `action` on a reminder, and returns it.
  *
- * | action   | personal | family                              |
- * | -------- | -------- | ----------------------------------- |
- * | edit     | creator  | creator or head                     |
- * | complete | creator  | creator, assignee, or head          |
+ * | action   | personal | family                    |
+ * | -------- | -------- | ------------------------- |
+ * | edit     | creator  | creator or head           |
+ * | complete | creator  | **any member**            |
  *
- * "complete" covers snoozing too: both are acts of dealing with the thing, which
- * is precisely what an assignee is for. Editing — retitling, moving the date,
- * reassigning — stays with the creator and the head.
+ * "complete" covers snoozing too, and any member of the family may do it — that
+ * is what makes a shared list shared. Restricting it to the creator, assignee and
+ * head would mean whoever actually paid the electricity bill often couldn't tick
+ * it off, which is the exact case the family list exists for.
+ *
+ * Editing — retitling, moving the date, reassigning, changing who gets notified —
+ * stays with the creator and the head, because those change the thing for everyone
+ * rather than just resolving it.
  */
 export async function assertReminderAction(
   id: string,
@@ -65,16 +70,13 @@ export async function assertReminderAction(
   // would have 404'd — so anything left here is a family reminder.
   if (!reminder.familyId) throw new HttpError(404, "Reminder not found");
 
-  if (action === "complete" && reminder.assignedToId === userId) return reminder;
-
   const membership = await membershipIn(userId, reminder.familyId);
+  if (action === "complete" && membership) return reminder;
   if (membership?.role === "head") return reminder;
 
   throw new HttpError(
     403,
-    action === "edit"
-      ? "Only the person who created this reminder, or the family head, can change it."
-      : "Only the assigned member, the creator, or the family head can do that.",
+    "Only the person who created this reminder, or the family head, can change it.",
   );
 }
 

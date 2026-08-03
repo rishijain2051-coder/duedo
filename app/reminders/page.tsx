@@ -27,9 +27,11 @@ import {
 } from "@/lib/format";
 import { LEAD_OFFSET_OPTIONS } from "@/lib/time";
 import {
+  AUDIENCE_OPTIONS,
   PRIORITY_OPTIONS,
   RECURRENCE_OPTIONS,
   SNOOZE_OPTIONS,
+  type Audience,
   type Category,
   type Reminder,
 } from "@/types";
@@ -46,6 +48,10 @@ const emptyForm = {
   priority: "normal",
   description: "",
   leadOffsets: [] as number[],
+  /** null = the personal list. */
+  familyId: null as string | null,
+  assignedToId: "",
+  audience: "owner" as Audience,
 };
 
 /** Stable identities, so empty results don't invalidate hook deps every render. */
@@ -60,18 +66,24 @@ function isSnoozed(r: Reminder): boolean {
 }
 
 export default function RemindersPage() {
-  const { timeZone, syncBadge } = useApp();
-  // Cached so the list is on screen immediately on a repeat visit; the fresh
-  // copy swaps in behind it.
+  const { timeZone, syncBadge, families, isFamilyAccount } = useApp();
+
+  /** Which list is on screen: "mine", or a family id. */
+  const [scope, setScope] = useState<string>("mine");
+  const activeFamily = families.find((f) => f.id === scope) ?? null;
+
+  // Cached per scope so switching tabs doesn't re-spinner, and a repeat visit
+  // paints before the request lands. Categories come scoped too, so a family
+  // reminder can only be filed under that family's own categories.
   const {
     data,
     loading,
     error: loadError,
     refresh: load,
-  } = useCached("reminders-page", async () => {
+  } = useCached(`reminders-${scope}`, async () => {
     const [rem, cats] = await Promise.all([
-      api.reminders.list(),
-      api.categories.list(),
+      api.reminders.list(scope),
+      api.categories.list(scope),
     ]);
     return { rem, cats };
   });
@@ -98,9 +110,13 @@ export default function RemindersPage() {
       ...emptyForm,
       categoryId: categories[0]?.id ?? "",
       leadOffsets: DEFAULT_LEADS,
+      // New reminders land on whichever list you're looking at, and a family one
+      // defaults to telling the whole family — the common case for a shared bill.
+      familyId: scope === "mine" ? null : scope,
+      audience: scope === "mine" ? "owner" : "family",
     });
     setFormOpen(true);
-  }, [categories]);
+  }, [categories, scope]);
 
   // Home Screen shortcut: /reminders?new=1 opens the form directly. Read straight
   // off the URL rather than via useSearchParams, which would force this whole page
@@ -129,6 +145,9 @@ export default function RemindersPage() {
       priority: r.priority ?? "normal",
       description: r.description ?? "",
       leadOffsets: r.leadOffsets ?? [],
+      familyId: r.familyId ?? null,
+      assignedToId: r.assignedToId ?? "",
+      audience: r.audience ?? "owner",
     });
     setFormOpen(true);
   }
@@ -161,6 +180,11 @@ export default function RemindersPage() {
         priority: form.priority,
         description: form.description || null,
         leadOffsets: form.leadOffsets,
+        familyId: form.familyId,
+        // Both are meaningless on a personal reminder; the server normalises them
+        // away too, but sending null keeps the intent obvious in the request.
+        assignedToId: form.familyId ? form.assignedToId || null : null,
+        audience: form.familyId ? form.audience : "owner",
       };
       if (editingId) await api.reminders.update(editingId, payload);
       else await api.reminders.create(payload);
@@ -331,6 +355,33 @@ export default function RemindersPage() {
         </div>
       )}
 
+      {/* Which list. Solo accounts never see this — there is only one. */}
+      {isFamilyAccount && families.length > 0 && (
+        <div className="flex gap-2 overflow-x-auto pb-1">
+          {[{ id: "mine", label: "Mine" }, ...families.map((f) => ({ id: f.id, label: f.name }))].map(
+            (tab) => (
+              <button
+                key={tab.id}
+                onClick={() => setScope(tab.id)}
+                className={`flex shrink-0 items-center rounded-md border px-4 text-sm font-medium transition-colors min-h-11 md:min-h-0 md:py-1.5 ${
+                  scope === tab.id
+                    ? "border-primary bg-primary/10 text-primary"
+                    : "border-border text-muted-foreground hover:bg-accent"
+                }`}
+              >
+                {tab.label}
+              </button>
+            ),
+          )}
+        </div>
+      )}
+
+      {scope !== "mine" && activeFamily && (
+        <p className="text-xs text-muted-foreground">
+          Everyone in {activeFamily.name} can see this list.
+        </p>
+      )}
+
       <div className="flex gap-2 overflow-x-auto pb-1">
         {STATUS_FILTERS.map((f) => (
           <button
@@ -386,6 +437,11 @@ export default function RemindersPage() {
                           {formatDateTime(r.dueAt, r.hasTime, timeZone)}
                         </span>
                         {r.amount ? <span>{formatCurrency(r.amount)}</span> : null}
+                        {r.familyId && (
+                          <span>
+                            {r.assignedTo ? `for ${r.assignedTo.name}` : "unassigned"}
+                          </span>
+                        )}
                       </div>
                     </div>
                     <span
@@ -439,6 +495,12 @@ export default function RemindersPage() {
                         {r.title}
                         {isSnoozed(r) && (
                           <span className="ml-2 text-xs text-amber-500">snoozed</span>
+                        )}
+                        {r.familyId && (
+                          <span className="block text-xs font-normal text-muted-foreground">
+                            {r.assignedTo ? `for ${r.assignedTo.name}` : "unassigned"}
+                            {r.audience === "family" && " · notifies everyone"}
+                          </span>
                         )}
                       </td>
                       <td className="px-4 py-3">
@@ -551,6 +613,56 @@ export default function RemindersPage() {
               tick as many as you want.
             </p>
           </div>
+
+          {/* Family-only controls. Hidden entirely on a personal reminder, where
+              there is nobody to assign to and nobody else to notify. */}
+          {form.familyId && (
+            <div className="space-y-4 rounded-md border border-border p-3">
+              <p className="text-sm font-medium">
+                Shared with {families.find((f) => f.id === form.familyId)?.name}
+              </p>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Field label="Assign to">
+                  <Select
+                    value={form.assignedToId}
+                    onChange={(e) =>
+                      setForm({ ...form, assignedToId: e.target.value })
+                    }
+                  >
+                    <option value="">Nobody in particular</option>
+                    {(families.find((f) => f.id === form.familyId)?.members ?? []).map(
+                      (m) => (
+                        <option key={m.id} value={m.id}>
+                          {m.name}
+                          {m.self ? " (you)" : ""}
+                        </option>
+                      ),
+                    )}
+                  </Select>
+                </Field>
+                <Field label="Notify">
+                  <Select
+                    value={form.audience}
+                    onChange={(e) =>
+                      setForm({ ...form, audience: e.target.value as Audience })
+                    }
+                  >
+                    {AUDIENCE_OPTIONS.map((o) => (
+                      <option key={o.id} value={o.id}>
+                        {o.label}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {AUDIENCE_OPTIONS.find((o) => o.id === form.audience)?.hint}
+                {form.audience === "assignee" &&
+                  !form.assignedToId &&
+                  " Nobody is assigned, so this will come to you."}
+              </p>
+            </div>
+          )}
 
           <div className="grid sm:grid-cols-2 gap-4">
             <Field label="Recurrence">

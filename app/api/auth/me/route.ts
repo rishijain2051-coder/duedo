@@ -16,5 +16,8 @@ export async function GET() {
     email: user.email,
     role: user.role,
     status: user.status,
+    // Load-bearing: the app shell decides whether to fetch families from this,
+    // so omitting it left family accounts with an empty family list.
+    accountType: user.accountType,
   });
 }
