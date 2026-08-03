@@ -2,9 +2,11 @@
 
 import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
-import { MemberProvider } from "@/components/member-context";
+import { AppProvider } from "@/components/app-context";
 import { Sidebar, MobileNav } from "@/components/sidebar";
 import { Header } from "@/components/header";
+import { PushPrompt } from "@/components/push-prompt";
+import { UpdateBanner } from "@/components/update-banner";
 
 export function AppFrame({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -14,21 +16,26 @@ export function AppFrame({ children }: { children: React.ReactNode }) {
     setMobileNavOpen(false);
   }, [pathname]);
 
+  // The login page renders bare — it has no session yet, so it must not mount
+  // AppProvider (which would bounce it straight back to /login).
   if (pathname === "/login") {
     return <>{children}</>;
   }
 
   return (
-    <MemberProvider>
+    <AppProvider>
       <Sidebar />
-      <MobileNav
-        open={mobileNavOpen}
-        onClose={() => setMobileNavOpen(false)}
-      />
+      <MobileNav open={mobileNavOpen} onClose={() => setMobileNavOpen(false)} />
       <main className="flex-1 flex flex-col h-screen overflow-hidden">
         <Header onMenuToggle={() => setMobileNavOpen((o) => !o)} />
-        <div className="flex-1 overflow-y-auto">{children}</div>
+        <div className="flex-1 overflow-y-auto pb-[env(safe-area-inset-bottom)]">
+          {/* Above the page content on every screen — notifications are the point
+              of the app, so setting them up shouldn't require finding Settings. */}
+          <UpdateBanner />
+          <PushPrompt />
+          {children}
+        </div>
       </main>
-    </MemberProvider>
+    </AppProvider>
   );
 }

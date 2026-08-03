@@ -1,80 +1,100 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db";
-import { HttpError, json } from "@/lib/http";
-import { hashPin, isValidPin } from "@/lib/pin";
+import { HttpError, jsonAdmin } from "@/lib/http";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const publicSelect = {
+const SELECT = {
   id: true,
   name: true,
   email: true,
   phone: true,
   role: true,
-  emailOptIn: true,
-  notifyDaysBefore: true,
+  status: true,
+  approvedAt: true,
   createdAt: true,
-};
+} as const;
 
-export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
-  return json(async () => {
-    const { id } = await ctx.params;
-    const member = await prisma.user.findUnique({ where: { id }, select: publicSelect });
-    if (!member) throw new HttpError(404, "Member not found");
-    return member;
-  });
-}
-
+/**
+ * ADMIN ONLY — approve, reject, or change the role of another account.
+ *
+ * An admin may never act on their own row here. That single rule is what keeps
+ * the install from being stranded: since the acting admin is by definition an
+ * active admin and can't demote, reject or delete themselves, there is always at
+ * least one active admin left afterwards. No "is this the last admin?" counting
+ * required.
+ */
 export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
-  return json(async () => {
+  return jsonAdmin(async (admin) => {
     const { id } = await ctx.params;
-    const body = await req.json();
-    const member = await prisma.user.findUnique({ where: { id } });
-    if (!member) throw new HttpError(404, "Member not found");
-
-    if (body.email && body.email !== member.email) {
-      const clash = await prisma.user.findUnique({ where: { email: body.email } });
-      if (clash) throw new HttpError(409, "That email is already in use");
-    }
-
-    let password_hash: string | undefined;
-    if (body.pin) {
-      if (!isValidPin(body.pin)) throw new HttpError(400, "PIN must be 4–6 digits");
-      password_hash = await hashPin(body.pin);
-    }
-
-    return prisma.user.update({
-      where: { id },
-      data: {
-        name: body.name ?? undefined,
-        email: body.email ?? undefined,
-        phone: body.phone ?? undefined,
-        role: body.role ?? undefined,
-        emailOptIn: body.emailOptIn ?? undefined,
-        notifyDaysBefore: body.notifyDaysBefore ?? undefined,
-        password_hash,
-      },
-      select: publicSelect,
-    });
-  });
-}
-
-export async function DELETE(_req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
-  return json(async () => {
-    const { id } = await ctx.params;
-    const member = await prisma.user.findUnique({
-      where: { id },
-      include: { _count: { select: { reminders: true } } },
-    });
-    if (!member) throw new HttpError(404, "Member not found");
-    if (member._count.reminders > 0) {
+    if (id === admin.id) {
       throw new HttpError(
-        409,
-        "This member still has reminders assigned. Reassign or delete them first.",
+        400,
+        "You can't change your own account here — use Settings for your profile.",
       );
     }
-    await prisma.notification.deleteMany({ where: { userId: id } });
+
+    const target = await prisma.user.findUnique({ where: { id }, select: SELECT });
+    if (!target) throw new HttpError(404, "Account not found");
+
+    const body = await req.json().catch(() => ({}));
+    const data: Record<string, unknown> = {};
+
+    if (body.status !== undefined) {
+      const status = String(body.status);
+      if (!["active", "pending", "rejected"].includes(status)) {
+        throw new HttpError(400, "Status must be active, pending or rejected.");
+      }
+      data.status = status;
+      // Stamped on the first approval and left alone afterwards, so it records
+      // when access was granted rather than when it was last touched.
+      if (status === "active" && !target.approvedAt) data.approvedAt = new Date();
+    }
+
+    if (body.role !== undefined) {
+      const role = String(body.role);
+      if (!["admin", "member"].includes(role)) {
+        throw new HttpError(400, "Role must be admin or member.");
+      }
+      data.role = role;
+    }
+
+    if (Object.keys(data).length === 0) {
+      throw new HttpError(400, "Nothing to update.");
+    }
+
+    const updated = await prisma.user.update({ where: { id }, data, select: SELECT });
+
+    // resolveSession() would drop their logins on the next request anyway, but
+    // doing it here makes revocation immediate rather than eventual.
+    if (data.status && data.status !== "active") {
+      await prisma.session.deleteMany({ where: { userId: id } });
+    }
+
+    return updated;
+  });
+}
+
+/**
+ * ADMIN ONLY — delete an account outright.
+ *
+ * Everything the account owns cascades: reminders, categories, history,
+ * notifications, sessions, passkeys and push devices. There is no soft-delete, so
+ * rejecting is the reversible option and this one is not.
+ */
+export async function DELETE(_req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  return jsonAdmin(async (admin) => {
+    const { id } = await ctx.params;
+    if (id === admin.id) {
+      throw new HttpError(400, "You can't delete your own account.");
+    }
+    const target = await prisma.user.findUnique({
+      where: { id },
+      select: { id: true },
+    });
+    if (!target) throw new HttpError(404, "Account not found");
+
     await prisma.user.delete({ where: { id } });
     return { deleted: true };
   });

@@ -1,15 +1,19 @@
-// Session tokens signed with the built-in Web Crypto API (HMAC-SHA256).
+// Cookie token primitives, signed with the built-in Web Crypto API (HMAC-SHA256).
 // Uses only Web-standard globals (crypto.subtle, TextEncoder, btoa/atob), so it
-// runs identically in the Edge middleware and Node route handlers — no external
-// deps, and no "unsupported module" warnings on Vercel Edge.
+// has no external deps and runs anywhere.
+//
+// Pure crypto and payload shaping only — no database. The session *lifecycle*
+// (creating rows, idle expiry, revocation) lives in lib/auth.ts, which is
+// Node-only. Keeping them apart means this file stays usable anywhere.
+//
+// The token deliberately carries no identity of its own: it names a Session row,
+// and that row is what says which user it belongs to. Putting the user id in the
+// token instead would make the login unrevocable — the whole point of a
+// DB-backed session is that deleting the row ends it immediately.
 
 export const SESSION_COOKIE = "prosys_session";
-const MAX_AGE_SECONDS = 60 * 60 * 24 * 30; // 30 days
-
-export interface SessionPayload {
-  memberId: string;
-  name: string;
-}
+export const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 30; // 30 days
+const SUBJECT = "session";
 
 function secretBytes(): Uint8Array {
   return new TextEncoder().encode(
@@ -54,20 +58,23 @@ function timingSafeEqual(a: Uint8Array, b: Uint8Array): boolean {
   return diff === 0;
 }
 
-export async function createSessionToken(payload: SessionPayload): Promise<string> {
+/** Signs a token naming `sessionId`. */
+export async function signToken(sessionId: string): Promise<string> {
   const body = {
-    memberId: payload.memberId,
-    name: payload.name,
-    exp: Math.floor(Date.now() / 1000) + MAX_AGE_SECONDS,
+    sub: SUBJECT,
+    sid: sessionId,
+    exp: Math.floor(Date.now() / 1000) + SESSION_MAX_AGE_SECONDS,
   };
   const data = toB64Url(new TextEncoder().encode(JSON.stringify(body)));
   const sig = toB64Url(await hmac(data));
   return `${data}.${sig}`;
 }
 
-export async function verifySessionToken(
-  token: string,
-): Promise<SessionPayload | null> {
+/**
+ * Verifies signature and expiry, returning the session id it names.
+ * Says nothing about whether that session still exists — that's lib/auth.ts.
+ */
+export async function readToken(token: string): Promise<string | null> {
   const parts = token.split(".");
   if (parts.length !== 2) return null;
   const [data, sig] = parts;
@@ -76,11 +83,23 @@ export async function verifySessionToken(
     if (!timingSafeEqual(expected, fromB64Url(sig))) return null;
     const body = JSON.parse(new TextDecoder().decode(fromB64Url(data)));
     if (typeof body.exp === "number" && body.exp * 1000 < Date.now()) return null;
-    if (typeof body.memberId === "string" && typeof body.name === "string") {
-      return { memberId: body.memberId, name: body.name };
-    }
-    return null;
+    if (body.sub !== SUBJECT) return null;
+    return typeof body.sid === "string" ? body.sid : null;
   } catch {
     return null;
   }
 }
+
+export const sessionCookieOptions = {
+  httpOnly: true,
+  sameSite: "lax" as const,
+  secure: process.env.NODE_ENV === "production",
+  path: "/",
+  maxAge: SESSION_MAX_AGE_SECONDS,
+};
+
+export const clearedSessionCookieOptions = {
+  httpOnly: true,
+  path: "/",
+  maxAge: 0,
+};

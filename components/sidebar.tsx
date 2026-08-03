@@ -9,24 +9,29 @@ import {
   Folder,
   Settings,
   Bell,
-  Users,
   X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useApp } from "@/components/app-context";
 
+// No "Family" entry any more: reminders are private per account, so there is
+// nothing shared to browse. Account approval lives in Settings, for admins only.
 const NAV = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
   { href: "/reminders", label: "Reminders", icon: ListTodo },
   { href: "/calendar", label: "Calendar", icon: CalendarIcon },
   { href: "/categories", label: "Categories", icon: Folder },
-  { href: "/family", label: "Family", icon: Users },
   { href: "/notifications", label: "Notifications", icon: Bell },
 ];
 
 function NavLinks() {
   const pathname = usePathname();
+  const { settings } = useApp();
   const isActive = (href: string) =>
     href === "/" ? pathname === "/" : pathname.startsWith(href);
+
+  // Admins get a count on Settings so a waiting signup doesn't sit unnoticed.
+  const pending = settings?.pendingApprovals ?? 0;
 
   return (
     <>
@@ -39,12 +44,13 @@ function NavLinks() {
               href={href}
               className={cn(
                 "flex items-center gap-3 px-3 py-2.5 rounded-md font-medium transition-colors",
+                "min-h-12 md:min-h-0",
                 active
                   ? "bg-primary/10 text-primary"
                   : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
               )}
             >
-              <Icon className="h-5 w-5" /> {label}
+              <Icon className="h-5 w-5 shrink-0" /> {label}
             </Link>
           );
         })}
@@ -54,16 +60,37 @@ function NavLinks() {
         <Link
           href="/settings"
           className={cn(
-            "flex items-center gap-3 px-3 py-2.5 rounded-md transition-colors",
+            "flex items-center gap-3 px-3 py-2.5 rounded-md transition-colors min-h-12 md:min-h-0",
             pathname.startsWith("/settings")
               ? "bg-primary/10 text-primary"
               : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
           )}
         >
           <Settings className="h-5 w-5" /> Settings
+          {pending > 0 && (
+            <span className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-destructive px-1.5 text-[10px] font-bold text-white">
+              {pending}
+            </span>
+          )}
         </Link>
       </div>
     </>
+  );
+}
+
+function Wordmark({ small }: { small?: boolean }) {
+  return (
+    <div>
+      <h1
+        className={cn(
+          "font-bold bg-clip-text text-transparent bg-gradient-to-r from-primary to-primary-soft",
+          small ? "text-xl" : "text-2xl",
+        )}
+      >
+        PRO-SYS
+      </h1>
+      <p className="text-xs text-muted-foreground mt-1">Reminders</p>
+    </div>
   );
 }
 
@@ -71,10 +98,7 @@ export function Sidebar() {
   return (
     <aside className="w-64 border-r bg-card/50 glass hidden md:flex flex-col">
       <div className="p-6 border-b border-border/50">
-        <h1 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-primary to-blue-400">
-          PRO-SYS
-        </h1>
-        <p className="text-xs text-muted-foreground mt-1">Family Reminders</p>
+        <Wordmark />
       </div>
       <NavLinks />
     </aside>
@@ -96,19 +120,12 @@ export function MobileNav({
         className="absolute inset-0 bg-black/60 backdrop-blur-sm"
         onClick={onClose}
       />
-      <aside className="absolute left-0 top-0 h-full w-64 bg-card border-r flex flex-col shadow-xl">
+      <aside className="absolute left-0 top-0 h-full w-64 bg-card border-r flex flex-col shadow-xl pt-[env(safe-area-inset-top)]">
         <div className="flex items-center justify-between p-5 border-b border-border/50">
-          <div>
-            <h1 className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-primary to-blue-400">
-              PRO-SYS
-            </h1>
-            <p className="text-xs text-muted-foreground mt-1">
-              Family Reminders
-            </p>
-          </div>
+          <Wordmark small />
           <button
             onClick={onClose}
-            className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+            className="-mr-2 flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
             aria-label="Close menu"
           >
             <X className="h-5 w-5" />

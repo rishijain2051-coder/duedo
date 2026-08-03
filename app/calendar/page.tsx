@@ -1,10 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { useApp } from "@/components/app-context";
+import { useCached } from "@/lib/cache";
 import { api } from "@/services/api";
+import { formatTime, toDateKey } from "@/lib/format";
 import type { Reminder } from "@/types";
 
 const DAYS_SHORT = ["S", "M", "T", "W", "T", "F", "S"];
@@ -14,48 +17,46 @@ const MONTHS = [
   "July", "August", "September", "October", "November", "December",
 ];
 
-const ymd = (d: Date) =>
-  `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+/** Stable identity, so an empty result doesn't invalidate useMemo every render. */
+const NO_REMINDERS: Reminder[] = [];
+
+const pad = (n: number) => String(n).padStart(2, "0");
+/** Matches the "YYYY-MM-DD" shape toDateKey() produces for a stored instant. */
+const cellKey = (year: number, month: number, day: number) =>
+  `${year}-${pad(month + 1)}-${pad(day)}`;
 
 export default function CalendarPage() {
-  const [reminders, setReminders] = useState<Reminder[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { timeZone } = useApp();
+  // Cached: flipping between months shouldn't re-spinner, and a repeat visit
+  // paints the grid before the request lands.
+  const { data, loading } = useCached("reminders", api.reminders.list);
+  const reminders = data ?? NO_REMINDERS;
   const [cursor, setCursor] = useState(() => {
     const now = new Date();
     return new Date(now.getFullYear(), now.getMonth(), 1);
   });
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      setReminders(await api.reminders.list());
-    } catch {
-      /* surfaced elsewhere */
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    load();
-  }, [load]);
-
   const byDay = useMemo(() => {
     const map = new Map<string, Reminder[]>();
     for (const r of reminders) {
-      const key = ymd(new Date(r.dueDate));
+      // Grouped by the calendar day the reminder falls on in the user's own zone,
+      // so a late-evening reminder doesn't jump to the next day via UTC.
+      const key = toDateKey(r.dueAt, timeZone);
       const arr = map.get(key) ?? [];
       arr.push(r);
       map.set(key, arr);
     }
+    for (const arr of map.values()) {
+      arr.sort((a, b) => +new Date(a.dueAt) - +new Date(b.dueAt));
+    }
     return map;
-  }, [reminders]);
+  }, [reminders, timeZone]);
 
   const year = cursor.getFullYear();
   const month = cursor.getMonth();
   const firstWeekday = new Date(year, month, 1).getDay();
   const daysInMonth = new Date(year, month + 1, 0).getDate();
-  const todayKey = ymd(new Date());
+  const todayKey = toDateKey(new Date(), timeZone);
 
   const cells: (number | null)[] = [
     ...Array(firstWeekday).fill(null),
@@ -71,7 +72,7 @@ export default function CalendarPage() {
   return (
     <div className="flex-1 space-y-4 p-4 md:p-8">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <h2 className="text-2xl md:text-3xl font-bold tracking-tight">Calendar</h2>
+        <h2 className="text-xl md:text-3xl font-bold tracking-tight">Calendar</h2>
         <div className="flex items-center gap-2">
           <Button
             variant="outline"
@@ -116,9 +117,8 @@ export default function CalendarPage() {
           ) : (
             <div className="grid grid-cols-7 auto-rows-[70px] sm:auto-rows-[90px] md:auto-rows-[110px] divide-x divide-y divide-border">
               {cells.map((day, i) => {
-                if (day === null)
-                  return <div key={i} className="bg-muted/10" />;
-                const key = `${year}-${month}-${day}`;
+                if (day === null) return <div key={i} className="bg-muted/10" />;
+                const key = cellKey(year, month, day);
                 const items = byDay.get(key) ?? [];
                 const isToday = key === todayKey;
                 return (
@@ -128,9 +128,7 @@ export default function CalendarPage() {
                   >
                     <span
                       className={`inline-flex h-6 w-6 items-center justify-center rounded-full text-sm ${
-                        isToday
-                          ? "bg-primary font-bold text-primary-foreground"
-                          : ""
+                        isToday ? "bg-primary font-bold text-primary-foreground" : ""
                       }`}
                     >
                       {day}
@@ -142,8 +140,13 @@ export default function CalendarPage() {
                           key={r.id}
                           className="truncate rounded px-1.5 py-0.5 text-xs font-medium"
                           style={{ backgroundColor: `${color}22`, color }}
-                          title={r.title}
+                          title={`${r.hasTime ? formatTime(r.dueAt, timeZone) + " — " : ""}${r.title}`}
                         >
+                          {r.hasTime && (
+                            <span className="mr-1 opacity-70">
+                              {formatTime(r.dueAt, timeZone).replace(/\s?[ap]m$/i, "")}
+                            </span>
+                          )}
                           {r.title}
                         </div>
                       );

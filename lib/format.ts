@@ -9,30 +9,87 @@ export function formatCurrency(amount?: number | null): string {
   }).format(amount);
 }
 
-export function formatDate(value: string | Date): string {
+/**
+ * Renders an instant in the signed-in user's zone. `timeZone` comes from their
+ * own preferences; when it is omitted Intl falls back to the browser's zone,
+ * which is usually the same thing but is not guaranteed to be — so pass it.
+ */
+export function formatDate(value: string | Date, timeZone?: string): string {
   const d = typeof value === "string" ? new Date(value) : value;
   return d.toLocaleDateString("en-GB", {
+    timeZone,
     day: "numeric",
     month: "short",
     year: "numeric",
   });
 }
 
-export function toDateInputValue(value?: string | Date | null): string {
+export function formatTime(value: string | Date, timeZone?: string): string {
+  const d = typeof value === "string" ? new Date(value) : value;
+  return d.toLocaleTimeString("en-GB", {
+    timeZone,
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  });
+}
+
+/** "3 Aug 2026, 5:30 pm" — or just the date when the reminder carries no time. */
+export function formatDateTime(
+  value: string | Date,
+  hasTime = true,
+  timeZone?: string,
+): string {
+  const date = formatDate(value, timeZone);
+  return hasTime ? `${date}, ${formatTime(value, timeZone)}` : date;
+}
+
+/** Wall-clock parts of an instant as seen in `timeZone`. */
+function zonedParts(d: Date, timeZone?: string) {
+  const dtf = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    hourCycle: "h23",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  const out: Record<string, string> = {};
+  for (const p of dtf.formatToParts(d)) {
+    if (p.type !== "literal") out[p.type] = p.value;
+  }
+  return out;
+}
+
+/** yyyy-mm-ddThh:mm for <input type="datetime-local">, in the user's zone. */
+export function toDateTimeInputValue(
+  value?: string | Date | null,
+  timeZone?: string,
+): string {
   if (!value) return "";
   const d = typeof value === "string" ? new Date(value) : value;
   if (Number.isNaN(d.getTime())) return "";
-  // yyyy-mm-dd for <input type="date">
-  return d.toISOString().slice(0, 10);
+  const p = zonedParts(d, timeZone);
+  return `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}`;
 }
 
-/** Whole days from today (UTC-ish, local midnight) until the due date. */
-export function daysUntil(due: string | Date): number {
-  const start = new Date();
-  start.setHours(0, 0, 0, 0);
-  const d = typeof due === "string" ? new Date(due) : new Date(due);
-  d.setHours(0, 0, 0, 0);
-  return Math.round((d.getTime() - start.getTime()) / 86_400_000);
+/** yyyy-mm-dd, in the user's zone — used for calendar grouping. */
+export function toDateKey(
+  value?: string | Date | null,
+  timeZone?: string,
+): string {
+  if (!value) return "";
+  const d = typeof value === "string" ? new Date(value) : value;
+  if (Number.isNaN(d.getTime())) return "";
+  const p = zonedParts(d, timeZone);
+  return `${p.year}-${p.month}-${p.day}`;
+}
+
+/** Whole minutes from now until `due` — negative once overdue. */
+export function minutesUntil(due: string | Date): number {
+  const d = typeof due === "string" ? new Date(due) : due;
+  return Math.round((d.getTime() - Date.now()) / 60_000);
 }
 
 export interface ReminderStatus {
@@ -41,24 +98,38 @@ export interface ReminderStatus {
   className: string;
 }
 
+function coarse(mins: number): string {
+  const abs = Math.abs(mins);
+  if (abs < 60) return `${abs}m`;
+  if (abs < 60 * 24) return `${Math.round(abs / 60)}h`;
+  return `${Math.round(abs / (60 * 24))}d`;
+}
+
 export function reminderStatus(r: Reminder): ReminderStatus {
   if (r.status === "completed")
     return { label: "Completed", tone: "done", className: "text-green-500" };
   if (r.status === "archived")
     return { label: "Archived", tone: "done", className: "text-muted-foreground" };
 
-  const days = daysUntil(r.dueDate);
-  if (days < 0)
+  const mins = minutesUntil(r.dueAt);
+
+  if (mins < 0)
     return {
-      label: `Overdue ${Math.abs(days)}d`,
+      label: `Overdue ${coarse(mins)}`,
       tone: "overdue",
       className: "text-red-500",
     };
-  if (days === 0)
-    return { label: "Due today", tone: "today", className: "text-orange-500" };
-  if (days === 1)
-    return { label: "Due tomorrow", tone: "soon", className: "text-orange-400" };
+  if (mins < 60)
+    return { label: `In ${mins}m`, tone: "today", className: "text-orange-500" };
+  if (mins < 60 * 24)
+    return {
+      label: `In ${Math.round(mins / 60)}h`,
+      tone: "today",
+      className: "text-orange-400",
+    };
+
+  const days = Math.round(mins / (60 * 24));
   if (days <= 7)
-    return { label: `In ${days} days`, tone: "soon", className: "text-yellow-500" };
-  return { label: `In ${days} days`, tone: "upcoming", className: "text-blue-400" };
+    return { label: `In ${days}d`, tone: "soon", className: "text-yellow-500" };
+  return { label: `In ${days}d`, tone: "upcoming", className: "text-blue-400" };
 }

@@ -1,118 +1,171 @@
-# PRO-SYS — Free Deployment Guide (Vercel + Supabase + Gmail)
+# Deploying PRO-SYS (free tier)
 
-PRO-SYS is a **single Next.js app** (UI + API in one repo). It deploys for **$0** as **one Vercel project**, with email reminders sent from your own Gmail.
+One Vercel project + one Supabase project. Email and push are both optional — set up
+either, both, or neither, and each person picks what they want in Settings.
 
-## The stack
-
-| Piece | Service | Cost |
-|---|---|---|
-| App (UI + API + cron) | Vercel (one project) | Free (Hobby) |
-| Database (Postgres) | Supabase | Free |
-| Email | Nodemailer + your Gmail App Password | Free (~500/day) |
-| Daily reminder job | Vercel Cron | Free (1×/day) |
-
-## Login
-
-Family members log in by picking their name + a personal **PIN** (4–6 digits), set on first login or by an admin on the **Family** page. Everyone logged in sees all reminders. Keep the app URL private.
+Order matters in one place only: **register the first account immediately after the
+first deploy** (see step 6).
 
 ---
 
-## Prerequisites
+## 1. Supabase: create the database
 
-1. Push this repo to **GitHub** (the whole repo is the app — no subfolder).
-2. Free **Vercel** account.
-3. Free **Supabase** project.
-4. A **Gmail** account to send reminders from.
+1. Create a project at [supabase.com](https://supabase.com) (free tier is fine).
+2. **Project Settings → Database → Connection string → URI.** You need *two* forms
+   of it, and they are not interchangeable:
 
----
+   | Use | Port | Why |
+   | --- | --- | --- |
+   | The app at runtime (`DATABASE_URL`) | **6543** — Transaction pooler | Serverless functions open a connection per invocation; the pooler is what stops that exhausting Postgres. |
+   | `prisma db push` (schema changes) | **5432** — Session pooler | DDL needs a real session. The transaction pooler will fail or hang on it. |
 
-## Step 1 — Database (Supabase)
+3. Append `?sslmode=no-verify&pgbouncer=true` to the runtime URL. Supabase's pooler
+   certificate isn't in Node's default CA chain, so the connection is encrypted but
+   the chain isn't verified.
+4. **URL-encode reserved characters in the password**: `#` → `%23`, `&` → `%26`,
+   `%` → `%25`, `@` → `%40`. A raw `#` silently truncates the URL and produces a
+   baffling "database does not exist" — check that one first if things go wrong.
 
-1. Create a project at <https://supabase.com>.
-2. **Project Settings → Database → Connection string** → copy the **Transaction pooler** URI (port **6543**). URL-encode any `%` in the password as `%25`, and add `?sslmode=no-verify&pgbouncer=true`. This is your `DATABASE_URL`:
-   ```
-   postgresql://postgres.<ref>:<password>@aws-0-<region>.pooler.supabase.com:6543/postgres?sslmode=no-verify&pgbouncer=true
-   ```
-   > `sslmode=no-verify` is required — Supabase's pooler cert isn't in Node's default CA chain (still TLS-encrypted).
+## 2. Create the tables
 
-### Create the tables (run locally, once)
+From your machine, with `DATABASE_URL` in `.env` pointed at the **session pooler
+(5432)**:
 
 ```bash
-cp .env.example .env          # paste your DATABASE_URL + set AUTH_SECRET
-npm install
+npx prisma db push
 ```
 
-Push the schema using the **Session pooler (port 5432)** — the transaction pooler (6543) hangs on the advisory locks migrations need:
+This is a fresh schema with no migration history — it creates everything from
+`prisma/schema.prisma`. Re-running it later applies changes in place.
+
+> Switch `DATABASE_URL` back to the **transaction pooler (6543)** for the value you
+> put into Vercel.
+
+## 3. Generate the secrets
 
 ```bash
-npx prisma db push --url "postgresql://postgres.<ref>:<password>@aws-0-<region>.pooler.supabase.com:5432/postgres?sslmode=no-verify"
+openssl rand -base64 48
 ```
 
-(Keep port **6543** in `.env`/Vercel for the running app; only schema pushes use 5432.)
-
----
-
-## Step 2 — Gmail App Password (for email)
-
-1. Enable **2-Step Verification**: <https://myaccount.google.com/security>
-2. Create an App Password: <https://myaccount.google.com/apppasswords> → copy the 16 characters (spaces don't matter).
-3. `SMTP_USER` = your Gmail, `SMTP_PASS` = the app password. ~500 recipients/day.
-
----
-
-## Step 3 — Deploy to Vercel
-
-1. Vercel → **Add New… → Project** → import your GitHub repo.
-2. **Root Directory: leave as the repo root** (the app is at the top level — do *not* set a subfolder).
-3. Framework: **Next.js** (auto-detected).
-4. Add **Environment Variables**:
-
-   | Key | Value |
-   |---|---|
-   | `DATABASE_URL` | Supabase **6543** pooler string (`sslmode=no-verify`) |
-   | `AUTH_SECRET` | long random string |
-   | `APP_NAME` | `PRO-SYS` |
-   | `CRON_SECRET` | long random string |
-   | `SMTP_HOST` | `smtp.gmail.com` |
-   | `SMTP_PORT` | `465` |
-   | `SMTP_SECURE` | `true` |
-   | `SMTP_USER` | your Gmail address |
-   | `SMTP_PASS` | your 16-char app password |
-   | `MAIL_FROM` | `PRO-SYS <youraddress@gmail.com>` |
-
-5. **Deploy.** Open the URL; the first visitor creates the first member (admin) + PIN.
-
-The daily cron (`vercel.json` → `/api/cron/dispatch`) is picked up automatically; `CRON_SECRET` authenticates it.
-
----
-
-## How reminders get sent
-
-- **Automatic:** `vercel.json` runs `GET /api/cron/dispatch` daily (`30 3 * * *` = 09:00 IST; Vercel Cron is UTC, free Hobby = once/day). Each reminder is emailed **once, when it's due** (or the first run on/after its due date) — never day after day. Recurring reminders re-arm after completion.
-- **On demand:** the **"Notify family"** button on a reminder emails every family member about it immediately.
-
----
-
-## Local development
+Run it twice — once for `AUTH_SECRET`, once for `CRON_SECRET`. For push:
 
 ```bash
-npm install
-npm run dev        # http://localhost:3000
+npx web-push generate-vapid-keys
 ```
 
-Trigger the reminder job locally:
-```bash
-curl http://localhost:3000/api/cron/dispatch -H "Authorization: Bearer <CRON_SECRET>"
+## 4. Email (optional)
+
+Any SMTP account works. With Gmail: enable 2-Step Verification, then create a
+16-character **App Password** at
+[myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords) and
+use that as `SMTP_PASS` — not your account password.
+
+Everyone's reminder emails are sent *from* this one account, to each user's own
+address.
+
+## 5. Vercel: deploy
+
+Import the repo, leave **Root Directory** at the repo root, and add the environment
+variables from [`.env.example`](.env.example):
+
+| Variable | Required | Notes |
+| --- | --- | --- |
+| `DATABASE_URL` | yes | Transaction pooler (6543). |
+| `AUTH_SECRET` | yes | Changing it signs everyone out. |
+| `CRON_SECRET` | yes | Without it the cron endpoint refuses to run in production. |
+| `APP_NAME` | no | Defaults to `PRO-SYS`. |
+| `APP_URL` | no | Adds an "Open PRO-SYS" button to reminder emails. |
+| `SMTP_HOST` `SMTP_PORT` `SMTP_SECURE` `SMTP_USER` `SMTP_PASS` `MAIL_FROM` | for email | Leave blank to disable email entirely. |
+| `VAPID_PUBLIC_KEY` `VAPID_PRIVATE_KEY` `NEXT_PUBLIC_VAPID_PUBLIC_KEY` `VAPID_SUBJECT` | for push | The public key goes in twice — once server-side, once as `NEXT_PUBLIC_*`. |
+
+`npm run build` runs `prisma generate` first, so no extra build step is needed.
+
+## 6. Register the admin — do this first
+
+Open the deployed URL. Because the database is empty the login page offers **Set up
+the first account**, and that account is **auto-approved as the admin**.
+
+This is a real window: until you register, anyone who reaches the URL could claim
+the admin account. Do it immediately after the deploy finishes.
+
+Everyone else signs up the same way afterwards, lands as `pending`, and you approve
+them under **Settings → Accounts**.
+
+## 7. Schedule the dispatcher (every minute)
+
+The engine needs minute granularity — lead alerts, the due-time alert and overdue
+nagging all depend on it. **Vercel's free Hobby plan only allows one cron run per
+day**, which cannot drive this, so scheduling lives entirely in Supabase.
+
+There is deliberately **no `vercel.json`** and no Vercel cron. Don't add one: a daily
+tick would fire due and overdue alerts roughly a day late and miss most lead alerts
+altogether, which is worse than not having it, because it looks like it works.
+
+Open the Supabase **SQL Editor** and run
+[`scripts/pg-cron-setup.sql`](scripts/pg-cron-setup.sql), replacing the two
+placeholders with your deployed domain and your `CRON_SECRET`. One call covers every
+account.
+
+Verify:
+
+```sql
+select jobid, jobname, schedule, active from cron.job;
 ```
 
-> Don't run `npm run build` while `npm run dev` is running (they share `.next`). Stop dev first.
+```sql
+select id, status_code, content, created from net._http_response order by created desc limit 10;
+```
+
+A `200` with `"fired":{"lead":0,"due":0,"overdue":0}` is the normal idle result — the
+engine ran and had nothing to send.
+
+If this job isn't scheduled, nothing is ever sent — no other timer exists. The app
+itself will look completely healthy, because creating and listing reminders doesn't
+depend on it.
+
+## 8. Turn on notifications
+
+**On iPhone this only works from the Home Screen.** iOS refuses web push in a Safari
+tab. Open the app in Safari → **Share** → **Add to Home Screen**, launch it from the
+new icon, then tap **Allow notifications** on the banner (or Settings → How you're
+reminded). Requires iOS 16.4+.
+
+Each person does this on their own devices. A device belongs to whoever is signed in
+when notifications are enabled; if someone else signs in on that same browser, the
+device is handed over to them, because otherwise they'd receive each other's private
+reminders.
+
+Use **Send test push** and **Send test email** in Settings to confirm both ends.
+
+---
 
 ## Troubleshooting
 
-| Symptom | Fix |
-|---|---|
-| `prisma db push` hangs | Use the **Session pooler (5432)**, not 6543. |
-| `self-signed certificate` DB error | Add `sslmode=no-verify` to `DATABASE_URL`. |
-| Build error `Cannot find module for page: /_document` | You ran `next build` while `next dev` was running. Stop dev, delete `.next`, rebuild. (Doesn't affect Vercel.) |
-| Emails not arriving | Check spam; verify `SMTP_*`; Gmail needs 2FA + App Password. Use Settings → test email. |
-| Login "Incorrect PIN" for everyone | `AUTH_SECRET` must be set and stable. Reset a member's PIN on the Family page. |
+**"Not authenticated" straight after signing in.** `AUTH_SECRET` differs between
+builds, or the browser is blocking the cookie. The cookie is `httpOnly`,
+`SameSite=Lax` and `Secure` in production — so it needs HTTPS.
+
+**Login says the account is waiting for approval.** Working as intended: an admin
+approves it under Settings → Accounts. On a fresh install with no accounts at all,
+the login page offers signup instead.
+
+**No push on iPhone.** Almost always a Safari tab rather than an installed app. Check
+Settings → How you're reminded: if it says *Add PRO-SYS to your Home Screen first*,
+that's the cause.
+
+**Push worked, then stopped.** iOS rotates subscriptions. The app re-registers on
+every load and the service worker handles `pushsubscriptionchange`, so opening the
+app usually repairs it. Settings → Your devices shows failure counts per device.
+
+**No email.** Check `SMTP_*` and that the account has email switched on in Settings.
+Gmail rejects a normal password — it must be an App Password. **Send test email**
+surfaces the server's actual error.
+
+**Emails feel too rare while something is overdue.** By design: overdue emails are
+capped at one every 12 hours. Push carries the frequent nagging.
+
+**`prisma db push` hangs.** You're on the transaction pooler (6543). DDL needs the
+session pooler (5432).
+
+**Cron returns 401.** `CRON_SECRET` doesn't match the `Authorization: Bearer …`
+header in the SQL, or isn't set in Vercel at all.

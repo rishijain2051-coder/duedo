@@ -1,30 +1,20 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/db";
-import { getSession } from "@/lib/http";
+import { currentUser } from "@/lib/http";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+/** Session probe used by the app shell to decide whether to redirect. */
 export async function GET() {
-  const session = await getSession();
-  if (!session) {
+  const user = await currentUser();
+  if (!user) {
     return NextResponse.json({ message: "Not authenticated" }, { status: 401 });
   }
-  const member = await prisma.user.findUnique({
-    where: { id: session.memberId },
-    select: {
-      id: true,
-      name: true,
-      email: true,
-      phone: true,
-      role: true,
-      emailOptIn: true,
-      notifyDaysBefore: true,
-      createdAt: true,
-    },
+  return NextResponse.json({
+    id: user.id,
+    name: user.name,
+    email: user.email,
+    role: user.role,
+    status: user.status,
   });
-  if (!member) {
-    return NextResponse.json({ message: "Member not found" }, { status: 401 });
-  }
-  return NextResponse.json(member);
 }

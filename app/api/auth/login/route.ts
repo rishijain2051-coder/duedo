@@ -1,56 +1,71 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { hashPin, verifyPin, isValidPin } from "@/lib/pin";
-import { createSessionToken, SESSION_COOKIE } from "@/lib/session";
+import { verifyPin, isValidPin } from "@/lib/pin";
+import { createSession } from "@/lib/auth";
+import { SESSION_COOKIE, sessionCookieOptions } from "@/lib/session";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+/**
+ * PUBLIC — email + PIN sign-in.
+ *
+ * Identifying by email rather than by picking a name from a list is deliberate:
+ * reminders are private here, so the set of people with accounts shouldn't be
+ * readable by anyone who loads the login page.
+ *
+ * For the same reason a wrong email and a wrong PIN return the same message —
+ * there's nothing to learn from the difference. A `pending` account is the one
+ * case that says something specific, because otherwise someone waiting on
+ * approval has no way to tell that from having mistyped their PIN.
+ */
 export async function POST(req: NextRequest) {
   try {
-    const { memberId, pin } = await req.json();
-    if (!memberId || !isValidPin(pin)) {
+    const body = await req.json().catch(() => ({}));
+    const email =
+      typeof body?.email === "string" ? body.email.trim().toLowerCase() : "";
+    const pin = body?.pin;
+
+    if (!email || !isValidPin(pin)) {
       return NextResponse.json(
-        { message: "Enter a 4–6 digit PIN." },
+        { message: "Enter your email and a 4–6 digit PIN." },
         { status: 400 },
       );
     }
 
-    const member = await prisma.user.findUnique({ where: { id: memberId } });
-    if (!member) {
-      return NextResponse.json({ message: "Member not found." }, { status: 404 });
+    const user = await prisma.user.findUnique({ where: { email } });
+    const ok =
+      user?.password_hash && (await verifyPin(pin, user.password_hash));
+
+    if (!user || !ok) {
+      return NextResponse.json(
+        { message: "Incorrect email or PIN." },
+        { status: 401 },
+      );
     }
 
-    if (!member.password_hash) {
-      // First login for this member sets their PIN.
-      const hash = await hashPin(pin);
-      await prisma.user.update({
-        where: { id: member.id },
-        data: { password_hash: hash },
-      });
-    } else {
-      const ok = await verifyPin(pin, member.password_hash);
-      if (!ok) {
-        return NextResponse.json({ message: "Incorrect PIN." }, { status: 401 });
-      }
+    if (user.status === "pending") {
+      return NextResponse.json(
+        { message: "This account is still waiting for an admin to approve it." },
+        { status: 403 },
+      );
+    }
+    if (user.status !== "active") {
+      return NextResponse.json(
+        { message: "This account has been disabled." },
+        { status: 403 },
+      );
     }
 
-    const token = await createSessionToken({
-      memberId: member.id,
-      name: member.name,
-    });
+    const { token } = await createSession(user.id, req.headers.get("user-agent"));
     const res = NextResponse.json({
-      id: member.id,
-      name: member.name,
-      email: member.email,
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      status: user.status,
     });
-    res.cookies.set(SESSION_COOKIE, token, {
-      httpOnly: true,
-      sameSite: "lax",
-      path: "/",
-      maxAge: 60 * 60 * 24 * 30, // 30 days
-      secure: process.env.NODE_ENV === "production",
-    });
+    res.cookies.set(SESSION_COOKIE, token, sessionCookieOptions);
     return res;
   } catch (e) {
     return NextResponse.json(

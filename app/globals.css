@@ -1,10 +1,32 @@
 @import "tailwindcss";
 
+/* Light is the default; .dark on <html> switches the palette. Both the mode and
+   the accent are applied before paint by the inline script in app/layout.tsx, so
+   there is no flash of the wrong theme. */
 :root {
+  --background: #fafafa;
+  --foreground: #18181b;
+  --card: #ffffff;
+  --card-foreground: #18181b;
+  --border: #e4e4e7;
+  --muted: #f4f4f5;
+  --muted-foreground: #52525b;
+  --accent: #f4f4f5;
+  --accent-foreground: #18181b;
+  --destructive: #dc2626;
+  --destructive-foreground: #ffffff;
+  --glass-bg: rgba(255, 255, 255, 0.55);
+  --glass-border: rgba(0, 0, 0, 0.06);
+
+  /* Defaults; the [data-accent] blocks below override these. */
+  --primary: #3b82f6;
+  --primary-soft: #60a5fa;
+  --primary-foreground: #ffffff;
+}
+
+.dark {
   --background: #09090b;
   --foreground: #fafafa;
-  --primary: #3b82f6;
-  --primary-foreground: #ffffff;
   --card: #121214;
   --card-foreground: #fafafa;
   --border: #27272a;
@@ -14,12 +36,50 @@
   --accent-foreground: #fafafa;
   --destructive: #7f1d1d;
   --destructive-foreground: #fafafa;
+  --glass-bg: rgba(0, 0, 0, 0.2);
+  --glass-border: rgba(255, 255, 255, 0.05);
+}
+
+/* Accent presets, kept independent of light/dark so any pairing works.
+   Declared after both palettes so they win on a specificity tie. */
+[data-accent="blue"] {
+  --primary: #3b82f6;
+  --primary-soft: #60a5fa;
+}
+[data-accent="violet"] {
+  --primary: #8b5cf6;
+  --primary-soft: #a78bfa;
+}
+[data-accent="emerald"] {
+  --primary: #10b981;
+  --primary-soft: #34d399;
+}
+[data-accent="rose"] {
+  --primary: #f43f5e;
+  --primary-soft: #fb7185;
+}
+[data-accent="amber"] {
+  --primary: #f59e0b;
+  --primary-soft: #fbbf24;
+}
+[data-accent="cyan"] {
+  --primary: #06b6d4;
+  --primary-soft: #22d3ee;
+}
+
+/* Amber is too light for white text on a filled button. */
+[data-accent="amber"] {
+  --primary-foreground: #1c1917;
+}
+[data-accent="amber"].dark {
+  --primary-foreground: #1c1917;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-primary: var(--primary);
+  --color-primary-soft: var(--primary-soft);
   --color-primary-foreground: var(--primary-foreground);
   --color-card: var(--card);
   --color-card-foreground: var(--card-foreground);
@@ -42,12 +102,12 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Glassmorphism utility */
+/* Glassmorphism utility — follows the active palette instead of assuming dark. */
 .glass {
-  background: rgba(0, 0, 0, 0.2);
+  background: var(--glass-bg);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--glass-border);
 }
 
 /* Custom Scrollbar */

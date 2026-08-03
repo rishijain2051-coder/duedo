@@ -6,25 +6,141 @@ datasource db {
   provider = "postgresql"
 }
 
+/// One account.
+///
+/// PRO-SYS is multi-user, but reminders are *personal*: everything a user creates
+/// belongs to them and nobody else can see it. So almost every model below hangs
+/// off this one, and every query is scoped by userId.
+///
+/// Preferences live here rather than in a global settings row precisely because
+/// they are per-person — one user's timezone, default time, delivery channels and
+/// inactivity timeout say nothing about anyone else's.
 model User {
-  id               String   @id @default(uuid())
-  name             String
-  email            String   @unique
-  password_hash    String? // stores the bcrypt hash of the member's login PIN
-  role             String   @default("member") // 'admin' or 'member'
-  phone            String? // optional, reserved for future SMS/WhatsApp channels
-  emailOptIn       Boolean  @default(true) // receive reminder emails
-  notifyDaysBefore Int      @default(3) // start emailing this many days before due date
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  id            String  @id @default(uuid())
+  name          String
+  email         String  @unique
+  password_hash String? // bcrypt hash of the login PIN; null until first sign-in
+  role          String  @default("member") // 'admin' or 'member'
+
+  /// pending | active | rejected.
+  ///
+  /// Anyone can self-register, but an admin has to approve the account before it
+  /// can sign in. The first account on a fresh install is auto-approved as an
+  /// admin — otherwise there would be nobody to approve anybody.
+  status String @default("pending")
+
+  phone String? // optional, reserved for future SMS/WhatsApp channels
+
+  // ---------------------------------------------------------- preferences
+  /// Every instant is stored UTC and rendered in this zone.
+  timezone String @default("Asia/Kolkata")
+  /// HH:mm local, applied when a reminder carries no explicit time.
+  defaultTime String @default("05:30")
+  /// While overdue, re-notify this often until completed or snoozed.
+  overdueRepeatMins Int @default(60)
+  /// Sign out after this many minutes without a request. 0 disables it.
+  idleTimeoutMins Int @default(0)
+
+  /// Delivery channels — each user chooses how they want to be reminded.
+  /// Both can be on; both can be off (in-app feed still records everything).
+  emailOptIn Boolean @default(true)
+  pushOptIn  Boolean @default(true)
+
+  approvedAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
 
   reminders     Reminder[]
+  categories    Category[]
   notifications Notification[]
   activities    ActivityLog[]
+  sessions      Session[]
+  passkeys      Passkey[]
+  pushDevices   PushSubscription[]
+
+  @@index([status])
 }
 
+/// One row per active login, which is what makes sessions listable and
+/// revocable. The cookie is still a signed token, but it now names a row here —
+/// deleting the row kills the login immediately, which a purely stateless token
+/// could never do.
+model Session {
+  id     String @id @default(uuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// SHA-256 of the cookie value. Hashed so a database leak doesn't hand over
+  /// usable credentials, the same reasoning as the PIN.
+  tokenHash String @unique
+
+  label      String? // "iPhone · Safari"
+  userAgent  String?
+  createdAt  DateTime @default(now())
+  /// Bumped (at most once a minute) on each authenticated request; drives the
+  /// inactivity timeout.
+  lastSeenAt DateTime @default(now())
+  expiresAt  DateTime
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+/// A registered WebAuthn credential (Face ID / Touch ID / Windows Hello). The PIN
+/// stays as the fallback, so this table may be empty for any user.
+model Passkey {
+  id     String @id // base64url credential ID
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  publicKey  String // base64url-encoded COSE public key
+  counter    Int       @default(0)
+  deviceType String?
+  backedUp   Boolean   @default(false)
+  transports String? // comma-separated
+  label      String?
+  createdAt  DateTime  @default(now())
+  lastUsedAt DateTime?
+
+  @@index([userId])
+}
+
+/// One row per browser/device that has granted notification permission, owned by
+/// whoever was signed in when it was granted. On iOS this only exists for the app
+/// installed to the Home Screen.
+model PushSubscription {
+  id     String @id @default(uuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// Globally unique, not unique-per-user: a browser has one push endpoint, so if
+  /// a second person signs in on the same device the row is reassigned to them.
+  /// That is the correct outcome — otherwise they would receive each other's
+  /// private reminders.
+  endpoint  String    @unique
+  p256dh    String
+  auth      String
+  label     String?
+  createdAt DateTime  @default(now())
+  lastOkAt  DateTime?
+  failures  Int       @default(0) // consecutive send failures; pruned once the endpoint is gone
+
+  /// Set when this device is revoked from the Settings page. The row is kept
+  /// rather than deleted so the block survives: the app re-registers itself on
+  /// every load, and a deleted row would simply come back. Only an explicit
+  /// "enable notifications" on the device itself clears this.
+  blockedAt DateTime?
+
+  @@index([userId])
+}
+
+/// Categories are per-user: reminders are private, so a shared list would leak
+/// names between accounts and let one person rename or delete another's.
 model Category {
-  id        String   @id @default(uuid())
+  id     String @id @default(uuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
   name      String
   icon      String?
   color     String?
@@ -32,57 +148,112 @@ model Category {
   updatedAt DateTime @updatedAt
 
   reminders Reminder[]
+
+  @@unique([userId, name])
+  @@index([userId])
 }
 
 model Reminder {
-  id             String    @id @default(uuid())
-  title          String
-  description    String?
-  categoryId     String
-  category       Category  @relation(fields: [categoryId], references: [id])
-  assignedToId   String
-  assignedTo     User      @relation(fields: [assignedToId], references: [id])
-  priority       String    @default("normal") // low, normal, high
-  status         String    @default("active") // draft, active, completed, archived
-  dueDate        DateTime
-  nextDueDate    DateTime?
-  recurrenceRule String? // One Time, Daily, Weekly, Monthly, Yearly, etc.
-  amount         Float?    @default(0)
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  id     String @id @default(uuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  history ReminderHistory[]
+  title       String
+  description String?
+  categoryId  String
+  category    Category @relation(fields: [categoryId], references: [id])
+  priority    String   @default("normal") // low, normal, high
+  status      String   @default("active") // draft, active, completed, archived
+
+  /// Absolute instant the reminder is due. Always concrete — when the user omits
+  /// a time we apply their defaultTime in their timezone before saving.
+  dueAt   DateTime
+  /// False when the user never picked a time (we filled in the default). Display-only.
+  hasTime Boolean  @default(true)
+
+  /// Minutes before dueAt to send an advance alert. One alert per entry.
+  /// e.g. [10080, 1440, 60] = a week, a day, and an hour before.
+  leadOffsets Int[] @default([])
+
+  recurrenceRule String? // One Time, Daily, Weekly, Monthly, Quarterly, Half-Yearly, Yearly
+  amount         Float?  @default(0)
+
+  /// Suppresses all alerts until this instant (set by the Snooze action).
+  snoozedUntil DateTime?
+  /// Last overdue nag, used to space repeats by the owner's overdueRepeatMins.
+  lastNaggedAt DateTime?
+  /// Last time this reminder was *emailed*, tracked separately from lastNaggedAt
+  /// so overdue nagging can repeat hourly on push without doing the same to an
+  /// inbox. See EMAIL_OVERDUE_MIN_GAP_MINS in lib/dispatch.ts.
+  lastEmailedAt DateTime?
+  completedAt   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  history    ReminderHistory[]
+  dispatches ReminderDispatch[]
+
+  @@index([userId, status, dueAt])
+  @@index([status, dueAt])
 }
 
 model ReminderHistory {
   id          String   @id @default(uuid())
   reminderId  String
-  reminder    Reminder @relation(fields: [reminderId], references: [id])
+  reminder    Reminder @relation(fields: [reminderId], references: [id], onDelete: Cascade)
   completedOn DateTime @default(now())
   amount      Float?
   status      String
   remarks     String?
+
+  @@index([reminderId])
 }
 
-model Notification {
+/// One row per alert actually sent, which is how the dispatcher avoids sending
+/// the same thing twice. Keyed on cycleDueAt so a recurring reminder re-arms
+/// cleanly the moment its dueAt rolls forward.
+model ReminderDispatch {
   id         String   @id @default(uuid())
-  userId     String
-  user       User     @relation(fields: [userId], references: [id])
-  reminderId String? // which reminder triggered this (used for daily de-duplication)
-  channel    String   @default("in_app") // in_app | email
-  message    String
+  reminderId String
+  reminder   Reminder @relation(fields: [reminderId], references: [id], onDelete: Cascade)
+  cycleDueAt DateTime // the dueAt this fire belongs to
+  kind       String // lead | due | overdue
+  /// lead: the offset in minutes. due: 0. overdue: whole minutes since cycleDueAt,
+  /// which is unique per minute and so dedupes naturally against a per-minute cron.
+  offsetMin  Int
+  firedAt    DateTime @default(now())
+  ok         Boolean  @default(true)
+
+  @@unique([reminderId, cycleDueAt, kind, offsetMin])
+  @@index([reminderId])
+}
+
+/// In-app notification feed. Survives even when a push or email fails to deliver,
+/// so a missed notification still leaves a record.
+model Notification {
+  id     String @id @default(uuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  reminderId String?
+  title      String
+  body       String
+  kind       String   @default("due") // lead | due | overdue
   read       Boolean  @default(false)
   createdAt  DateTime @default(now())
 
-  @@index([reminderId, channel, createdAt])
-  @@index([userId, read])
+  @@index([userId, read, createdAt])
+  @@index([reminderId])
 }
 
 model ActivityLog {
   id        String   @id @default(uuid())
   userId    String
-  user      User     @relation(fields: [userId], references: [id])
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   action    String
   entity    String
   timestamp DateTime @default(now())
+
+  @@index([userId])
 }

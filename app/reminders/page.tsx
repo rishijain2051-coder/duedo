@@ -1,26 +1,35 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import {
   Plus,
   CheckCircle2,
-  CalendarIcon,
+  Clock,
   Pencil,
   Trash2,
   Loader2,
-  Send,
+  BellOff,
+  BellRing,
 } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import { Field, Input, Select, Textarea } from "@/components/ui/form";
-import { useMembers } from "@/components/member-context";
+import { useApp } from "@/components/app-context";
+import { useCached } from "@/lib/cache";
 import { api } from "@/services/api";
-import { formatCurrency, formatDate, reminderStatus, toDateInputValue } from "@/lib/format";
+import {
+  formatCurrency,
+  formatDateTime,
+  reminderStatus,
+  toDateTimeInputValue,
+} from "@/lib/format";
+import { LEAD_OFFSET_OPTIONS } from "@/lib/time";
 import {
   PRIORITY_OPTIONS,
   RECURRENCE_OPTIONS,
+  SNOOZE_OPTIONS,
   type Category,
   type Reminder,
 } from "@/types";
@@ -31,19 +40,43 @@ type StatusFilter = (typeof STATUS_FILTERS)[number];
 const emptyForm = {
   title: "",
   categoryId: "",
-  assignedToId: "",
-  dueDate: "",
+  dueAt: "",
   amount: "",
   recurrenceRule: "One Time",
   priority: "normal",
   description: "",
+  leadOffsets: [] as number[],
 };
 
+/** Stable identities, so empty results don't invalidate hook deps every render. */
+const NO_REMINDERS: Reminder[] = [];
+const NO_CATEGORIES: Category[] = [];
+
+/** Default lead times for a brand-new reminder: a day ahead and an hour ahead. */
+const DEFAULT_LEADS = [1440, 60];
+
+function isSnoozed(r: Reminder): boolean {
+  return Boolean(r.snoozedUntil && new Date(r.snoozedUntil) > new Date());
+}
+
 export default function RemindersPage() {
-  const { members, currentMember } = useMembers();
-  const [reminders, setReminders] = useState<Reminder[]>([]);
-  const [categories, setCategories] = useState<Category[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { timeZone, syncBadge } = useApp();
+  // Cached so the list is on screen immediately on a repeat visit; the fresh
+  // copy swaps in behind it.
+  const {
+    data,
+    loading,
+    error: loadError,
+    refresh: load,
+  } = useCached("reminders-page", async () => {
+    const [rem, cats] = await Promise.all([
+      api.reminders.list(),
+      api.categories.list(),
+    ]);
+    return { rem, cats };
+  });
+  const reminders = data?.rem ?? NO_REMINDERS;
+  const categories = data?.cats ?? NO_CATEGORIES;
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [filter, setFilter] = useState<StatusFilter>("active");
@@ -56,79 +89,85 @@ export default function RemindersPage() {
   const [completing, setCompleting] = useState<Reminder | null>(null);
   const [completeAmount, setCompleteAmount] = useState("");
   const [completeRemarks, setCompleteRemarks] = useState("");
+  const [snoozing, setSnoozing] = useState<Reminder | null>(null);
+  const shortcutHandled = useRef(false);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const [rem, cats] = await Promise.all([
-        api.reminders.list(),
-        api.categories.list(),
-      ]);
-      setReminders(rem);
-      setCategories(cats);
-      setError(null);
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const openCreate = useCallback(() => {
+    setEditingId(null);
+    setForm({
+      ...emptyForm,
+      categoryId: categories[0]?.id ?? "",
+      leadOffsets: DEFAULT_LEADS,
+    });
+    setFormOpen(true);
+  }, [categories]);
 
+  // Home Screen shortcut: /reminders?new=1 opens the form directly. Read straight
+  // off the URL rather than via useSearchParams, which would force this whole page
+  // behind a Suspense boundary just for a client-only nicety.
   useEffect(() => {
-    load();
-  }, [load]);
+    if (shortcutHandled.current || loading || categories.length === 0) return;
+    if (new URLSearchParams(window.location.search).get("new") === "1") {
+      shortcutHandled.current = true;
+      openCreate();
+      window.history.replaceState(null, "", "/reminders");
+    }
+  }, [loading, categories.length, openCreate]);
 
   const visible = reminders.filter((r) =>
     filter === "all" ? true : r.status === filter,
   );
-
-  function openCreate() {
-    setEditingId(null);
-    setForm({
-      ...emptyForm,
-      assignedToId: currentMember?.id ?? members[0]?.id ?? "",
-      categoryId: categories[0]?.id ?? "",
-    });
-    setFormOpen(true);
-  }
 
   function openEdit(r: Reminder) {
     setEditingId(r.id);
     setForm({
       title: r.title,
       categoryId: r.categoryId,
-      assignedToId: r.assignedToId,
-      dueDate: toDateInputValue(r.dueDate),
+      dueAt: toDateTimeInputValue(r.dueAt, timeZone),
       amount: r.amount ? String(r.amount) : "",
       recurrenceRule: r.recurrenceRule ?? "One Time",
       priority: r.priority ?? "normal",
       description: r.description ?? "",
+      leadOffsets: r.leadOffsets ?? [],
     });
     setFormOpen(true);
   }
 
+  function toggleLead(minutes: number) {
+    setForm((f) => ({
+      ...f,
+      leadOffsets: f.leadOffsets.includes(minutes)
+        ? f.leadOffsets.filter((m) => m !== minutes)
+        : [...f.leadOffsets, minutes],
+    }));
+  }
+
   async function submitForm(e: React.FormEvent) {
     e.preventDefault();
-    if (!form.title || !form.categoryId || !form.assignedToId || !form.dueDate) {
-      setError("Title, category, family member and due date are required.");
+    if (!form.title || !form.categoryId || !form.dueAt) {
+      setError("Title, category and due date are required.");
       return;
     }
     setSaving(true);
     try {
+      // dueAt is sent as wall-clock text; the server resolves it in your zone and
+      // fills in your default time when none was picked.
       const payload = {
         title: form.title,
         categoryId: form.categoryId,
-        assignedToId: form.assignedToId,
-        dueDate: new Date(form.dueDate).toISOString(),
+        dueAt: form.dueAt,
         amount: form.amount ? Number(form.amount) : 0,
         recurrenceRule: form.recurrenceRule,
-        priority: form.priority as Reminder["priority"],
+        priority: form.priority,
         description: form.description || null,
+        leadOffsets: form.leadOffsets,
       };
       if (editingId) await api.reminders.update(editingId, payload);
       else await api.reminders.create(payload);
       setFormOpen(false);
+      setError(null);
       await load();
+      await syncBadge();
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -148,6 +187,23 @@ export default function RemindersPage() {
       setCompleteAmount("");
       setCompleteRemarks("");
       await load();
+      await syncBadge();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function doSnooze(minutes: number) {
+    if (!snoozing) return;
+    setSaving(true);
+    try {
+      await api.reminders.snooze(snoozing.id, minutes);
+      const label = SNOOZE_OPTIONS.find((o) => o.minutes === minutes)?.label;
+      setNotice(`"${snoozing.title}" snoozed for ${label}.`);
+      setSnoozing(null);
+      await load();
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -160,55 +216,118 @@ export default function RemindersPage() {
     try {
       await api.reminders.remove(r.id);
       await load();
+      await syncBadge();
     } catch (e) {
       setError((e as Error).message);
     }
   }
 
-  async function notifyFamily(r: Reminder) {
-    if (!confirm(`Email the whole family about "${r.title}" now?`)) return;
-    setNotice(null);
-    setError(null);
-    try {
-      const res = await api.reminders.notifyFamily(r.id);
-      setNotice(
-        `Family notified about "${res.title}" — ${res.emailed} email${res.emailed === 1 ? "" : "s"} sent to ${res.notified} member${res.notified === 1 ? "" : "s"}.`,
+  const noCategories = categories.length === 0;
+
+  function leadSummary(r: Reminder): string | null {
+    if (!r.leadOffsets?.length) return null;
+    const labels = [...r.leadOffsets]
+      .sort((a, b) => b - a)
+      .map(
+        (m) =>
+          LEAD_OFFSET_OPTIONS.find((o) => o.minutes === m)?.label.replace(
+            " before",
+            "",
+          ) ?? `${m}m`,
       );
-    } catch (e) {
-      setError((e as Error).message);
-    }
+    return labels.join(", ");
   }
 
-  const noMembers = members.length === 0;
+  // Size comes from the shared Button "icon" size (44px on phones, 36px with a
+  // mouse) — deliberately not overridden here, since these are the controls most
+  // likely to be tapped in a hurry.
+  function actions(r: Reminder) {
+    return (
+      <>
+        {r.status === "active" && (
+          <Button
+            variant="ghost"
+            size="icon"
+            title="Complete"
+            className="text-green-500 hover:bg-green-500/10"
+            onClick={() => {
+              setCompleting(r);
+              setCompleteAmount(r.amount ? String(r.amount) : "");
+            }}
+          >
+            <CheckCircle2 className="h-4 w-4" />
+          </Button>
+        )}
+        {r.status === "active" && (
+          <Button
+            variant="ghost"
+            size="icon"
+            title={isSnoozed(r) ? "Snoozed — change" : "Snooze notifications"}
+            className={`${isSnoozed(r) ? "text-amber-500" : "text-blue-400"} hover:bg-blue-500/10`}
+            onClick={() => setSnoozing(r)}
+          >
+            {isSnoozed(r) ? (
+              <BellOff className="h-4 w-4" />
+            ) : (
+              <BellRing className="h-4 w-4" />
+            )}
+          </Button>
+        )}
+        <Button variant="ghost" size="icon" title="Edit" onClick={() => openEdit(r)}>
+          <Pencil className="h-4 w-4" />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon"
+          title="Delete"
+          className="text-destructive hover:bg-destructive/10"
+          onClick={() => remove(r)}
+        >
+          <Trash2 className="h-4 w-4" />
+        </Button>
+      </>
+    );
+  }
 
   return (
-    <div className="flex-1 space-y-4 p-4 md:p-8">
+    <div className="flex-1 space-y-3 p-4 md:space-y-4 md:p-8">
       <div className="flex items-center justify-between gap-2">
-        <h2 className="text-2xl md:text-3xl font-bold tracking-tight">Reminders</h2>
-        <Button onClick={openCreate} disabled={noMembers}>
-          <Plus className="mr-2 h-4 w-4" /> <span className="hidden sm:inline">New </span>Reminder
+        {/* min-w-0 so a long heading can never push the button off-screen */}
+        <div className="min-w-0">
+          <h2 className="truncate text-xl font-bold tracking-tight md:text-3xl">
+            Reminders
+          </h2>
+          <p className="text-xs text-muted-foreground md:hidden">
+            {loading
+              ? "…"
+              : `${visible.length} ${filter === "all" ? "total" : filter}`}
+          </p>
+        </div>
+        <Button onClick={openCreate} disabled={noCategories} className="shrink-0">
+          <Plus className="h-4 w-4 sm:mr-2" />
+          <span className="hidden sm:inline">New Reminder</span>
         </Button>
       </div>
 
-      {error && (
-        <div className="rounded-md border border-destructive/40 bg-destructive/10 px-4 py-2 text-sm text-red-400">
-          {error}
+      {(error ?? loadError) && (
+        <div className="rounded-md border border-destructive/40 bg-destructive/10 px-4 py-2 text-sm text-red-700 dark:text-red-400">
+          {error ?? loadError}
         </div>
       )}
 
       {notice && (
-        <div className="rounded-md border border-green-500/40 bg-green-500/10 px-4 py-2 text-sm text-green-400">
+        <div className="rounded-md border border-green-500/40 bg-green-500/10 px-4 py-2 text-sm text-green-700 dark:text-green-400">
           {notice}
         </div>
       )}
 
-      {noMembers && !loading && (
+      {noCategories && !loading && (
         <div className="rounded-md border border-border bg-muted/30 px-4 py-3 text-sm">
-          Add a family member first on the{" "}
-          <Link href="/family" className="text-primary underline">
-            Family
+          Create a category first on the{" "}
+          <Link href="/categories" className="text-primary underline">
+            Categories
           </Link>{" "}
-          page — reminders are assigned to people.
+          page — every reminder belongs to one.
         </div>
       )}
 
@@ -217,7 +336,7 @@ export default function RemindersPage() {
           <button
             key={f}
             onClick={() => setFilter(f)}
-            className={`rounded-full px-4 py-1.5 text-sm font-medium capitalize transition-colors ${
+            className={`flex shrink-0 items-center rounded-full px-4 text-sm font-medium capitalize transition-colors min-h-11 md:min-h-0 md:py-1.5 ${
               filter === f
                 ? "bg-primary text-primary-foreground"
                 : "bg-muted/40 text-muted-foreground hover:bg-muted"
@@ -228,38 +347,34 @@ export default function RemindersPage() {
         ))}
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>
-            {filter === "all" ? "All" : filter[0].toUpperCase() + filter.slice(1)}{" "}
-            Reminders ({visible.length})
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          {loading ? (
-            <div className="flex items-center justify-center py-12 text-muted-foreground">
-              <Loader2 className="mr-2 h-5 w-5 animate-spin" /> Loading…
-            </div>
-          ) : visible.length === 0 ? (
-            <p className="py-10 text-center text-muted-foreground">
-              No reminders here yet.
-            </p>
-          ) : (
-            <>
-              {/* Mobile card list */}
-              <div className="space-y-3 md:hidden">
-                {visible.map((r) => {
-                  const st = reminderStatus(r);
-                  const color = r.category?.color ?? "#64748b";
-                  return (
-                    <div key={r.id} className="rounded-lg border p-3 space-y-2">
-                      <div className="flex items-start justify-between gap-2">
-                        <h4 className="font-medium leading-tight">{r.title}</h4>
-                        <span className={`shrink-0 text-xs font-medium ${st.className}`}>
-                          {st.label}
-                        </span>
-                      </div>
-                      <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+      {loading ? (
+        <div className="flex items-center justify-center py-12 text-muted-foreground">
+          <Loader2 className="mr-2 h-5 w-5 animate-spin" /> Loading…
+        </div>
+      ) : visible.length === 0 ? (
+        <Card>
+          <CardContent className="py-10 text-center text-muted-foreground">
+            No reminders here yet.
+          </CardContent>
+        </Card>
+      ) : (
+        <>
+          {/* Phones get a plain list. Wrapping these cards in another Card just
+              nests padding and burns ~100px of vertical space above the fold. */}
+          <div className="space-y-2 md:hidden">
+            {visible.map((r) => {
+              const st = reminderStatus(r);
+              const color = r.category?.color ?? "#64748b";
+              const leads = leadSummary(r);
+              return (
+                <div key={r.id} className="rounded-lg border bg-card/40 p-3">
+                  <div className="flex items-start justify-between gap-2">
+                    {/* min-w-0 lets the title shrink instead of forcing the row wide */}
+                    <div className="min-w-0 flex-1">
+                      <h4 className="line-clamp-2 font-medium leading-snug">
+                        {r.title}
+                      </h4>
+                      <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
                         <span
                           className="rounded-full px-2 py-0.5 font-semibold"
                           style={{ backgroundColor: `${color}22`, color }}
@@ -267,133 +382,100 @@ export default function RemindersPage() {
                           {r.category?.name ?? "—"}
                         </span>
                         <span className="flex items-center gap-1">
-                          <CalendarIcon className="h-3 w-3" />
-                          {formatDate(r.dueDate)}
+                          <Clock className="h-3 w-3 shrink-0" />
+                          {formatDateTime(r.dueAt, r.hasTime, timeZone)}
                         </span>
                         {r.amount ? <span>{formatCurrency(r.amount)}</span> : null}
-                        {r.assignedTo?.name && <span>· {r.assignedTo.name}</span>}
-                      </div>
-                      <div className="flex justify-end gap-1 pt-1 border-t border-border/50">
-                        {r.status === "active" && (
-                          <Button variant="ghost" size="icon" title="Complete" className="h-8 w-8 text-green-500 hover:bg-green-500/10" onClick={() => { setCompleting(r); setCompleteAmount(r.amount ? String(r.amount) : ""); }}>
-                            <CheckCircle2 className="h-4 w-4" />
-                          </Button>
-                        )}
-                        <Button variant="ghost" size="icon" title="Notify family" className="h-8 w-8 text-blue-500 hover:bg-blue-500/10" onClick={() => notifyFamily(r)}>
-                          <Send className="h-4 w-4" />
-                        </Button>
-                        <Button variant="ghost" size="icon" title="Edit" className="h-8 w-8" onClick={() => openEdit(r)}>
-                          <Pencil className="h-4 w-4" />
-                        </Button>
-                        <Button variant="ghost" size="icon" title="Delete" className="h-8 w-8 text-destructive hover:bg-destructive/10" onClick={() => remove(r)}>
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
                       </div>
                     </div>
+                    <span
+                      className={`shrink-0 text-xs font-semibold ${st.className}`}
+                    >
+                      {st.label}
+                    </span>
+                  </div>
+
+                  <div className="mt-2 flex items-center justify-between gap-2 border-t border-border/50 pt-1">
+                    <p className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground">
+                      {isSnoozed(r) ? (
+                        <span className="text-amber-500">
+                          Snoozed to {formatDateTime(r.snoozedUntil!, true, timeZone)}
+                        </span>
+                      ) : leads ? (
+                        `Alerts ${leads} before`
+                      ) : (
+                        "No advance alerts"
+                      )}
+                    </p>
+                    <div className="flex shrink-0 items-center">{actions(r)}</div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Desktop table */}
+          <div className="hidden md:block overflow-x-auto rounded-md border">
+            <table className="w-full text-left text-sm">
+              <thead className="bg-muted/50 text-xs uppercase text-muted-foreground">
+                <tr>
+                  <th className="px-4 py-3 font-medium">Title</th>
+                  <th className="px-4 py-3 font-medium">Category</th>
+                  <th className="px-4 py-3 font-medium">Amount</th>
+                  <th className="px-4 py-3 font-medium">Due</th>
+                  <th className="px-4 py-3 font-medium">Alerts before</th>
+                  <th className="px-4 py-3 font-medium">Recurrence</th>
+                  <th className="px-4 py-3 font-medium">Status</th>
+                  <th className="px-4 py-3 text-right font-medium">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {visible.map((r) => {
+                  const st = reminderStatus(r);
+                  const color = r.category?.color ?? "#64748b";
+                  return (
+                    <tr key={r.id} className="transition-colors hover:bg-muted/40">
+                      <td className="px-4 py-3 font-medium">
+                        {r.title}
+                        {isSnoozed(r) && (
+                          <span className="ml-2 text-xs text-amber-500">snoozed</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3">
+                        <span
+                          className="rounded-full px-2 py-1 text-xs font-semibold"
+                          style={{ backgroundColor: `${color}22`, color }}
+                        >
+                          {r.category?.name ?? "—"}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3">{formatCurrency(r.amount)}</td>
+                      <td className="px-4 py-3">
+                        <span className="flex items-center gap-2">
+                          <Clock className="h-4 w-4 text-muted-foreground" />
+                          {formatDateTime(r.dueAt, r.hasTime, timeZone)}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-xs text-muted-foreground">
+                        {leadSummary(r) ?? "—"}
+                      </td>
+                      <td className="px-4 py-3 text-muted-foreground">
+                        {r.recurrenceRule}
+                      </td>
+                      <td className={`px-4 py-3 font-medium ${st.className}`}>
+                        {st.label}
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex justify-end gap-1">{actions(r)}</div>
+                      </td>
+                    </tr>
                   );
                 })}
-              </div>
-
-              {/* Desktop table */}
-              <div className="hidden md:block overflow-x-auto rounded-md border">
-                <table className="w-full text-left text-sm">
-                  <thead className="bg-muted/50 text-xs uppercase text-muted-foreground">
-                    <tr>
-                      <th className="px-4 py-3 font-medium">Title</th>
-                      <th className="px-4 py-3 font-medium">Category</th>
-                      <th className="px-4 py-3 font-medium">Member</th>
-                      <th className="px-4 py-3 font-medium">Amount</th>
-                      <th className="px-4 py-3 font-medium">Due</th>
-                      <th className="px-4 py-3 font-medium">Recurrence</th>
-                      <th className="px-4 py-3 font-medium">Status</th>
-                      <th className="px-4 py-3 text-right font-medium">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-border">
-                    {visible.map((r) => {
-                      const st = reminderStatus(r);
-                      const color = r.category?.color ?? "#64748b";
-                      return (
-                        <tr key={r.id} className="transition-colors hover:bg-muted/40">
-                          <td className="px-4 py-3 font-medium">{r.title}</td>
-                          <td className="px-4 py-3">
-                            <span
-                              className="rounded-full px-2 py-1 text-xs font-semibold"
-                              style={{ backgroundColor: `${color}22`, color }}
-                            >
-                              {r.category?.name ?? "—"}
-                            </span>
-                          </td>
-                          <td className="px-4 py-3 text-muted-foreground">
-                            {r.assignedTo?.name ?? "—"}
-                          </td>
-                          <td className="px-4 py-3">{formatCurrency(r.amount)}</td>
-                          <td className="px-4 py-3">
-                            <span className="flex items-center gap-2">
-                              <CalendarIcon className="h-4 w-4 text-muted-foreground" />
-                              {formatDate(r.dueDate)}
-                            </span>
-                          </td>
-                          <td className="px-4 py-3 text-muted-foreground">
-                            {r.recurrenceRule}
-                          </td>
-                          <td className={`px-4 py-3 font-medium ${st.className}`}>
-                            {st.label}
-                          </td>
-                          <td className="px-4 py-3">
-                            <div className="flex justify-end gap-1">
-                              {r.status === "active" && (
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  title="Complete"
-                                  className="text-green-500 hover:bg-green-500/10"
-                                  onClick={() => {
-                                    setCompleting(r);
-                                    setCompleteAmount(r.amount ? String(r.amount) : "");
-                                  }}
-                                >
-                                  <CheckCircle2 className="h-4 w-4" />
-                                </Button>
-                              )}
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                title="Notify whole family"
-                                className="text-blue-500 hover:bg-blue-500/10"
-                                onClick={() => notifyFamily(r)}
-                              >
-                                <Send className="h-4 w-4" />
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                title="Edit"
-                                onClick={() => openEdit(r)}
-                              >
-                                <Pencil className="h-4 w-4" />
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                title="Delete"
-                                className="text-destructive hover:bg-destructive/10"
-                                onClick={() => remove(r)}
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </Button>
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </>
-          )}
-        </CardContent>
-      </Card>
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
 
       {/* Create / Edit */}
       <Modal
@@ -424,30 +506,6 @@ export default function RemindersPage() {
                 ))}
               </Select>
             </Field>
-            <Field label="Family member *">
-              <Select
-                value={form.assignedToId}
-                onChange={(e) =>
-                  setForm({ ...form, assignedToId: e.target.value })
-                }
-              >
-                <option value="">Select…</option>
-                {members.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.name}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-          </div>
-          <div className="grid sm:grid-cols-2 gap-4">
-            <Field label="Due date *">
-              <Input
-                type="date"
-                value={form.dueDate}
-                onChange={(e) => setForm({ ...form, dueDate: e.target.value })}
-              />
-            </Field>
             <Field label="Amount (₹)">
               <Input
                 type="number"
@@ -458,6 +516,42 @@ export default function RemindersPage() {
               />
             </Field>
           </div>
+
+          <Field label="Due date & time *">
+            <Input
+              type="datetime-local"
+              value={form.dueAt}
+              onChange={(e) => setForm({ ...form, dueAt: e.target.value })}
+            />
+          </Field>
+
+          <div>
+            <p className="text-sm font-medium mb-1.5">Remind me before</p>
+            <div className="grid grid-cols-2 gap-2">
+              {LEAD_OFFSET_OPTIONS.map((o) => {
+                const on = form.leadOffsets.includes(o.minutes);
+                return (
+                  <button
+                    key={o.minutes}
+                    type="button"
+                    onClick={() => toggleLead(o.minutes)}
+                    className={`flex min-h-11 items-center justify-center rounded-md border px-3 text-xs font-medium transition-colors md:min-h-0 md:py-2 ${
+                      on
+                        ? "border-primary bg-primary/10 text-primary"
+                        : "border-border text-muted-foreground hover:bg-accent"
+                    }`}
+                  >
+                    {o.label}
+                  </button>
+                );
+              })}
+            </div>
+            <p className="mt-1.5 text-xs text-muted-foreground">
+              You always get one at the due time. These are the extra heads-ups —
+              tick as many as you want.
+            </p>
+          </div>
+
           <div className="grid sm:grid-cols-2 gap-4">
             <Field label="Recurrence">
               <Select
@@ -489,18 +583,12 @@ export default function RemindersPage() {
           <Field label="Notes">
             <Textarea
               value={form.description}
-              onChange={(e) =>
-                setForm({ ...form, description: e.target.value })
-              }
+              onChange={(e) => setForm({ ...form, description: e.target.value })}
               placeholder="Optional details…"
             />
           </Field>
           <div className="flex justify-end gap-2 pt-2">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => setFormOpen(false)}
-            >
+            <Button type="button" variant="outline" onClick={() => setFormOpen(false)}>
               Cancel
             </Button>
             <Button type="submit" disabled={saving}>
@@ -519,10 +607,9 @@ export default function RemindersPage() {
       >
         <div className="space-y-4">
           <p className="text-sm text-muted-foreground">
-            {completing?.recurrenceRule &&
-            completing.recurrenceRule !== "One Time"
-              ? `This is recurring (${completing.recurrenceRule}) — it will roll forward to the next due date.`
-              : "This will mark the reminder completed."}
+            {completing?.recurrenceRule && completing.recurrenceRule !== "One Time"
+              ? `This is recurring (${completing.recurrenceRule}) — it will roll forward to the next due date and re-arm its notifications.`
+              : "This will mark the reminder completed and stop its notifications."}
           </p>
           <Field label="Amount paid (₹)">
             <Input
@@ -551,6 +638,32 @@ export default function RemindersPage() {
               {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Mark complete
             </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Snooze */}
+      <Modal
+        open={!!snoozing}
+        onClose={() => setSnoozing(null)}
+        title={`Snooze: ${snoozing?.title ?? ""}`}
+      >
+        <div className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            Pauses notifications for this reminder. It stays on the list and keeps
+            counting toward the app badge.
+          </p>
+          <div className="grid grid-cols-2 gap-2">
+            {SNOOZE_OPTIONS.map((o) => (
+              <Button
+                key={o.minutes}
+                variant="outline"
+                disabled={saving}
+                onClick={() => doSnooze(o.minutes)}
+              >
+                {o.label}
+              </Button>
+            ))}
           </div>
         </div>
       </Modal>

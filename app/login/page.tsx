@@ -1,109 +1,166 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Loader2, ArrowLeft } from "lucide-react";
+import { Loader2, ScanFace, KeyRound, UserPlus, MailCheck } from "lucide-react";
+import { startAuthentication } from "@simplewebauthn/browser";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Field, Input } from "@/components/ui/form";
-import { api, type LoginMember } from "@/services/api";
+import { setCacheOwner } from "@/lib/cache";
+import { api } from "@/services/api";
+
+type Mode = "signin" | "register";
 
 export default function LoginPage() {
   const router = useRouter();
-  const [members, setMembers] = useState<LoginMember[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selected, setSelected] = useState<LoginMember | null>(null);
-  const [pin, setPin] = useState("");
-  const [confirmPin, setConfirmPin] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [setupNeeded, setSetupNeeded] = useState(false);
+  const [mode, setMode] = useState<Mode>("signin");
 
-  // Bootstrap (no members yet)
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
+  const [pin, setPin] = useState("");
+  const [confirmPin, setConfirmPin] = useState("");
 
-  useEffect(() => {
-    // If already logged in, skip the login screen.
-    api.auth
-      .me()
-      .then(() => router.replace("/"))
-      .catch(() =>
-        api.auth
-          .members()
-          .then(setMembers)
-          .catch((e) => setError((e as Error).message))
-          .finally(() => setLoading(false)),
-      );
-  }, [router]);
+  const [busy, setBusy] = useState<"pin" | "passkey" | "register" | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  /** Set once a signup lands in the approval queue — there's nothing else to do. */
+  const [awaitingApproval, setAwaitingApproval] = useState(false);
 
-  function goToApp() {
+  const goToApp = useCallback(() => {
     router.replace("/");
     router.refresh();
-  }
+  }, [router]);
 
-  async function submitLogin(e: React.FormEvent) {
-    e.preventDefault();
-    if (!selected) return;
-    if (!selected.hasPin && pin !== confirmPin) {
-      setError("PINs don't match.");
-      return;
-    }
-    setBusy(true);
+  const signInWithPasskey = useCallback(async () => {
+    setBusy("passkey");
     setError(null);
     try {
-      await api.auth.login(selected.id, pin);
+      const options = await api.passkeys.authOptions();
+      // The biometric prompt happens here. No credential list was sent, so the
+      // device offers whichever passkey it holds for this site and tells the
+      // server which one was used — that's what identifies the account.
+      const assertion = await startAuthentication({
+        optionsJSON: options as never,
+      });
+      const me = await api.passkeys.authVerify(
+        assertion as unknown as Record<string, unknown>,
+      );
+      // Drops any cached data belonging to a different account before the app
+      // shell can paint it.
+      setCacheOwner(me.id);
+      goToApp();
+    } catch (e) {
+      const message = (e as Error).message || "Passkey sign-in failed.";
+      // Cancelling the sheet, or having no passkey on this device, is not an
+      // error worth shouting about.
+      setError(
+        /abort|not allowed|cancel|no available|no credentials/i.test(message)
+          ? null
+          : message,
+      );
+      setBusy(null);
+    }
+  }, [goToApp]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        // Already signed in? Skip the screen entirely.
+        await api.auth.me();
+        if (!cancelled) goToApp();
+        return;
+      } catch {
+        /* not signed in — carry on */
+      }
+      try {
+        const status = await api.auth.status();
+        if (cancelled) return;
+        setSetupNeeded(status.setupNeeded);
+        // An empty install has nobody to sign in as, so go straight to signup.
+        if (status.setupNeeded) setMode("register");
+      } catch (e) {
+        if (!cancelled) setError((e as Error).message);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [goToApp]);
+
+  async function submitSignIn(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy("pin");
+    setError(null);
+    try {
+      const me = await api.auth.login(email, pin);
+      setCacheOwner(me.id);
       goToApp();
     } catch (e) {
       setError((e as Error).message);
-      setBusy(false);
+      setBusy(null);
     }
   }
 
-  async function submitBootstrap(e: React.FormEvent) {
+  async function submitRegister(e: React.FormEvent) {
     e.preventDefault();
     if (pin !== confirmPin) {
       setError("PINs don't match.");
       return;
     }
-    setBusy(true);
+    setBusy("register");
     setError(null);
     try {
-      const res = await fetch("/api/auth/members", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, email, pin }),
-      });
-      if (!res.ok) throw new Error((await res.json()).message || "Setup failed");
-      goToApp();
+      const res = await api.auth.register({ name, email, pin });
+      if (res.status === "active") {
+        goToApp();
+        return;
+      }
+      setAwaitingApproval(true);
+      setBusy(null);
     } catch (e) {
       setError((e as Error).message);
-      setBusy(false);
+      setBusy(null);
     }
   }
 
-  const isBootstrap = !loading && members.length === 0;
+  function switchMode(next: Mode) {
+    setMode(next);
+    setError(null);
+    setPin("");
+    setConfirmPin("");
+  }
+
+  const passkeysPossible =
+    typeof window !== "undefined" && "PublicKeyCredential" in window;
 
   return (
-    <div className="flex h-screen w-full items-center justify-center bg-background p-4">
-      <Card className="w-full max-w-md">
+    <div className="flex min-h-screen w-full items-center justify-center bg-background p-4">
+      <Card className="w-full max-w-sm">
         <CardHeader className="space-y-1 pb-6 text-center">
-          <CardTitle className="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-primary to-blue-400">
+          <CardTitle className="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-primary to-primary-soft">
             PRO-SYS
           </CardTitle>
           <p className="text-sm text-muted-foreground">
-            {isBootstrap
-              ? "Set up your family to get started"
-              : selected
-                ? selected.hasPin
-                  ? `Enter ${selected.name}'s PIN`
-                  : `Create a PIN for ${selected.name}`
-                : "Who's using PRO-SYS?"}
+            {loading
+              ? "…"
+              : awaitingApproval
+                ? "Almost there"
+                : setupNeeded
+                  ? "Set up the first account"
+                  : mode === "register"
+                    ? "Create your account"
+                    : "Welcome back"}
           </p>
         </CardHeader>
 
         <CardContent>
           {error && (
-            <div className="mb-4 rounded-md border border-destructive/40 bg-destructive/10 px-4 py-2 text-sm text-red-400">
+            <div className="mb-4 rounded-md border border-destructive/40 bg-destructive/10 px-4 py-2 text-sm text-red-700 dark:text-red-400">
               {error}
             </div>
           )}
@@ -112,106 +169,174 @@ export default function LoginPage() {
             <div className="flex items-center justify-center py-10 text-muted-foreground">
               <Loader2 className="mr-2 h-5 w-5 animate-spin" /> Loading…
             </div>
-          ) : isBootstrap ? (
-            <form onSubmit={submitBootstrap} className="space-y-4">
-              <Field label="Your name">
-                <Input value={name} onChange={(e) => setName(e.target.value)} autoFocus />
-              </Field>
-              <Field label="Email (for reminders)">
-                <Input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                />
-              </Field>
-              <div className="grid sm:grid-cols-2 gap-4">
-                <Field label="Create a PIN (4–6 digits)">
+          ) : awaitingApproval ? (
+            <div className="space-y-4 text-center">
+              <MailCheck className="mx-auto h-10 w-10 text-primary" />
+              <p className="text-sm">
+                Your account has been created and is waiting for an admin to
+                approve it.
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Once it&apos;s approved, sign in with your email and PIN.
+              </p>
+              <Button
+                variant="outline"
+                className="w-full"
+                onClick={() => {
+                  setAwaitingApproval(false);
+                  switchMode("signin");
+                }}
+              >
+                Back to sign in
+              </Button>
+            </div>
+          ) : mode === "register" ? (
+            <div className="space-y-4">
+              {setupNeeded && (
+                <p className="rounded-md border border-primary/40 bg-primary/10 px-3 py-2 text-xs">
+                  Nobody has an account yet, so this first one becomes the{" "}
+                  <strong>admin</strong> — you&apos;ll approve everyone who signs
+                  up after you.
+                </p>
+              )}
+
+              <form onSubmit={submitRegister} className="space-y-4">
+                <Field label="Your name">
+                  <Input
+                    autoFocus
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    placeholder="Alex Sharma"
+                  />
+                </Field>
+                <Field label="Email">
+                  <Input
+                    type="email"
+                    autoComplete="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="you@example.com"
+                  />
+                </Field>
+                <Field label="Choose a PIN (4–6 digits)">
                   <Input
                     inputMode="numeric"
+                    autoComplete="new-password"
                     maxLength={6}
                     value={pin}
                     onChange={(e) => setPin(e.target.value.replace(/\D/g, ""))}
+                    placeholder="••••"
+                    className="text-center tracking-[0.5em]"
                   />
                 </Field>
                 <Field label="Confirm PIN">
                   <Input
                     inputMode="numeric"
+                    autoComplete="new-password"
                     maxLength={6}
                     value={confirmPin}
-                    onChange={(e) => setConfirmPin(e.target.value.replace(/\D/g, ""))}
+                    onChange={(e) =>
+                      setConfirmPin(e.target.value.replace(/\D/g, ""))
+                    }
+                    className="text-center tracking-[0.5em]"
                   />
                 </Field>
-              </div>
-              <Button className="w-full" type="submit" disabled={busy}>
-                {busy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                Create & enter
-              </Button>
-            </form>
-          ) : !selected ? (
-            <div className="grid grid-cols-2 gap-3">
-              {members.map((m) => (
-                <button
-                  key={m.id}
-                  onClick={() => {
-                    setSelected(m);
-                    setPin("");
-                    setConfirmPin("");
-                    setError(null);
-                  }}
-                  className="flex flex-col items-center gap-2 rounded-lg border p-4 transition-colors hover:bg-accent"
+                <Button
+                  className="w-full"
+                  type="submit"
+                  disabled={busy !== null || pin.length < 4 || !email || !name}
                 >
-                  <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary/20 text-lg font-bold text-primary">
-                    {m.name.charAt(0).toUpperCase()}
-                  </div>
-                  <span className="text-sm font-medium">{m.name}</span>
-                  {!m.hasPin && (
-                    <span className="text-[10px] text-muted-foreground">Set PIN</span>
+                  {busy === "register" ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <UserPlus className="mr-2 h-4 w-4" />
                   )}
+                  Create account
+                </Button>
+              </form>
+
+              {!setupNeeded && (
+                <button
+                  type="button"
+                  onClick={() => switchMode("signin")}
+                  className="w-full text-center text-xs text-muted-foreground underline"
+                >
+                  I already have an account
                 </button>
-              ))}
+              )}
             </div>
           ) : (
-            <form onSubmit={submitLogin} className="space-y-4">
-              <div className="flex flex-col items-center gap-2 pb-2">
-                <div className="flex h-14 w-14 items-center justify-center rounded-full bg-primary/20 text-xl font-bold text-primary">
-                  {selected.name.charAt(0).toUpperCase()}
-                </div>
-              </div>
-              <Field label={selected.hasPin ? "PIN" : "Choose a PIN (4–6 digits)"}>
-                <Input
-                  inputMode="numeric"
-                  maxLength={6}
-                  autoFocus
-                  value={pin}
-                  onChange={(e) => setPin(e.target.value.replace(/\D/g, ""))}
-                  placeholder="••••"
-                />
-              </Field>
-              {!selected.hasPin && (
-                <Field label="Confirm PIN">
+            <div className="space-y-4">
+              {passkeysPossible && (
+                <>
+                  <Button
+                    className="w-full"
+                    onClick={signInWithPasskey}
+                    disabled={busy !== null}
+                  >
+                    {busy === "passkey" ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <ScanFace className="mr-2 h-4 w-4" />
+                    )}
+                    Unlock with Face ID
+                  </Button>
+                  <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                    <span className="h-px flex-1 bg-border" />
+                    or use your email and PIN
+                    <span className="h-px flex-1 bg-border" />
+                  </div>
+                </>
+              )}
+
+              <form onSubmit={submitSignIn} className="space-y-4">
+                <Field label="Email">
                   <Input
-                    inputMode="numeric"
-                    maxLength={6}
-                    value={confirmPin}
-                    onChange={(e) => setConfirmPin(e.target.value.replace(/\D/g, ""))}
+                    type="email"
+                    autoComplete="email"
+                    autoFocus={!passkeysPossible}
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="you@example.com"
                   />
                 </Field>
-              )}
-              <Button className="w-full" type="submit" disabled={busy || pin.length < 4}>
-                {busy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                {selected.hasPin ? "Enter" : "Set PIN & enter"}
-              </Button>
+                <Field label="PIN">
+                  <Input
+                    inputMode="numeric"
+                    autoComplete="current-password"
+                    maxLength={6}
+                    value={pin}
+                    onChange={(e) => setPin(e.target.value.replace(/\D/g, ""))}
+                    placeholder="••••"
+                    className="text-center tracking-[0.5em]"
+                  />
+                </Field>
+                <Button
+                  className="w-full"
+                  type="submit"
+                  variant={passkeysPossible ? "outline" : "default"}
+                  disabled={busy !== null || pin.length < 4 || !email}
+                >
+                  {busy === "pin" ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <KeyRound className="mr-2 h-4 w-4" />
+                  )}
+                  Unlock
+                </Button>
+              </form>
+
               <button
                 type="button"
-                onClick={() => {
-                  setSelected(null);
-                  setError(null);
-                }}
-                className="flex w-full items-center justify-center gap-1 text-sm text-muted-foreground hover:text-foreground"
+                onClick={() => switchMode("register")}
+                className="w-full text-center text-xs text-muted-foreground underline"
               >
-                <ArrowLeft className="h-4 w-4" /> Back
+                Create an account
               </button>
-            </form>
+              <p className="text-center text-xs text-muted-foreground">
+                New accounts need an admin&apos;s approval before they can sign in.
+              </p>
+            </div>
           )}
         </CardContent>
       </Card>

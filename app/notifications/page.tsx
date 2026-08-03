@@ -1,40 +1,44 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { Bell, Check, CheckCheck, Loader2, Mail } from "lucide-react";
+import { useState } from "react";
+import { AlarmClock, Bell, BellRing, Check, CheckCheck, Loader2 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { useApp } from "@/components/app-context";
+import { useCached } from "@/lib/cache";
 import { api } from "@/services/api";
-import { formatDate } from "@/lib/format";
+import { formatDateTime } from "@/lib/format";
 import type { AppNotification } from "@/types";
 
+/** Visual treatment per notification kind — lead / due / overdue. */
+const KIND_STYLE: Record<
+  string,
+  { icon: typeof Bell; className: string; label: string }
+> = {
+  lead: { icon: BellRing, className: "bg-blue-500/15 text-blue-400", label: "Heads-up" },
+  due: { icon: AlarmClock, className: "bg-orange-500/15 text-orange-400", label: "Due" },
+  overdue: { icon: AlarmClock, className: "bg-red-500/15 text-red-400", label: "Overdue" },
+};
+
 export default function NotificationsPage() {
-  const [items, setItems] = useState<AppNotification[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { timeZone, syncBadge } = useApp();
+  const {
+    data,
+    loading,
+    error: loadError,
+    refresh: load,
+    set: setItems,
+  } = useCached("notifications", api.notifications.list);
+  const items: AppNotification[] = data ?? [];
   const [error, setError] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      setItems(await api.notifications.list());
-      setError(null);
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    load();
-  }, [load]);
-
   async function markRead(id: string) {
-    setItems((prev) =>
-      prev.map((n) => (n.id === id ? { ...n, read: true } : n)),
-    );
+    // Optimistic, and written straight to the cache so it survives navigation.
+    setItems(items.map((n) => (n.id === id ? { ...n, read: true } : n)));
     try {
       await api.notifications.markRead(id);
+      // The bell count now lives in the app shell, so it has to be told.
+      await syncBadge();
     } catch {
       load();
     }
@@ -44,6 +48,7 @@ export default function NotificationsPage() {
     try {
       await api.notifications.markAllRead();
       await load();
+      await syncBadge();
     } catch (e) {
       setError((e as Error).message);
     }
@@ -55,10 +60,10 @@ export default function NotificationsPage() {
     <div className="flex-1 space-y-4 p-4 md:p-8">
       <div className="flex items-center justify-between gap-2">
         <div className="min-w-0">
-          <h2 className="text-2xl md:text-3xl font-bold tracking-tight">Notifications</h2>
-          <p className="text-sm text-muted-foreground">
-            Family notifications · {unread} unread
-          </p>
+          <h2 className="text-xl md:text-3xl font-bold tracking-tight">
+            Notifications
+          </h2>
+          <p className="text-sm text-muted-foreground">{unread} unread</p>
         </div>
         {unread > 0 && (
           <Button variant="outline" onClick={markAll}>
@@ -67,9 +72,9 @@ export default function NotificationsPage() {
         )}
       </div>
 
-      {error && (
-        <div className="rounded-md border border-destructive/40 bg-destructive/10 px-4 py-2 text-sm text-red-400">
-          {error}
+      {(error ?? loadError) && (
+        <div className="rounded-md border border-destructive/40 bg-destructive/10 px-4 py-2 text-sm text-red-700 dark:text-red-400">
+          {error ?? loadError}
         </div>
       )}
 
@@ -83,53 +88,50 @@ export default function NotificationsPage() {
             <Bell className="h-8 w-8" />
             <p>No notifications yet.</p>
             <p className="text-xs">
-              The daily reminder job creates these when items are due.
+              This log fills up as your reminders come due — it stays even if a
+              push or email fails to reach you.
             </p>
           </CardContent>
         </Card>
       ) : (
         <div className="space-y-2">
-          {items.map((n) => (
-            <div
-              key={n.id}
-              className={`flex items-center justify-between rounded-lg border p-4 transition-colors ${
-                n.read ? "bg-transparent" : "bg-primary/5 border-primary/30"
-              }`}
-            >
-              <div className="flex items-center gap-3">
-                <div
-                  className={`flex h-9 w-9 items-center justify-center rounded-full ${
-                    n.channel === "email"
-                      ? "bg-blue-500/15 text-blue-400"
-                      : "bg-muted text-muted-foreground"
-                  }`}
-                >
-                  {n.channel === "email" ? (
-                    <Mail className="h-4 w-4" />
-                  ) : (
-                    <Bell className="h-4 w-4" />
-                  )}
+          {items.map((n) => {
+            const style = KIND_STYLE[n.kind] ?? KIND_STYLE.due;
+            const Icon = style.icon;
+            return (
+              <div
+                key={n.id}
+                className={`flex items-center justify-between gap-3 rounded-lg border p-4 transition-colors ${
+                  n.read ? "bg-transparent" : "bg-primary/5 border-primary/30"
+                }`}
+              >
+                <div className="flex min-w-0 items-center gap-3">
+                  <div
+                    className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${style.className}`}
+                  >
+                    <Icon className="h-4 w-4" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium">{n.title}</p>
+                    <p className="text-xs text-muted-foreground">{n.body}</p>
+                    <p className="mt-0.5 text-[11px] text-muted-foreground">
+                      {style.label} · {formatDateTime(n.createdAt, true, timeZone)}
+                    </p>
+                  </div>
                 </div>
-                <div>
-                  <p className="text-sm font-medium">{n.message}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {n.user?.name ? `${n.user.name} · ` : ""}
-                    {formatDate(n.createdAt)}
-                    {n.channel === "email" ? " · emailed" : ""}
-                  </p>
-                </div>
+                {!n.read && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="shrink-0"
+                    onClick={() => markRead(n.id)}
+                  >
+                    <Check className="mr-1 h-4 w-4" /> Read
+                  </Button>
+                )}
               </div>
-              {!n.read && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => markRead(n.id)}
-                >
-                  <Check className="mr-1 h-4 w-4" /> Read
-                </Button>
-              )}
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>

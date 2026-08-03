@@ -1,269 +1,375 @@
 import { prisma } from "./db";
+import {
+  sendPushToUser,
+  countOutstanding,
+  countSubscriptions,
+  isPushConfigured,
+} from "./push";
 import { sendMail, isMailConfigured } from "./mail";
+import { buildReminderEmail, type AlertKind } from "./reminder-email";
+import { formatInZone, formatTimeInZone, humanizeMinutes } from "./time";
 
-const DAY_MS = 24 * 60 * 60 * 1000;
+// The reminder engine. Called once a minute by Supabase pg_cron (see DEPLOY.md),
+// which is why every decision below has to be idempotent: a duplicated or delayed
+// cron tick must not produce a duplicate notification.
+//
+// Reminders are private, so everything fans out per owner: their timezone, their
+// overdue interval, their devices, their inbox, their channel preferences.
 
-interface DigestItem {
+const MS_PER_MIN = 60_000;
+
+/**
+ * Floor on how often an *overdue* reminder may be emailed, regardless of how
+ * short the owner's nag interval is.
+ *
+ * Push nags are collapsible — a new one replaces the last on the lock screen — so
+ * hourly is fine there. An inbox has no such thing, and hourly mail about the
+ * same unpaid bill is how people start ignoring the app. Lead and due-time
+ * emails are never throttled; only the repeats are.
+ */
+const EMAIL_OVERDUE_MIN_GAP_MINS = 12 * 60;
+
+interface ReminderOwner {
+  id: string;
+  name: string;
+  email: string;
+  timezone: string;
+  overdueRepeatMins: number;
+  emailOptIn: boolean;
+  pushOptIn: boolean;
+}
+
+interface ReminderRow {
+  id: string;
+  userId: string;
   title: string;
-  category: string;
+  description: string | null;
+  dueAt: Date;
+  leadOffsets: number[];
   amount: number | null;
-  dueDate: Date;
-  daysUntilDue: number;
+  createdAt: Date;
+  lastNaggedAt: Date | null;
+  lastEmailedAt: Date | null;
+  snoozedUntil: Date | null;
+  user: ReminderOwner;
+  category: { name: string } | null;
+}
+
+interface Fire {
+  reminder: ReminderRow;
+  kind: AlertKind;
+  /** lead: the offset in minutes. due: 0. overdue: whole minutes since dueAt. */
+  offsetMin: number;
+  /** Minutes until due — negative once overdue. */
+  minutesUntilDue: number;
 }
 
 export interface DispatchSummary {
   ran: boolean;
-  smtpConfigured: boolean;
-  remindersConsidered: number;
-  usersNotified: number;
-  emailsSent: number;
+  pushConfigured: boolean;
+  mailConfigured: boolean;
+  /** Devices reachable across every approved account. */
+  subscriptions: number;
+  usersConsidered: number;
+  considered: number;
+  fired: Record<AlertKind, number>;
+  skippedAlreadySent: number;
   notificationsCreated: number;
+  pushesSent: number;
+  pushesFailed: number;
+  pushesSkippedOptOut: number;
+  emailsSent: number;
+  emailsThrottled: number;
+  emailsSkippedOptOut: number;
 }
 
-function daysUntil(dueDate: Date, startOfToday: Date): number {
-  const dueMidnight = new Date(
-    Date.UTC(dueDate.getUTCFullYear(), dueDate.getUTCMonth(), dueDate.getUTCDate()),
-  );
-  return Math.round((dueMidnight.getTime() - startOfToday.getTime()) / DAY_MS);
+function isUniqueViolation(err: unknown): boolean {
+  return (err as { code?: string })?.code === "P2002";
 }
 
 /**
- * Daily reminder engine (Vercel Cron). Emails each reminder ONCE — when it is due
- * (or the first run on/after its due date) — never repeatedly day after day.
- * A reminder re-arms after completion because its due date rolls forward.
+ * Works out everything that should fire for one reminder at `now`.
+ *
+ * Lead alerts are deliberately not back-filled: a lead point that already lay in
+ * the past when the reminder was created is skipped, so adding "1 week before" to
+ * something due tomorrow doesn't fire instantly.
  */
-export async function dispatchDueReminders(): Promise<DispatchSummary> {
-  const now = new Date();
-  const startOfToday = new Date(
-    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
-  );
+function planFires(r: ReminderRow, now: Date, overdueRepeatMins: number): Fire[] {
+  const fires: Fire[] = [];
+  const dueMs = r.dueAt.getTime();
+  const nowMs = now.getTime();
+  const minutesUntilDue = Math.round((dueMs - nowMs) / MS_PER_MIN);
+  const isDue = dueMs <= nowMs;
 
-  // Only reminders that are actually due or overdue (nothing in advance).
-  const reminders = await prisma.reminder.findMany({
-    where: { status: "active", dueDate: { lte: now } },
-    include: { category: true, assignedTo: true },
-  });
-
-  // For each reminder, find the newest notification already sent for it.
-  const ids = reminders.map((r) => r.id);
-  const priorNotifs = ids.length
-    ? await prisma.notification.findMany({
-        where: { reminderId: { in: ids } },
-        select: { reminderId: true, createdAt: true },
-      })
-    : [];
-  const latestNotif = new Map<string, Date>();
-  for (const n of priorNotifs) {
-    const rid = n.reminderId as string;
-    const cur = latestNotif.get(rid);
-    if (!cur || n.createdAt > cur) latestNotif.set(rid, n.createdAt);
+  if (!isDue) {
+    for (const offset of r.leadOffsets) {
+      const at = dueMs - offset * MS_PER_MIN;
+      if (at > nowMs) continue; // still in the future
+      if (at < r.createdAt.getTime()) continue; // already past at creation — don't back-fill
+      fires.push({ reminder: r, kind: "lead", offsetMin: offset, minutesUntilDue });
+    }
+    return fires;
   }
 
-  const perUser = new Map<
-    string,
-    { user: (typeof reminders)[number]["assignedTo"]; items: DigestItem[]; ids: string[] }
-  >();
+  // Due or overdue. The due alert always goes out exactly once per due-cycle.
+  fires.push({ reminder: r, kind: "due", offsetMin: 0, minutesUntilDue });
 
-  for (const r of reminders) {
-    // Already notified for this due-cycle? (notification created on/after this due date)
-    const last = latestNotif.get(r.id);
-    if (last && last >= r.dueDate) continue;
+  // Then keep nagging on an interval until the reminder is completed or snoozed.
+  // Baseline is the last nag, or the due instant itself for the first one, so the
+  // first nag lands one full interval after the due alert rather than alongside it.
+  const baseline = (r.lastNaggedAt ?? r.dueAt).getTime();
+  if (nowMs - baseline >= overdueRepeatMins * MS_PER_MIN) {
+    const slot = Math.floor((nowMs - dueMs) / MS_PER_MIN);
+    if (slot > 0) {
+      fires.push({ reminder: r, kind: "overdue", offsetMin: slot, minutesUntilDue });
+    }
+  }
 
-    const bucket = perUser.get(r.assignedToId) ?? { user: r.assignedTo, items: [], ids: [] };
-    bucket.items.push({
+  return fires;
+}
+
+function buildCopy(fire: Fire, timeZone: string): { title: string; body: string } {
+  const { reminder: r, kind, minutesUntilDue } = fire;
+  const amount =
+    r.amount && r.amount > 0 ? ` · ₹${r.amount.toLocaleString("en-IN")}` : "";
+  const category = r.category?.name ? ` (${r.category.name})` : "";
+
+  if (kind === "lead") {
+    return {
       title: r.title,
-      category: r.category?.name ?? "Uncategorized",
-      amount: r.amount ?? null,
-      dueDate: r.dueDate,
-      daysUntilDue: daysUntil(r.dueDate, startOfToday),
-    });
-    bucket.ids.push(r.id);
-    perUser.set(r.assignedToId, bucket);
+      body: `Due in ${humanizeMinutes(minutesUntilDue)} — ${formatInZone(r.dueAt, timeZone)}${amount}`,
+    };
   }
-
-  const smtpConfigured = isMailConfigured();
-  let emailsSent = 0;
-  let notificationsCreated = 0;
-  let usersNotified = 0;
-
-  for (const [userId, { user, items, ids: rids }] of perUser) {
-    if (items.length === 0) continue;
-    usersNotified++;
-
-    let channel = "in_app";
-    if (user?.emailOptIn && user.email) {
-      const { subject, html } = buildDigestEmail(user.name, items);
-      if (await sendMail({ to: user.email, subject, html })) {
-        emailsSent++;
-        channel = "email";
-      }
-    }
-
-    const rows = items.map((item, i) => ({
-      userId,
-      reminderId: rids[i],
-      channel,
-      message: buildInAppMessage(item),
-    }));
-    const created = await prisma.notification.createMany({ data: rows });
-    notificationsCreated += created.count;
+  if (kind === "due") {
+    return {
+      title: `Due now: ${r.title}`,
+      body: `${formatTimeInZone(r.dueAt, timeZone)}${category}${amount}`,
+    };
   }
-
   return {
-    ran: true,
-    smtpConfigured,
-    remindersConsidered: reminders.length,
-    usersNotified,
-    emailsSent,
-    notificationsCreated,
+    title: `Still due: ${r.title}`,
+    body: `Overdue by ${humanizeMinutes(-minutesUntilDue)} — was due ${formatInZone(r.dueAt, timeZone)}${amount}`,
   };
 }
 
-/**
- * On-demand: email the WHOLE family about a single reminder right now, and drop an
- * in-app notification for each member. Triggered by the "Notify family" button.
- */
-export async function notifyFamilyAboutReminder(reminderId: string) {
-  const reminder = await prisma.reminder.findUnique({
-    where: { id: reminderId },
-    include: { category: true },
-  });
-  if (!reminder) return null;
+export async function dispatchDueReminders(
+  now: Date = new Date(),
+): Promise<DispatchSummary> {
+  // One query for every candidate across every account. The owner is joined in
+  // because each fire needs their zone, nag interval and channel choices — going
+  // back per reminder would be a query each.
+  const reminders = (await prisma.reminder.findMany({
+    where: {
+      status: "active",
+      OR: [{ snoozedUntil: null }, { snoozedUntil: { lte: now } }],
+      // Pending and rejected accounts are dormant: no alerts until an admin
+      // approves them.
+      user: { status: "active" },
+    },
+    select: {
+      id: true,
+      userId: true,
+      title: true,
+      description: true,
+      dueAt: true,
+      leadOffsets: true,
+      amount: true,
+      createdAt: true,
+      lastNaggedAt: true,
+      lastEmailedAt: true,
+      snoozedUntil: true,
+      user: {
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          timezone: true,
+          overdueRepeatMins: true,
+          emailOptIn: true,
+          pushOptIn: true,
+        },
+      },
+      category: { select: { name: true } },
+    },
+  })) as ReminderRow[];
 
-  const now = new Date();
-  const startOfToday = new Date(
-    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
-  );
-  const item: DigestItem = {
-    title: reminder.title,
-    category: reminder.category?.name ?? "Uncategorized",
-    amount: reminder.amount ?? null,
-    dueDate: reminder.dueDate,
-    daysUntilDue: daysUntil(reminder.dueDate, startOfToday),
+  const summary: DispatchSummary = {
+    ran: true,
+    pushConfigured: isPushConfigured(),
+    mailConfigured: isMailConfigured(),
+    // Counted up front, not derived from a send. Otherwise an idle run reports
+    // "subscriptions: 0" and reads as "no device enrolled" when devices are fine.
+    subscriptions: await prisma.pushSubscription.count({
+      where: { blockedAt: null, user: { status: "active" } },
+    }),
+    usersConsidered: new Set(reminders.map((r) => r.userId)).size,
+    considered: reminders.length,
+    fired: { lead: 0, due: 0, overdue: 0 },
+    skippedAlreadySent: 0,
+    notificationsCreated: 0,
+    pushesSent: 0,
+    pushesFailed: 0,
+    pushesSkippedOptOut: 0,
+    emailsSent: 0,
+    emailsThrottled: 0,
+    emailsSkippedOptOut: 0,
   };
 
-  const members = await prisma.user.findMany();
-  let emailed = 0;
+  const plan = reminders.flatMap((r) =>
+    planFires(r, now, r.user.overdueRepeatMins),
+  );
 
-  for (const m of members) {
-    let channel = "in_app";
-    if (m.emailOptIn && m.email) {
-      const { subject, html } = buildFamilyEmail(m.name, item);
-      if (await sendMail({ to: m.email, subject, html })) {
-        emailed++;
-        channel = "email";
-      }
-    }
-    await prisma.notification.create({
-      data: {
-        userId: m.id,
-        reminderId,
-        channel,
-        message: `👨‍👩‍👧 Family reminder: ${buildInAppMessage(item)}`,
-      },
-    });
+  // planFires works from one snapshot, so a reminder can legitimately produce a
+  // `due` and an `overdue` fire in the same run (that's how a missed cron catches
+  // up). This keeps the email throttle honest across both.
+  const lastEmailAt = new Map<string, number>();
+  for (const r of reminders) {
+    if (r.lastEmailedAt) lastEmailAt.set(r.id, r.lastEmailedAt.getTime());
   }
 
-  return { emailed, notified: members.length, title: reminder.title };
+  for (const fire of plan) {
+    const { reminder: r, kind, offsetMin } = fire;
+    const owner = r.user;
+
+    // Claim the slot BEFORE sending. The unique index on
+    // (reminderId, cycleDueAt, kind, offsetMin) is what makes a repeated or
+    // overlapping cron tick a no-op instead of a second notification.
+    try {
+      await prisma.reminderDispatch.create({
+        data: { reminderId: r.id, cycleDueAt: r.dueAt, kind, offsetMin },
+      });
+    } catch (err) {
+      if (isUniqueViolation(err)) {
+        summary.skippedAlreadySent++;
+        continue;
+      }
+      throw err;
+    }
+
+    summary.fired[kind]++;
+    const { title, body } = buildCopy(fire, owner.timezone);
+
+    // The in-app feed records every alert regardless of channel, so nothing is
+    // lost when a push fails or email is off.
+    await prisma.notification.create({
+      data: { userId: owner.id, reminderId: r.id, title, body, kind },
+    });
+    summary.notificationsCreated++;
+
+    const reminderUpdate: { lastNaggedAt?: Date; lastEmailedAt?: Date } = {};
+    if (kind !== "lead") reminderUpdate.lastNaggedAt = now;
+
+    // ------------------------------------------------------------------ push
+    if (!owner.pushOptIn) {
+      summary.pushesSkippedOptOut++;
+    } else {
+      const badge = await countOutstanding(owner.id, now);
+      const result = await sendPushToUser(owner.id, {
+        title,
+        body,
+        // One tag per reminder, so a nag replaces the previous notification for
+        // the same thing instead of stacking a wall of them on the lock screen.
+        tag: `reminder-${r.id}`,
+        reminderId: r.id,
+        kind,
+        badge,
+        url: "/reminders",
+      });
+
+      summary.pushesSent += result.sent;
+      summary.pushesFailed += result.failed;
+
+      if (result.sent === 0 && result.subscriptions > 0) {
+        await prisma.reminderDispatch.updateMany({
+          where: { reminderId: r.id, cycleDueAt: r.dueAt, kind, offsetMin },
+          data: { ok: false },
+        });
+      }
+    }
+
+    // ----------------------------------------------------------------- email
+    if (!owner.emailOptIn || !owner.email) {
+      summary.emailsSkippedOptOut++;
+    } else {
+      const gapMins = Math.max(
+        owner.overdueRepeatMins,
+        EMAIL_OVERDUE_MIN_GAP_MINS,
+      );
+      const previous = lastEmailAt.get(r.id);
+      const throttled =
+        kind === "overdue" &&
+        previous !== undefined &&
+        now.getTime() - previous < gapMins * MS_PER_MIN;
+
+      if (throttled) {
+        summary.emailsThrottled++;
+      } else {
+        const { subject, html } = buildReminderEmail({
+          userName: owner.name,
+          title: r.title,
+          description: r.description,
+          category: r.category?.name ?? null,
+          amount: r.amount,
+          dueAt: r.dueAt,
+          timeZone: owner.timezone,
+          kind,
+          minutesUntilDue: fire.minutesUntilDue,
+        });
+        if (await sendMail({ to: owner.email, subject, html })) {
+          summary.emailsSent++;
+          reminderUpdate.lastEmailedAt = now;
+          lastEmailAt.set(r.id, now.getTime());
+        }
+      }
+    }
+
+    if (Object.keys(reminderUpdate).length > 0) {
+      await prisma.reminder.update({
+        where: { id: r.id },
+        data: reminderUpdate,
+      });
+    }
+  }
+
+  return summary;
 }
 
-function statusLabel(daysUntilDue: number): string {
-  if (daysUntilDue < 0)
-    return `Overdue by ${Math.abs(daysUntilDue)} day${Math.abs(daysUntilDue) === 1 ? "" : "s"}`;
-  if (daysUntilDue === 0) return "Due today";
-  if (daysUntilDue === 1) return "Due tomorrow";
-  return `Due in ${daysUntilDue} days`;
-}
-
-function formatDate(d: Date): string {
-  return d.toLocaleDateString("en-US", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-    timeZone: "UTC",
+/** Fires a one-off push so a user can confirm delivery works end to end. */
+export async function sendTestPush(userId: string) {
+  const appName = process.env.APP_NAME || "PRO-SYS";
+  const badge = await countOutstanding(userId);
+  return sendPushToUser(userId, {
+    title: `${appName} test notification`,
+    body: "If you can see this on your lock screen, push is working.",
+    tag: "prosys-test",
+    kind: "test",
+    badge,
+    url: "/settings",
   });
 }
 
-function formatAmount(amount: number | null): string {
-  if (amount == null || amount === 0) return "";
-  return `₹${amount.toLocaleString("en-IN")}`;
+/** How many of this user's devices are currently reachable. */
+export function countUserSubscriptions(userId: string) {
+  return countSubscriptions(userId);
 }
 
-function buildInAppMessage(item: DigestItem): string {
-  const amount = formatAmount(item.amount);
-  return `${item.title} (${item.category}) — ${statusLabel(item.daysUntilDue)}${amount ? `, ${amount}` : ""}`;
-}
-
-function escapeHtml(str: string): string {
-  return str
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
-
-function emailShell(appName: string, heading: string, greeting: string, rowsHtml: string): string {
-  return `
-  <div style="font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;max-width:640px;margin:0 auto;color:#111827;">
-    <div style="background:linear-gradient(135deg,#2563eb,#1e40af);padding:24px;border-radius:12px 12px 0 0;">
-      <h1 style="margin:0;color:#ffffff;font-size:22px;">${escapeHtml(appName)}</h1>
-      <p style="margin:4px 0 0;color:#dbeafe;font-size:14px;">${escapeHtml(heading)}</p>
-    </div>
-    <div style="border:1px solid #e5e7eb;border-top:none;border-radius:0 0 12px 12px;padding:24px;">
-      <p style="margin-top:0;">${escapeHtml(greeting)}</p>
-      <table style="width:100%;border-collapse:collapse;font-size:14px;">
-        <thead>
-          <tr style="text-align:left;color:#6b7280;font-size:12px;text-transform:uppercase;">
-            <th style="padding:8px;">Title</th><th style="padding:8px;">Category</th>
-            <th style="padding:8px;">Due</th><th style="padding:8px;">Amount</th><th style="padding:8px;">Status</th>
-          </tr>
-        </thead>
-        <tbody>${rowsHtml}</tbody>
-      </table>
-    </div>
-  </div>`;
-}
-
-function itemRow(i: DigestItem): string {
-  const urgent = i.daysUntilDue < 0;
-  const color = urgent ? "#dc2626" : i.daysUntilDue === 0 ? "#ea580c" : "#2563eb";
-  const amount = formatAmount(i.amount);
-  return `
-    <tr>
-      <td style="padding:12px 8px;border-bottom:1px solid #e5e7eb;font-weight:600;">${escapeHtml(i.title)}</td>
-      <td style="padding:12px 8px;border-bottom:1px solid #e5e7eb;color:#6b7280;">${escapeHtml(i.category)}</td>
-      <td style="padding:12px 8px;border-bottom:1px solid #e5e7eb;">${escapeHtml(formatDate(i.dueDate))}</td>
-      <td style="padding:12px 8px;border-bottom:1px solid #e5e7eb;">${amount || "—"}</td>
-      <td style="padding:12px 8px;border-bottom:1px solid #e5e7eb;color:${color};font-weight:600;">${escapeHtml(statusLabel(i.daysUntilDue))}</td>
-    </tr>`;
-}
-
-function buildDigestEmail(userName: string, items: DigestItem[]): { subject: string; html: string } {
+/** Sends a one-off email so a user can confirm SMTP reaches them. */
+export async function sendTestEmail(
+  to: string,
+  userName: string,
+): Promise<boolean> {
   const appName = process.env.APP_NAME || "PRO-SYS";
-  const sorted = [...items].sort((a, b) => a.daysUntilDue - b.daysUntilDue);
-  const overdue = sorted.filter((i) => i.daysUntilDue < 0).length;
-  const subject =
-    overdue > 0
-      ? `⚠️ ${appName}: ${sorted.length} reminder${sorted.length === 1 ? "" : "s"} due now`
-      : `${appName}: ${sorted.length} reminder${sorted.length === 1 ? "" : "s"} due`;
-  const html = emailShell(
-    appName,
-    "Reminder due",
-    `Hi ${userName}, this is due:`,
-    sorted.map(itemRow).join(""),
-  );
-  return { subject, html };
-}
-
-function buildFamilyEmail(userName: string, item: DigestItem): { subject: string; html: string } {
-  const appName = process.env.APP_NAME || "PRO-SYS";
-  const subject = `${appName}: Family reminder — ${item.title}`;
-  const html = emailShell(
-    appName,
-    "Family reminder",
-    `Hi ${userName}, someone flagged this for the whole family:`,
-    itemRow(item),
-  );
-  return { subject, html };
+  return sendMail({
+    to,
+    subject: `${appName}: test email`,
+    html: `
+      <div style="font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;max-width:520px;margin:0 auto;">
+        <h2 style="margin:0 0 8px;">${appName}</h2>
+        <p>Hi ${userName}, email reminders are working — this is a test.</p>
+        <p style="color:#6b7280;font-size:13px;">
+          Real reminders arrive when something is due, plus any advance alerts you
+          tick on the reminder itself.
+        </p>
+      </div>`,
+  });
 }

@@ -37,6 +37,13 @@ yarn-error.log*
 # vercel
 .vercel
 
+# agent tooling — local to whoever is working on the repo, not project config.
+# .claude/launch.json is kept, since it just describes how to run the dev server.
+/.agents/
+/agent/
+/.claude/skills/
+/skills-lock.json
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts

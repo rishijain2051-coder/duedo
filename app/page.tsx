@@ -1,6 +1,5 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import {
   Activity as ActivityIcon,
@@ -12,46 +11,26 @@ import {
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { useMembers } from "@/components/member-context";
+import { useApp } from "@/components/app-context";
+import { useCached } from "@/lib/cache";
 import { api } from "@/services/api";
-import { formatCurrency, formatDate, reminderStatus } from "@/lib/format";
+import {
+  formatCurrency,
+  formatDate,
+  formatDateTime,
+  reminderStatus,
+} from "@/lib/format";
 import type { Activity, DashboardStats, Reminder } from "@/types";
 
 export default function DashboardPage() {
-  const { currentMember } = useMembers();
-  const [stats, setStats] = useState<DashboardStats | null>(null);
-  const [upcoming, setUpcoming] = useState<Reminder[]>([]);
-  const [activity, setActivity] = useState<Activity[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const [s, rem, act] = await Promise.all([
-        api.reports.dashboard(),
-        api.reminders.list(),
-        api.reports.recentActivity(),
-      ]);
-      setStats(s);
-      setUpcoming(
-        rem
-          .filter((r) => r.status === "active")
-          .sort((a, b) => +new Date(a.dueDate) - +new Date(b.dueDate))
-          .slice(0, 5),
-      );
-      setActivity(act);
-      setError(null);
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    load();
-  }, [load]);
+  const { user, timeZone } = useApp();
+  // Seeded from localStorage, so the numbers and list are on screen before the
+  // request finishes. One request instead of three, and the server does the
+  // sorting and top-5 slice rather than shipping every active reminder.
+  const { data, loading, error } = useCached("overview", api.reports.overview);
+  const stats: DashboardStats | null = data?.stats ?? null;
+  const upcoming: Reminder[] = data?.upcoming ?? [];
+  const activity: Activity[] = data?.activity ?? [];
 
   const kpis = [
     {
@@ -81,34 +60,48 @@ export default function DashboardPage() {
   ];
 
   return (
-    <div className="flex-1 space-y-4 p-4 md:p-8">
+    <div className="flex-1 space-y-3 p-4 md:space-y-4 md:p-8">
       <div className="flex items-center justify-between gap-2">
-        <div>
-          <h2 className="text-2xl md:text-3xl font-bold tracking-tight">Dashboard</h2>
-          <p className="text-sm text-muted-foreground">
-            {currentMember ? `Welcome back, ${currentMember.name}` : "All family reminders"}
+        {/* min-w-0 so a long subtitle can't push the button off the viewport */}
+        <div className="min-w-0">
+          <h2 className="truncate text-xl font-bold tracking-tight md:text-3xl">
+            {user ? `Hi ${user.name.split(" ")[0]}` : "Dashboard"}
+          </h2>
+          <p className="truncate text-xs text-muted-foreground md:text-sm">
+            {loading
+              ? "…"
+              : stats?.outstanding
+                ? `${stats.outstanding} needing attention now`
+                : "Nothing due right now"}
           </p>
         </div>
-        <Link href="/reminders">
-          <Button>Add Reminder</Button>
+        <Link href="/reminders" className="shrink-0">
+          <Button>
+            <span className="md:hidden">Add</span>
+            <span className="hidden md:inline">Add Reminder</span>
+          </Button>
         </Link>
       </div>
 
       {error && (
-        <div className="rounded-md border border-destructive/40 bg-destructive/10 px-4 py-2 text-sm text-red-400">
+        <div className="rounded-md border border-destructive/40 bg-destructive/10 px-4 py-2 text-sm text-red-700 dark:text-red-400">
           {error}
         </div>
       )}
 
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      {/* Two-up on phones: four full-width cards meant scrolling ~450px to read
+          four numbers. */}
+      <div className="grid grid-cols-2 gap-2 md:gap-4 lg:grid-cols-4">
         {kpis.map((k) => (
-          <Card key={k.label}>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">{k.label}</CardTitle>
-              <k.icon className={`h-4 w-4 ${k.tone}`} />
+          <Card key={k.label} className="min-w-0">
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 p-3 pb-1 md:p-6 md:pb-2">
+              <CardTitle className="truncate text-xs font-medium md:text-sm">
+                {k.label}
+              </CardTitle>
+              <k.icon className={`h-4 w-4 shrink-0 ${k.tone}`} />
             </CardHeader>
-            <CardContent>
-              <div className={`text-2xl font-bold ${k.tone}`}>
+            <CardContent className="p-3 pt-0 md:p-6 md:pt-0">
+              <div className={`text-xl font-bold md:text-2xl ${k.tone}`}>
                 {loading ? "—" : k.value}
               </div>
             </CardContent>
@@ -133,8 +126,11 @@ export default function DashboardPage() {
         </CardContent>
       </Card>
 
-      <div className="grid gap-4 lg:grid-cols-7">
-        <Card className="lg:col-span-4">
+      {/* min-w-0 on the grid items is load-bearing: grid tracks size to min-content,
+          and the truncated titles inside are white-space:nowrap, so without it the
+          tracks blow past the viewport and body's overflow-hidden clips them away. */}
+      <div className="grid gap-3 md:gap-4 lg:grid-cols-7">
+        <Card className="min-w-0 lg:col-span-4">
           <CardHeader>
             <CardTitle>Upcoming Reminders</CardTitle>
           </CardHeader>
@@ -156,18 +152,21 @@ export default function DashboardPage() {
                       key={r.id}
                       className="flex items-center justify-between rounded-lg border p-3 glass"
                     >
-                      <div className="flex items-center gap-3">
-                        <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/20">
+                      <div className="flex min-w-0 items-center gap-3">
+                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/20">
                           <Calendar className="h-5 w-5 text-primary" />
                         </div>
-                        <div>
-                          <h4 className="font-semibold">{r.title}</h4>
+                        <div className="min-w-0">
+                          <h4 className="truncate font-semibold">{r.title}</h4>
                           <p className="text-sm text-muted-foreground">
-                            {r.category?.name} · {formatDate(r.dueDate)}
+                            {r.category?.name} ·{" "}
+                            {formatDateTime(r.dueAt, r.hasTime, timeZone)}
                           </p>
                         </div>
                       </div>
-                      <span className={`text-sm font-medium ${st.className}`}>
+                      <span
+                        className={`shrink-0 text-sm font-medium ${st.className}`}
+                      >
                         {st.label}
                       </span>
                     </div>
@@ -178,7 +177,7 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
 
-        <Card className="lg:col-span-3">
+        <Card className="min-w-0 lg:col-span-3">
           <CardHeader>
             <CardTitle>Recent Activity</CardTitle>
           </CardHeader>
@@ -202,8 +201,7 @@ export default function DashboardPage() {
                         {a.amount ? ` · ${formatCurrency(a.amount)}` : ""}
                       </h4>
                       <p className="text-xs text-muted-foreground">
-                        {a.member ? `${a.member} · ` : ""}
-                        {formatDate(a.completedOn)}
+                        {formatDate(a.completedOn, timeZone)}
                       </p>
                     </div>
                   </div>

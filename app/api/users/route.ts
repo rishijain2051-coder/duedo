@@ -1,54 +1,31 @@
-import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db";
-import { HttpError, json } from "@/lib/http";
-import { hashPin, isValidPin } from "@/lib/pin";
+import { jsonAdmin } from "@/lib/http";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const publicSelect = {
-  id: true,
-  name: true,
-  email: true,
-  phone: true,
-  role: true,
-  emailOptIn: true,
-  notifyDaysBefore: true,
-  createdAt: true,
-};
-
+/**
+ * ADMIN ONLY — the account list, which is also the approval queue.
+ *
+ * Deliberately not exposed to members: with private reminders, who else has an
+ * account here is not their business.
+ */
 export async function GET() {
-  return json(() =>
-    prisma.user.findMany({ select: publicSelect, orderBy: { createdAt: "asc" } }),
-  );
-}
-
-export async function POST(req: NextRequest) {
-  return json(async () => {
-    const body = await req.json();
-    if (!body?.name || !body?.email) {
-      throw new HttpError(400, "Name and email are required");
-    }
-    const existing = await prisma.user.findUnique({ where: { email: body.email } });
-    if (existing) throw new HttpError(409, "A member with this email already exists");
-
-    let password_hash: string | undefined;
-    if (body.pin) {
-      if (!isValidPin(body.pin)) throw new HttpError(400, "PIN must be 4–6 digits");
-      password_hash = await hashPin(body.pin);
-    }
-
-    return prisma.user.create({
-      data: {
-        name: body.name,
-        email: body.email,
-        phone: body.phone ?? null,
-        role: body.role ?? "member",
-        emailOptIn: body.emailOptIn ?? true,
-        notifyDaysBefore: body.notifyDaysBefore ?? 3,
-        password_hash,
+  return jsonAdmin(async (admin) => {
+    const users = await prisma.user.findMany({
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        phone: true,
+        role: true,
+        status: true,
+        approvedAt: true,
+        createdAt: true,
       },
-      select: publicSelect,
+      // Pending first — the whole point of the page is to act on them.
+      orderBy: [{ status: "asc" }, { createdAt: "asc" }],
     });
-  }, 201);
+    return users.map((u) => ({ ...u, self: u.id === admin.id }));
+  });
 }
