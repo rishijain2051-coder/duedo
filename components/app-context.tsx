@@ -21,17 +21,28 @@ import {
   DEFAULT_ACCENT,
   DEFAULT_MODE,
 } from "@/lib/theme";
-import type { AccentId, CurrentUser, Settings, ThemeMode } from "@/types";
+import type {
+  AccentId,
+  CurrentUser,
+  FamilySummary,
+  Settings,
+  ThemeMode,
+} from "@/types";
 
 interface AppContextValue {
   /** The signed-in account. Null until the first /auth/me resolves. */
   user: CurrentUser | null;
   isAdmin: boolean;
   settings: Settings | null;
+  /** Families the user belongs to. Always empty for a solo account. */
+  families: FamilySummary[];
+  /** True once they've declared themselves a family account. */
+  isFamilyAccount: boolean;
   /** The user's own zone, used for every date the UI renders. */
   timeZone: string | undefined;
   loading: boolean;
   refreshSettings: () => Promise<void>;
+  refreshFamilies: () => Promise<void>;
   /** Re-reads the due/overdue count and repaints the Home Screen icon badge. */
   syncBadge: () => Promise<void>;
   logout: () => Promise<void>;
@@ -54,6 +65,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const [user, setUser] = useState<CurrentUser | null>(null);
   const [settings, setSettings] = useState<Settings | null>(null);
+  const [families, setFamilies] = useState<FamilySummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [themeMode, setThemeModeState] = useState<ThemeMode>(DEFAULT_MODE);
   const [accent, setAccentState] = useState<AccentId>(DEFAULT_ACCENT);
@@ -63,6 +75,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setSettings(await api.settings.get());
     } catch {
       /* surfaced by the pages that need it */
+    }
+  }, []);
+
+  const refreshFamilies = useCallback(async () => {
+    try {
+      setFamilies(await api.families.list());
+    } catch {
+      /* solo accounts simply have none */
     }
   }, []);
 
@@ -112,8 +132,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     (async () => {
       try {
-        setUser(await api.auth.me());
+        const me = await api.auth.me();
+        setUser(me);
         await refreshSettings();
+        if (me.accountType === "family") await refreshFamilies();
         // Registers the worker AND re-hands this device's subscription to the
         // server on every authenticated load, so a pruned or rotated
         // subscription heals itself instead of failing silently — and a device
@@ -127,7 +149,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         setLoading(false);
       }
     })();
-  }, [refreshSettings, syncBadge, router]);
+  }, [refreshSettings, refreshFamilies, syncBadge, router]);
 
   // Coming back to the app is the moment the badge is most likely to be stale.
   useEffect(() => {
@@ -193,9 +215,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         user,
         isAdmin: user?.role === "admin",
         settings,
+        families,
+        // Settings is the fresher source: creating a family flips accountType
+        // server-side, and this avoids waiting for a reload to see the change.
+        isFamilyAccount:
+          (settings?.accountType ?? user?.accountType) === "family",
         timeZone: settings?.timezone,
         loading,
         refreshSettings,
+        refreshFamilies,
         syncBadge,
         logout,
         themeMode,

@@ -1,22 +1,28 @@
 import { prisma } from "@/lib/db";
 import { json } from "@/lib/http";
 import { zonedDayBounds, zonedMonthStart } from "@/lib/time";
+import { visibleReminderWhere } from "@/lib/ownership";
+import { countOutstandingFor } from "@/lib/recipients";
+import { familyIdsFor } from "@/lib/families";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+/**
+ * The counters only. Kept alongside /reports/overview because the badge sync and
+ * the service worker need `outstanding` without paying for the lists.
+ */
 export async function GET() {
   return json(async (user) => {
     const now = new Date();
-    // Day and month boundaries in this user's own zone — "due today" has to mean
-    // today where they are, not today in UTC.
     const { start: startOfToday, end: endOfToday } = zonedDayBounds(
       now,
       user.timezone,
     );
     const startOfMonth = zonedMonthStart(now, user.timezone);
 
-    const mine = { userId: user.id };
+    const visible = await visibleReminderWhere(user.id);
+    const familyIds = await familyIdsFor(user.id);
 
     const [
       totalActive,
@@ -26,25 +32,23 @@ export async function GET() {
       completedThisMonth,
       monthlySpend,
     ] = await Promise.all([
-      prisma.reminder.count({ where: { ...mine, status: "active" } }),
+      prisma.reminder.count({ where: { ...visible, status: "active" } }),
       prisma.reminder.count({
         where: {
-          ...mine,
+          ...visible,
           status: "active",
           dueAt: { gte: startOfToday, lte: endOfToday },
         },
       }),
       prisma.reminder.count({
-        where: { ...mine, status: "active", dueAt: { lt: startOfToday } },
+        where: { ...visible, status: "active", dueAt: { lt: startOfToday } },
       }),
-      prisma.reminder.count({
-        where: { ...mine, status: "active", dueAt: { lte: now } },
-      }),
+      countOutstandingFor(user.id, familyIds, now),
       prisma.reminderHistory.count({
         where: {
           status: "completed",
           completedOn: { gte: startOfMonth },
-          reminder: mine,
+          reminder: visible,
         },
       }),
       prisma.reminderHistory.aggregate({
@@ -52,7 +56,7 @@ export async function GET() {
         where: {
           status: "completed",
           completedOn: { gte: startOfMonth },
-          reminder: mine,
+          reminder: visible,
         },
       }),
     ]);

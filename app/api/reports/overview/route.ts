@@ -1,6 +1,9 @@
 import { prisma } from "@/lib/db";
 import { json } from "@/lib/http";
 import { zonedDayBounds, zonedMonthStart } from "@/lib/time";
+import { visibleReminderWhere } from "@/lib/ownership";
+import { countOutstandingFor } from "@/lib/recipients";
+import { familyIdsFor } from "@/lib/families";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -8,9 +11,9 @@ export const dynamic = "force-dynamic";
 /**
  * Everything the dashboard needs, in one round trip.
  *
- * The page used to make three requests and slice the upcoming list client-side,
- * which meant shipping every active reminder just to show five. The sort and the
- * slice happen here instead.
+ * Counts cover everything the caller can *see* — their own reminders plus their
+ * families' shared lists. `outstanding` is narrower on purpose: it counts only
+ * what is addressed to them, because that is what the app badge means.
  */
 export async function GET() {
   return json(async (user) => {
@@ -20,7 +23,9 @@ export async function GET() {
       user.timezone,
     );
     const startOfMonth = zonedMonthStart(now, user.timezone);
-    const mine = { userId: user.id };
+
+    const visible = await visibleReminderWhere(user.id);
+    const familyIds = await familyIdsFor(user.id);
 
     const [
       totalActive,
@@ -32,25 +37,23 @@ export async function GET() {
       upcoming,
       history,
     ] = await Promise.all([
-      prisma.reminder.count({ where: { ...mine, status: "active" } }),
+      prisma.reminder.count({ where: { ...visible, status: "active" } }),
       prisma.reminder.count({
         where: {
-          ...mine,
+          ...visible,
           status: "active",
           dueAt: { gte: startOfToday, lte: endOfToday },
         },
       }),
       prisma.reminder.count({
-        where: { ...mine, status: "active", dueAt: { lt: startOfToday } },
+        where: { ...visible, status: "active", dueAt: { lt: startOfToday } },
       }),
-      prisma.reminder.count({
-        where: { ...mine, status: "active", dueAt: { lte: now } },
-      }),
+      countOutstandingFor(user.id, familyIds, now),
       prisma.reminderHistory.count({
         where: {
           status: "completed",
           completedOn: { gte: startOfMonth },
-          reminder: mine,
+          reminder: visible,
         },
       }),
       prisma.reminderHistory.aggregate({
@@ -58,17 +61,21 @@ export async function GET() {
         where: {
           status: "completed",
           completedOn: { gte: startOfMonth },
-          reminder: mine,
+          reminder: visible,
         },
       }),
       prisma.reminder.findMany({
-        where: { ...mine, status: "active" },
-        include: { category: true },
+        where: { ...visible, status: "active" },
+        include: {
+          category: true,
+          family: { select: { id: true, name: true } },
+          assignedTo: { select: { id: true, name: true } },
+        },
         orderBy: { dueAt: "asc" },
         take: 5,
       }),
       prisma.reminderHistory.findMany({
-        where: { reminder: mine },
+        where: { reminder: visible },
         orderBy: { completedOn: "desc" },
         take: 8,
         include: { reminder: { select: { title: true } } },

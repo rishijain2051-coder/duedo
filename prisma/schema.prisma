@@ -8,9 +8,10 @@ datasource db {
 
 /// One account.
 ///
-/// PRO-SYS is multi-user, but reminders are *personal*: everything a user creates
-/// belongs to them and nobody else can see it. So almost every model below hangs
-/// off this one, and every query is scoped by userId.
+/// Two kinds, chosen at signup (`accountType`):
+///   solo   — one person; every reminder is personal and private.
+///   family — the same, plus membership of one or more families, each with a
+///            shared reminder list all its members can see.
 ///
 /// Preferences live here rather than in a global settings row precisely because
 /// they are per-person — one user's timezone, default time, delivery channels and
@@ -28,6 +29,11 @@ model User {
   /// can sign in. The first account on a fresh install is auto-approved as an
   /// admin — otherwise there would be nobody to approve anybody.
   status String @default("pending")
+
+  /// Declared intent: `solo` hides every family surface in the UI. Actual
+  /// membership lives in FamilyMember, so this only controls what is offered —
+  /// which is what makes converting either way a one-field change.
+  accountType String @default("solo") // solo | family
 
   phone String? // optional, reserved for future SMS/WhatsApp channels
 
@@ -50,15 +56,79 @@ model User {
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @updatedAt
 
-  reminders     Reminder[]
-  categories    Category[]
-  notifications Notification[]
-  activities    ActivityLog[]
-  sessions      Session[]
-  passkeys      Passkey[]
-  pushDevices   PushSubscription[]
+  reminders         Reminder[]
+  assignedReminders Reminder[]          @relation("AssignedReminders")
+  categories        Category[]
+  notifications     Notification[]
+  activities        ActivityLog[]
+  sessions          Session[]
+  passkeys          Passkey[]
+  pushDevices       PushSubscription[]
+  families          FamilyMember[]
+  joinRequests      FamilyJoinRequest[]
+  dispatches        ReminderDispatch[]
+  completedHistory  ReminderHistory[]   @relation("CompletedReminders")
 
   @@index([status])
+}
+
+/// A household. Owns a shared reminder list and its own category list.
+///
+/// There is no `headId` here: the head is the member whose FamilyMember.role is
+/// "head". A denormalised pointer would only be a second source of truth to keep
+/// in sync with the membership row.
+model Family {
+  id   String @id @default(uuid())
+  name String
+
+  /// Short, human-shareable code used to join. Rotatable by the head, so a code
+  /// that has leaked can be retired without dissolving the family.
+  joinCode String @unique
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  members      FamilyMember[]
+  reminders    Reminder[]
+  categories   Category[]
+  joinRequests FamilyJoinRequest[]
+}
+
+/// Membership is many-to-many: a person can belong to several families at once
+/// (their own household and their parents', say). Consequently there is no
+/// `User.familyId`, and every scope check is `familyId IN (…)` rather than an
+/// equality — see familyIdsFor() in lib/families.ts, which is the only sanctioned
+/// way to obtain that set.
+model FamilyMember {
+  id       String   @id @default(uuid())
+  familyId String
+  family   Family   @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  userId   String
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role     String   @default("member") // head | member
+  joinedAt DateTime @default(now())
+
+  @@unique([familyId, userId])
+  @@index([userId])
+  @@index([familyId, role])
+}
+
+/// Someone entered a family's join code. The head approves or rejects; nobody
+/// lands in a family just by knowing the code.
+model FamilyJoinRequest {
+  id       String @id @default(uuid())
+  familyId String
+  family   Family @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  userId   String
+  user     User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  status    String    @default("pending") // pending | approved | rejected
+  createdAt DateTime  @default(now())
+  decidedAt DateTime?
+
+  @@unique([familyId, userId])
+  @@index([familyId, status])
+  @@index([userId])
 }
 
 /// One row per active login, which is what makes sessions listable and
@@ -134,12 +204,21 @@ model PushSubscription {
   @@index([userId])
 }
 
-/// Categories are per-user: reminders are private, so a shared list would leak
-/// names between accounts and let one person rename or delete another's.
+/// A category belongs to exactly one scope: a person (`userId`) or a family
+/// (`familyId`). Both nullable, exactly one set — enforced in app code.
+///
+/// Two constraints rather than one because a member must be able to have a
+/// personal "Bills" and a family "Bills" without collision. Postgres treats NULLs
+/// as distinct, so a personal row can never collide on the family constraint or
+/// the other way round.
 model Category {
-  id     String @id @default(uuid())
-  userId String
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id String @id @default(uuid())
+
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  familyId String?
+  family   Family? @relation(fields: [familyId], references: [id], onDelete: Cascade)
 
   name      String
   icon      String?
@@ -150,13 +229,34 @@ model Category {
   reminders Reminder[]
 
   @@unique([userId, name])
+  @@unique([familyId, name])
   @@index([userId])
+  @@index([familyId])
 }
 
 model Reminder {
-  id     String @id @default(uuid())
+  id String @id @default(uuid())
+
+  /// The creator, and the owner of a personal reminder. Always set.
   userId String
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// null = personal, private to userId. Set = on that family's shared list,
+  /// visible to every member of it.
+  familyId String?
+  family   Family? @relation(fields: [familyId], references: [id], onDelete: Cascade)
+
+  /// Who is responsible. Only meaningful on a family reminder.
+  assignedToId String?
+  assignedTo   User?   @relation("AssignedReminders", fields: [assignedToId], references: [id])
+
+  /// Who gets alerted when it fires:
+  ///   owner    — only the creator (the default, and the only valid value for a
+  ///              personal reminder)
+  ///   assignee — the assigned member, falling back to the creator
+  ///   family   — every active member of familyId
+  /// Resolved by lib/recipients.ts, which is the single place that decides.
+  audience String @default("owner")
 
   title       String
   description String?
@@ -180,13 +280,11 @@ model Reminder {
 
   /// Suppresses all alerts until this instant (set by the Snooze action).
   snoozedUntil DateTime?
-  /// Last overdue nag, used to space repeats by the owner's overdueRepeatMins.
+  /// Last overdue nag. A fact about the reminder's cycle, not about any one
+  /// recipient, so it stays here; per-person email throttling lives on
+  /// ReminderDispatch.emailedAt instead.
   lastNaggedAt DateTime?
-  /// Last time this reminder was *emailed*, tracked separately from lastNaggedAt
-  /// so overdue nagging can repeat hourly on push without doing the same to an
-  /// inbox. See EMAIL_OVERDUE_MIN_GAP_MINS in lib/dispatch.ts.
-  lastEmailedAt DateTime?
-  completedAt   DateTime?
+  completedAt  DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -195,13 +293,21 @@ model Reminder {
   dispatches ReminderDispatch[]
 
   @@index([userId, status, dueAt])
+  @@index([familyId, status, dueAt])
   @@index([status, dueAt])
+  @@index([assignedToId])
 }
 
 model ReminderHistory {
-  id          String   @id @default(uuid())
-  reminderId  String
-  reminder    Reminder @relation(fields: [reminderId], references: [id], onDelete: Cascade)
+  id         String   @id @default(uuid())
+  reminderId String
+  reminder   Reminder @relation(fields: [reminderId], references: [id], onDelete: Cascade)
+
+  /// Who marked it done — worth knowing on a shared family list. SetNull rather
+  /// than Cascade: deleting an account shouldn't erase the family's payment history.
+  completedById String?
+  completedBy   User?   @relation("CompletedReminders", fields: [completedById], references: [id], onDelete: SetNull)
+
   completedOn DateTime @default(now())
   amount      Float?
   status      String
@@ -210,23 +316,36 @@ model ReminderHistory {
   @@index([reminderId])
 }
 
-/// One row per alert actually sent, which is how the dispatcher avoids sending
-/// the same thing twice. Keyed on cycleDueAt so a recurring reminder re-arms
-/// cleanly the moment its dueAt rolls forward.
+/// One row per alert actually sent to one person, which is how the dispatcher
+/// avoids sending the same thing twice. Keyed on cycleDueAt so a recurring
+/// reminder re-arms cleanly the moment its dueAt rolls forward.
+///
+/// `userId` is in the unique key because a family reminder has several
+/// recipients: without it, the first person's row would suppress everybody
+/// else's alert for that fire.
 model ReminderDispatch {
   id         String   @id @default(uuid())
   reminderId String
   reminder   Reminder @relation(fields: [reminderId], references: [id], onDelete: Cascade)
+  /// The recipient this row is about.
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
   cycleDueAt DateTime // the dueAt this fire belongs to
   kind       String // lead | due | overdue
   /// lead: the offset in minutes. due: 0. overdue: whole minutes since cycleDueAt,
   /// which is unique per minute and so dedupes naturally against a per-minute cron.
-  offsetMin  Int
-  firedAt    DateTime @default(now())
-  ok         Boolean  @default(true)
+  offsetMin Int
+  firedAt   DateTime @default(now())
+  ok        Boolean  @default(true)
+  /// Set when this recipient was emailed. The 12h overdue-email throttle reads the
+  /// newest of these per (reminderId, userId), which makes the throttle per person
+  /// rather than per household.
+  emailedAt DateTime?
 
-  @@unique([reminderId, cycleDueAt, kind, offsetMin])
+  @@unique([reminderId, userId, cycleDueAt, kind, offsetMin])
   @@index([reminderId])
+  @@index([reminderId, userId, emailedAt])
 }
 
 /// In-app notification feed. Survives even when a push or email fails to deliver,
@@ -247,13 +366,42 @@ model Notification {
   @@index([reminderId])
 }
 
+/// One dispatch tick. The cron used to return a summary and persist nothing, so
+/// "is delivery working?" was unanswerable after the fact — which is what the
+/// admin health page needs to show. Pruned to the most recent rows by the
+/// dispatcher itself.
+model DispatchRun {
+  id           String   @id @default(uuid())
+  ranAt        DateTime @default(now())
+  durationMs   Int
+  considered   Int
+  recipients   Int
+  firedLead    Int      @default(0)
+  firedDue     Int      @default(0)
+  firedOverdue Int      @default(0)
+  pushesSent   Int      @default(0)
+  pushesFailed Int      @default(0)
+  emailsSent   Int      @default(0)
+  error        String?
+
+  @@index([ranAt])
+}
+
+/// Audit trail. Written by lib/audit.ts on approvals, role changes, deletions,
+/// family membership changes, and every admin read of another account's data.
 model ActivityLog {
-  id        String   @id @default(uuid())
-  userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  action    String
-  entity    String
+  id      String @id @default(uuid())
+  /// Who did it. Null for system actions (the dispatcher, say).
+  actorId String?
+  actor   User?   @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  action    String // user.approve | family.join.approve | admin.read.reminders | …
+  entity    String // user | family | reminder | session
+  entityId  String?
+  detail    Json?
   timestamp DateTime @default(now())
 
-  @@index([userId])
+  @@index([actorId])
+  @@index([timestamp])
+  @@index([entity, entityId])
 }

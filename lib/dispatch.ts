@@ -1,47 +1,48 @@
 import { prisma } from "./db";
-import {
-  sendPushToUser,
-  countOutstanding,
-  countSubscriptions,
-  isPushConfigured,
-} from "./push";
+import { sendPushToUser, isPushConfigured } from "./push";
 import { sendMail, isMailConfigured } from "./mail";
 import { buildReminderEmail, type AlertKind } from "./reminder-email";
+import { recipientsFor, countOutstandingFor } from "./recipients";
+import { familyIdsFor } from "./families";
 import { formatInZone, formatTimeInZone, humanizeMinutes } from "./time";
 
 // The reminder engine. Called once a minute by Supabase pg_cron (see DEPLOY.md),
 // which is why every decision below has to be idempotent: a duplicated or delayed
 // cron tick must not produce a duplicate notification.
 //
-// Reminders are private, so everything fans out per owner: their timezone, their
-// overdue interval, their devices, their inbox, their channel preferences.
+// A reminder can now reach several people — a family reminder addressed to
+// everyone — so the unit of work is (fire × recipient), not just fire. Dedupe,
+// channel choice and email throttling are all per recipient; the nag *schedule*
+// stays per reminder, because whether something is overdue is a fact about the
+// reminder rather than about who is being told.
 
 const MS_PER_MIN = 60_000;
 
 /**
- * Floor on how often an *overdue* reminder may be emailed, regardless of how
- * short the owner's nag interval is.
+ * Floor on how often one person may be emailed about the same *overdue*
+ * reminder, regardless of how short the nag interval is.
  *
  * Push nags are collapsible — a new one replaces the last on the lock screen — so
  * hourly is fine there. An inbox has no such thing, and hourly mail about the
- * same unpaid bill is how people start ignoring the app. Lead and due-time
- * emails are never throttled; only the repeats are.
+ * same unpaid bill is how people learn to ignore an app. Lead and due-time emails
+ * are never throttled; only the repeats are.
  */
 const EMAIL_OVERDUE_MIN_GAP_MINS = 12 * 60;
 
-interface ReminderOwner {
+/** How many DispatchRun rows to keep. Enough to see a pattern, not unbounded. */
+const RUN_HISTORY = 500;
+
+interface Owner {
   id: string;
-  name: string;
-  email: string;
-  timezone: string;
   overdueRepeatMins: number;
-  emailOptIn: boolean;
-  pushOptIn: boolean;
 }
 
 interface ReminderRow {
   id: string;
   userId: string;
+  familyId: string | null;
+  assignedToId: string | null;
+  audience: string;
   title: string;
   description: string | null;
   dueAt: Date;
@@ -49,9 +50,9 @@ interface ReminderRow {
   amount: number | null;
   createdAt: Date;
   lastNaggedAt: Date | null;
-  lastEmailedAt: Date | null;
   snoozedUntil: Date | null;
-  user: ReminderOwner;
+  user: Owner;
+  family: { name: string } | null;
   category: { name: string } | null;
 }
 
@@ -64,14 +65,24 @@ interface Fire {
   minutesUntilDue: number;
 }
 
+/** The per-recipient facts needed to decide and address a delivery. */
+interface Recipient {
+  id: string;
+  name: string;
+  email: string;
+  timezone: string;
+  emailOptIn: boolean;
+  pushOptIn: boolean;
+}
+
 export interface DispatchSummary {
   ran: boolean;
   pushConfigured: boolean;
   mailConfigured: boolean;
-  /** Devices reachable across every approved account. */
   subscriptions: number;
-  usersConsidered: number;
   considered: number;
+  /** Distinct (fire × recipient) pairs actually delivered on this run. */
+  recipients: number;
   fired: Record<AlertKind, number>;
   skippedAlreadySent: number;
   notificationsCreated: number;
@@ -81,6 +92,7 @@ export interface DispatchSummary {
   emailsSent: number;
   emailsThrottled: number;
   emailsSkippedOptOut: number;
+  durationMs: number;
 }
 
 function isUniqueViolation(err: unknown): boolean {
@@ -128,26 +140,33 @@ function planFires(r: ReminderRow, now: Date, overdueRepeatMins: number): Fire[]
   return fires;
 }
 
+/**
+ * Alert copy, rendered in the *recipient's* timezone rather than the creator's —
+ * on a shared family reminder those can differ, and a time the reader can't act
+ * on is worse than no time.
+ */
 function buildCopy(fire: Fire, timeZone: string): { title: string; body: string } {
   const { reminder: r, kind, minutesUntilDue } = fire;
   const amount =
     r.amount && r.amount > 0 ? ` · ₹${r.amount.toLocaleString("en-IN")}` : "";
+  // Family reminders say which household, since a member may be in several.
+  const scope = r.family?.name ? ` [${r.family.name}]` : "";
   const category = r.category?.name ? ` (${r.category.name})` : "";
 
   if (kind === "lead") {
     return {
-      title: r.title,
+      title: `${r.title}${scope}`,
       body: `Due in ${humanizeMinutes(minutesUntilDue)} — ${formatInZone(r.dueAt, timeZone)}${amount}`,
     };
   }
   if (kind === "due") {
     return {
-      title: `Due now: ${r.title}`,
+      title: `Due now: ${r.title}${scope}`,
       body: `${formatTimeInZone(r.dueAt, timeZone)}${category}${amount}`,
     };
   }
   return {
-    title: `Still due: ${r.title}`,
+    title: `Still due: ${r.title}${scope}`,
     body: `Overdue by ${humanizeMinutes(-minutesUntilDue)} — was due ${formatInZone(r.dueAt, timeZone)}${amount}`,
   };
 }
@@ -155,9 +174,9 @@ function buildCopy(fire: Fire, timeZone: string): { title: string; body: string 
 export async function dispatchDueReminders(
   now: Date = new Date(),
 ): Promise<DispatchSummary> {
-  // One query for every candidate across every account. The owner is joined in
-  // because each fire needs their zone, nag interval and channel choices — going
-  // back per reminder would be a query each.
+  const startedAt = Date.now();
+
+  // One query for every candidate across every account.
   const reminders = (await prisma.reminder.findMany({
     where: {
       status: "active",
@@ -169,6 +188,9 @@ export async function dispatchDueReminders(
     select: {
       id: true,
       userId: true,
+      familyId: true,
+      assignedToId: true,
+      audience: true,
       title: true,
       description: true,
       dueAt: true,
@@ -176,19 +198,9 @@ export async function dispatchDueReminders(
       amount: true,
       createdAt: true,
       lastNaggedAt: true,
-      lastEmailedAt: true,
       snoozedUntil: true,
-      user: {
-        select: {
-          id: true,
-          name: true,
-          email: true,
-          timezone: true,
-          overdueRepeatMins: true,
-          emailOptIn: true,
-          pushOptIn: true,
-        },
-      },
+      user: { select: { id: true, overdueRepeatMins: true } },
+      family: { select: { name: true } },
       category: { select: { name: true } },
     },
   })) as ReminderRow[];
@@ -197,13 +209,11 @@ export async function dispatchDueReminders(
     ran: true,
     pushConfigured: isPushConfigured(),
     mailConfigured: isMailConfigured(),
-    // Counted up front, not derived from a send. Otherwise an idle run reports
-    // "subscriptions: 0" and reads as "no device enrolled" when devices are fine.
     subscriptions: await prisma.pushSubscription.count({
       where: { blockedAt: null, user: { status: "active" } },
     }),
-    usersConsidered: new Set(reminders.map((r) => r.userId)).size,
     considered: reminders.length,
+    recipients: 0,
     fired: { lead: 0, due: 0, overdue: 0 },
     skippedAlreadySent: 0,
     notificationsCreated: 0,
@@ -213,89 +223,167 @@ export async function dispatchDueReminders(
     emailsSent: 0,
     emailsThrottled: 0,
     emailsSkippedOptOut: 0,
+    durationMs: 0,
   };
 
   const plan = reminders.flatMap((r) =>
     planFires(r, now, r.user.overdueRepeatMins),
   );
 
-  // planFires works from one snapshot, so a reminder can legitimately produce a
-  // `due` and an `overdue` fire in the same run (that's how a missed cron catches
-  // up). This keeps the email throttle honest across both.
+  // Per-run caches. Volumes here are small (a household, not a mailing list), so
+  // these exist to avoid silly repetition rather than to scale.
+  const recipientIdCache = new Map<string, string[]>();
+  const userCache = new Map<string, Recipient>();
+  const familyIdCache = new Map<string, string[]>();
+  /** Newest email instant per `${reminderId}:${userId}`, for the throttle. */
   const lastEmailAt = new Map<string, number>();
-  for (const r of reminders) {
-    if (r.lastEmailedAt) lastEmailAt.set(r.id, r.lastEmailedAt.getTime());
+
+  async function resolveRecipients(r: ReminderRow): Promise<string[]> {
+    const hit = recipientIdCache.get(r.id);
+    if (hit) return hit;
+    const ids = await recipientsFor(r);
+    recipientIdCache.set(r.id, ids);
+    return ids;
+  }
+
+  async function loadUsers(ids: string[]): Promise<void> {
+    const missing = ids.filter((id) => !userCache.has(id));
+    if (missing.length === 0) return;
+    const rows = await prisma.user.findMany({
+      where: { id: { in: missing }, status: "active" },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        timezone: true,
+        emailOptIn: true,
+        pushOptIn: true,
+      },
+    });
+    for (const u of rows) userCache.set(u.id, u);
+  }
+
+  async function familyIds(userId: string): Promise<string[]> {
+    const hit = familyIdCache.get(userId);
+    if (hit) return hit;
+    const ids = await familyIdsFor(userId);
+    familyIdCache.set(userId, ids);
+    return ids;
+  }
+
+  async function lastEmailedAt(
+    reminderId: string,
+    userId: string,
+  ): Promise<number | undefined> {
+    const key = `${reminderId}:${userId}`;
+    if (lastEmailAt.has(key)) return lastEmailAt.get(key);
+    const row = await prisma.reminderDispatch.findFirst({
+      where: { reminderId, userId, emailedAt: { not: null } },
+      orderBy: { emailedAt: "desc" },
+      select: { emailedAt: true },
+    });
+    if (row?.emailedAt) {
+      lastEmailAt.set(key, row.emailedAt.getTime());
+      return row.emailedAt.getTime();
+    }
+    return undefined;
   }
 
   for (const fire of plan) {
     const { reminder: r, kind, offsetMin } = fire;
-    const owner = r.user;
 
-    // Claim the slot BEFORE sending. The unique index on
-    // (reminderId, cycleDueAt, kind, offsetMin) is what makes a repeated or
-    // overlapping cron tick a no-op instead of a second notification.
-    try {
-      await prisma.reminderDispatch.create({
-        data: { reminderId: r.id, cycleDueAt: r.dueAt, kind, offsetMin },
+    const ids = await resolveRecipients(r);
+    await loadUsers(ids);
+
+    let deliveredToAnyone = false;
+
+    for (const recipientId of ids) {
+      const person = userCache.get(recipientId);
+      if (!person) continue; // not active any more
+
+      // Claim the slot BEFORE sending. The unique index on
+      // (reminderId, userId, cycleDueAt, kind, offsetMin) is what makes a repeated
+      // or overlapping cron tick a no-op instead of a second notification — and
+      // including userId is what stops one family member's row suppressing the rest.
+      try {
+        await prisma.reminderDispatch.create({
+          data: {
+            reminderId: r.id,
+            userId: recipientId,
+            cycleDueAt: r.dueAt,
+            kind,
+            offsetMin,
+          },
+        });
+      } catch (err) {
+        if (isUniqueViolation(err)) {
+          summary.skippedAlreadySent++;
+          continue;
+        }
+        throw err;
+      }
+
+      deliveredToAnyone = true;
+      summary.recipients++;
+
+      const { title, body } = buildCopy(fire, person.timezone);
+
+      // The in-app feed records every alert regardless of channel, so nothing is
+      // lost when a push fails or email is off.
+      await prisma.notification.create({
+        data: { userId: recipientId, reminderId: r.id, title, body, kind },
       });
-    } catch (err) {
-      if (isUniqueViolation(err)) {
-        summary.skippedAlreadySent++;
+      summary.notificationsCreated++;
+
+      // ---------------------------------------------------------------- push
+      if (!person.pushOptIn) {
+        summary.pushesSkippedOptOut++;
+      } else {
+        const badge = await countOutstandingFor(
+          recipientId,
+          await familyIds(recipientId),
+          now,
+        );
+        const result = await sendPushToUser(recipientId, {
+          title,
+          body,
+          // One tag per reminder, so a nag replaces the previous notification for
+          // the same thing instead of stacking a wall of them on the lock screen.
+          tag: `reminder-${r.id}`,
+          reminderId: r.id,
+          kind,
+          badge,
+          url: "/reminders",
+        });
+
+        summary.pushesSent += result.sent;
+        summary.pushesFailed += result.failed;
+
+        if (result.sent === 0 && result.subscriptions > 0) {
+          await prisma.reminderDispatch.updateMany({
+            where: {
+              reminderId: r.id,
+              userId: recipientId,
+              cycleDueAt: r.dueAt,
+              kind,
+              offsetMin,
+            },
+            data: { ok: false },
+          });
+        }
+      }
+
+      // --------------------------------------------------------------- email
+      if (!person.emailOptIn || !person.email) {
+        summary.emailsSkippedOptOut++;
         continue;
       }
-      throw err;
-    }
 
-    summary.fired[kind]++;
-    const { title, body } = buildCopy(fire, owner.timezone);
-
-    // The in-app feed records every alert regardless of channel, so nothing is
-    // lost when a push fails or email is off.
-    await prisma.notification.create({
-      data: { userId: owner.id, reminderId: r.id, title, body, kind },
-    });
-    summary.notificationsCreated++;
-
-    const reminderUpdate: { lastNaggedAt?: Date; lastEmailedAt?: Date } = {};
-    if (kind !== "lead") reminderUpdate.lastNaggedAt = now;
-
-    // ------------------------------------------------------------------ push
-    if (!owner.pushOptIn) {
-      summary.pushesSkippedOptOut++;
-    } else {
-      const badge = await countOutstanding(owner.id, now);
-      const result = await sendPushToUser(owner.id, {
-        title,
-        body,
-        // One tag per reminder, so a nag replaces the previous notification for
-        // the same thing instead of stacking a wall of them on the lock screen.
-        tag: `reminder-${r.id}`,
-        reminderId: r.id,
-        kind,
-        badge,
-        url: "/reminders",
-      });
-
-      summary.pushesSent += result.sent;
-      summary.pushesFailed += result.failed;
-
-      if (result.sent === 0 && result.subscriptions > 0) {
-        await prisma.reminderDispatch.updateMany({
-          where: { reminderId: r.id, cycleDueAt: r.dueAt, kind, offsetMin },
-          data: { ok: false },
-        });
-      }
-    }
-
-    // ----------------------------------------------------------------- email
-    if (!owner.emailOptIn || !owner.email) {
-      summary.emailsSkippedOptOut++;
-    } else {
       const gapMins = Math.max(
-        owner.overdueRepeatMins,
+        r.user.overdueRepeatMins,
         EMAIL_OVERDUE_MIN_GAP_MINS,
       );
-      const previous = lastEmailAt.get(r.id);
+      const previous = await lastEmailedAt(r.id, recipientId);
       const throttled =
         kind === "overdue" &&
         previous !== undefined &&
@@ -303,41 +391,124 @@ export async function dispatchDueReminders(
 
       if (throttled) {
         summary.emailsThrottled++;
-      } else {
-        const { subject, html } = buildReminderEmail({
-          userName: owner.name,
-          title: r.title,
-          description: r.description,
-          category: r.category?.name ?? null,
-          amount: r.amount,
-          dueAt: r.dueAt,
-          timeZone: owner.timezone,
-          kind,
-          minutesUntilDue: fire.minutesUntilDue,
+        continue;
+      }
+
+      const { subject, html } = buildReminderEmail({
+        userName: person.name,
+        title: r.family?.name ? `${r.title} [${r.family.name}]` : r.title,
+        description: r.description,
+        category: r.category?.name ?? null,
+        amount: r.amount,
+        dueAt: r.dueAt,
+        timeZone: person.timezone,
+        kind,
+        minutesUntilDue: fire.minutesUntilDue,
+      });
+      if (await sendMail({ to: person.email, subject, html })) {
+        summary.emailsSent++;
+        const at = new Date();
+        await prisma.reminderDispatch.updateMany({
+          where: {
+            reminderId: r.id,
+            userId: recipientId,
+            cycleDueAt: r.dueAt,
+            kind,
+            offsetMin,
+          },
+          data: { emailedAt: at },
         });
-        if (await sendMail({ to: owner.email, subject, html })) {
-          summary.emailsSent++;
-          reminderUpdate.lastEmailedAt = now;
-          lastEmailAt.set(r.id, now.getTime());
-        }
+        lastEmailAt.set(`${r.id}:${recipientId}`, at.getTime());
       }
     }
 
-    if (Object.keys(reminderUpdate).length > 0) {
+    if (deliveredToAnyone) summary.fired[kind]++;
+
+    // Once per fire, not per recipient: the nag schedule belongs to the reminder.
+    if (deliveredToAnyone && kind !== "lead") {
       await prisma.reminder.update({
         where: { id: r.id },
-        data: reminderUpdate,
+        data: { lastNaggedAt: now },
       });
     }
   }
 
+  summary.durationMs = Date.now() - startedAt;
+  await recordRun(summary);
   return summary;
+}
+
+/** Persists the tick so the admin health page can answer "is delivery working?". */
+async function recordRun(s: DispatchSummary, error?: string): Promise<void> {
+  try {
+    await prisma.dispatchRun.create({
+      data: {
+        durationMs: s.durationMs,
+        considered: s.considered,
+        recipients: s.recipients,
+        firedLead: s.fired.lead,
+        firedDue: s.fired.due,
+        firedOverdue: s.fired.overdue,
+        pushesSent: s.pushesSent,
+        pushesFailed: s.pushesFailed,
+        emailsSent: s.emailsSent,
+        error: error ?? null,
+      },
+    });
+
+    // Prune here rather than on a schedule — this is the only writer, so it is
+    // the only place that knows the table grew.
+    const total = await prisma.dispatchRun.count();
+    if (total > RUN_HISTORY * 1.2) {
+      const cutoff = await prisma.dispatchRun.findMany({
+        orderBy: { ranAt: "desc" },
+        skip: RUN_HISTORY,
+        take: 1,
+        select: { ranAt: true },
+      });
+      if (cutoff[0]) {
+        await prisma.dispatchRun.deleteMany({
+          where: { ranAt: { lt: cutoff[0].ranAt } },
+        });
+      }
+    }
+  } catch (err) {
+    console.error("[dispatch] could not record run:", (err as Error).message);
+  }
+}
+
+/** Records a run that threw, so a broken dispatcher is visible rather than silent. */
+export async function recordFailedRun(
+  error: string,
+  durationMs: number,
+): Promise<void> {
+  await recordRun(
+    {
+      ran: false,
+      pushConfigured: false,
+      mailConfigured: false,
+      subscriptions: 0,
+      considered: 0,
+      recipients: 0,
+      fired: { lead: 0, due: 0, overdue: 0 },
+      skippedAlreadySent: 0,
+      notificationsCreated: 0,
+      pushesSent: 0,
+      pushesFailed: 0,
+      pushesSkippedOptOut: 0,
+      emailsSent: 0,
+      emailsThrottled: 0,
+      emailsSkippedOptOut: 0,
+      durationMs,
+    },
+    error.slice(0, 500),
+  );
 }
 
 /** Fires a one-off push so a user can confirm delivery works end to end. */
 export async function sendTestPush(userId: string) {
   const appName = process.env.APP_NAME || "PRO-SYS";
-  const badge = await countOutstanding(userId);
+  const badge = await countOutstandingFor(userId, await familyIdsFor(userId));
   return sendPushToUser(userId, {
     title: `${appName} test notification`,
     body: "If you can see this on your lock screen, push is working.",
@@ -346,11 +517,6 @@ export async function sendTestPush(userId: string) {
     badge,
     url: "/settings",
   });
-}
-
-/** How many of this user's devices are currently reachable. */
-export function countUserSubscriptions(userId: string) {
-  return countSubscriptions(userId);
 }
 
 /** Sends a one-off email so a user can confirm SMTP reaches them. */

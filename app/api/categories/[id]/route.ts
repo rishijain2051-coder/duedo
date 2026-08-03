@@ -1,21 +1,40 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db";
 import { HttpError, json } from "@/lib/http";
+import { membershipIn } from "@/lib/families";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/** The caller's category, or 404 — never another account's. */
-async function findOwned(id: string, userId: string) {
-  const category = await prisma.category.findFirst({ where: { id, userId } });
+/**
+ * A category the caller may change: their own, or one belonging to a family where
+ * they are the head.
+ *
+ * A plain member can *use* the family's categories but not rename or delete them —
+ * renaming a shared category changes it for everyone, which is head territory.
+ */
+async function findWritable(id: string, userId: string) {
+  const category = await prisma.category.findUnique({ where: { id } });
   if (!category) throw new HttpError(404, "Category not found");
-  return category;
+
+  if (category.userId === userId) return category;
+
+  if (category.familyId) {
+    const membership = await membershipIn(userId, category.familyId);
+    if (!membership) throw new HttpError(404, "Category not found");
+    if (membership.role !== "head") {
+      throw new HttpError(403, "Only the family head can change a shared category.");
+    }
+    return category;
+  }
+
+  throw new HttpError(404, "Category not found");
 }
 
 export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   return json(async (user) => {
     const { id } = await ctx.params;
-    await findOwned(id, user.id);
+    await findWritable(id, user.id);
     const body = await req.json();
 
     return prisma.category.update({
@@ -32,7 +51,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
 export async function DELETE(_req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   return json(async (user) => {
     const { id } = await ctx.params;
-    await findOwned(id, user.id);
+    await findWritable(id, user.id);
 
     const inUse = await prisma.reminder.count({ where: { categoryId: id } });
     if (inUse > 0) {

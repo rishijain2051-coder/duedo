@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { hashPin, isValidPin } from "@/lib/pin";
 import { createSession } from "@/lib/auth";
+import { audit } from "@/lib/audit";
 import { SESSION_COOKIE, sessionCookieOptions } from "@/lib/session";
 
 export const runtime = "nodejs";
@@ -43,6 +44,10 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // solo hides every family surface; family unlocks creating or joining one.
+    // Convertible later either way, so getting it wrong here costs nothing.
+    const accountType = body?.accountType === "family" ? "family" : "solo";
+
     const existing = await prisma.user.findUnique({ where: { email } });
     if (existing) {
       // Deliberately explicit: this is a self-service signup form, so "that
@@ -62,8 +67,17 @@ export async function POST(req: NextRequest) {
         password_hash: await hashPin(pin),
         role: isFirstAccount ? "admin" : "member",
         status: isFirstAccount ? "active" : "pending",
+        accountType,
         approvedAt: isFirstAccount ? new Date() : null,
       },
+    });
+
+    await audit({
+      actorId: user.id,
+      action: "user.register",
+      entity: "user",
+      entityId: user.id,
+      detail: { accountType, first: isFirstAccount },
     });
 
     if (!isFirstAccount) {

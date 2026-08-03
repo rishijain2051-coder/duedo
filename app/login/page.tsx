@@ -2,7 +2,15 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Loader2, ScanFace, KeyRound, UserPlus, MailCheck } from "lucide-react";
+import {
+  Loader2,
+  ScanFace,
+  KeyRound,
+  UserPlus,
+  MailCheck,
+  User,
+  Users,
+} from "lucide-react";
 import { startAuthentication } from "@simplewebauthn/browser";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -10,6 +18,7 @@ import { Field, Input } from "@/components/ui/form";
 import { Credit } from "@/components/credit";
 import { setCacheOwner } from "@/lib/cache";
 import { api } from "@/services/api";
+import type { AccountType } from "@/types";
 
 type Mode = "signin" | "register";
 
@@ -23,6 +32,7 @@ export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [pin, setPin] = useState("");
   const [confirmPin, setConfirmPin] = useState("");
+  const [accountType, setAccountType] = useState<AccountType>("solo");
 
   const [busy, setBusy] = useState<"pin" | "passkey" | "register" | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -116,7 +126,7 @@ export default function LoginPage() {
     setBusy("register");
     setError(null);
     try {
-      const res = await api.auth.register({ name, email, pin });
+      const res = await api.auth.register({ name, email, pin, accountType });
       if (res.status === "active") {
         goToApp();
         return;
@@ -200,6 +210,36 @@ export default function LoginPage() {
                   up after you.
                 </p>
               )}
+
+              <div>
+                <p className="mb-1.5 text-sm font-medium">What is this for?</p>
+                <div className="grid grid-cols-2 gap-2">
+                  {(
+                    [
+                      { id: "solo", label: "Just me", icon: User },
+                      { id: "family", label: "My family", icon: Users },
+                    ] as const
+                  ).map(({ id, label, icon: Icon }) => (
+                    <button
+                      key={id}
+                      type="button"
+                      onClick={() => setAccountType(id)}
+                      className={`flex min-h-11 items-center justify-center gap-2 rounded-md border text-sm font-medium transition-colors ${
+                        accountType === id
+                          ? "border-primary bg-primary/10 text-primary"
+                          : "border-border text-muted-foreground hover:bg-accent"
+                      }`}
+                    >
+                      <Icon className="h-4 w-4" /> {label}
+                    </button>
+                  ))}
+                </div>
+                <p className="mt-1.5 text-xs text-muted-foreground">
+                  {accountType === "solo"
+                    ? "Your reminders, private to you."
+                    : "Private reminders plus shared family lists. You can create or join a family once you're in — and switch either way later."}
+                </p>
+              </div>
 
               <form onSubmit={submitRegister} className="space-y-4">
                 <Field label="Your name">

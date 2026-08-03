@@ -27,6 +27,7 @@ const AUTH_USER_SELECT = {
   email: true,
   role: true,
   status: true,
+  accountType: true,
   timezone: true,
   defaultTime: true,
   overdueRepeatMins: true,
@@ -41,6 +42,7 @@ export interface AuthUser {
   email: string;
   role: string;
   status: string;
+  accountType: string;
   timezone: string;
   defaultTime: string;
   overdueRepeatMins: number;

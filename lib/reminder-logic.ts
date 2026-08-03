@@ -1,6 +1,7 @@
 // Pure helpers shared by the reminder API routes.
 
 import { parseDueAt, LEAD_OFFSET_VALUES } from "./time";
+import { isAudience } from "./recipients";
 
 /** Keeps only offsets the UI actually offers, de-duplicated, longest lead first. */
 export function sanitizeLeadOffsets(input: unknown): number[] {
@@ -29,6 +30,16 @@ export function sanitizeReminderInput(
   if (data.description !== undefined)
     out.description = data.description ? String(data.description) : null;
   if (data.categoryId !== undefined) out.categoryId = data.categoryId;
+
+  // Which list the reminder lives on. Whitelisted here but *verified* in the
+  // route — membership can't be checked without the database, and this file
+  // stays pure so it can be reasoned about on its own.
+  if (data.familyId !== undefined)
+    out.familyId = data.familyId ? String(data.familyId) : null;
+  if (data.assignedToId !== undefined)
+    out.assignedToId = data.assignedToId ? String(data.assignedToId) : null;
+  if (data.audience !== undefined && isAudience(data.audience))
+    out.audience = data.audience;
   if (data.priority !== undefined) out.priority = data.priority;
   if (data.status !== undefined) out.status = data.status;
   if (data.recurrenceRule !== undefined) out.recurrenceRule = data.recurrenceRule;
@@ -52,7 +63,18 @@ export function sanitizeReminderInput(
     if (out.recurrenceRule === undefined) out.recurrenceRule = "One Time";
     if (out.amount === undefined) out.amount = 0;
     if (out.leadOffsets === undefined) out.leadOffsets = [];
+    if (out.familyId === undefined) out.familyId = null;
+    if (out.audience === undefined) out.audience = "owner";
   }
+
+  // A personal reminder has nobody to assign to and no audience beyond its owner.
+  // Normalising here means the rest of the app never has to consider the
+  // combination "personal, but addressed to a family".
+  if (out.familyId === null) {
+    out.assignedToId = null;
+    out.audience = "owner";
+  }
+
   return out;
 }
 

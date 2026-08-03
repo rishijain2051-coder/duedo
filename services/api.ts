@@ -1,9 +1,12 @@
 import type {
+  AccountType,
   Activity,
   AppNotification,
   Category,
   CurrentUser,
   DashboardStats,
+  FamilySummary,
+  JoinRequestSummary,
   ManagedUser,
   Reminder,
   Settings,
@@ -108,10 +111,71 @@ export interface VersionInfo {
   buildId: string;
 }
 
+export interface AdminOverview {
+  users: { total: number; pending: number; active: number; rejected: number; admins: number };
+  families: number;
+  reminders: { total: number; active: number; overdue: number };
+  devices: { total: number; blocked: number };
+  health: AdminHealth;
+}
+
+export interface DispatchRunRow {
+  id: string;
+  ranAt: string;
+  durationMs: number;
+  considered: number;
+  recipients: number;
+  firedLead: number;
+  firedDue: number;
+  firedOverdue: number;
+  pushesSent: number;
+  pushesFailed: number;
+  emailsSent: number;
+  error: string | null;
+}
+
+export interface AdminHealth {
+  mailConfigured: boolean;
+  pushConfigured: boolean;
+  cronSecretSet: boolean;
+  /** Minutes since the dispatcher last ran. Null when it never has. */
+  lastRunMinutesAgo: number | null;
+  lastRunError: string | null;
+  /** Runs that threw in the last 24h — non-zero means delivery is degraded. */
+  failuresLast24h: number;
+  runs: DispatchRunRow[];
+  /** Devices with consecutive send failures, worth chasing. */
+  failingDevices: { id: string; label: string | null; user: string; failures: number }[];
+}
+
+export interface AdminFamily {
+  id: string;
+  name: string;
+  joinCode: string;
+  createdAt: string;
+  reminderCount: number;
+  members: { id: string; name: string; email: string; role: string }[];
+}
+
+export interface AuditEntry {
+  id: string;
+  actor: { id: string; name: string } | null;
+  action: string;
+  entity: string;
+  entityId: string | null;
+  detail: unknown;
+  timestamp: string;
+}
+
 export const api = {
   auth: {
     status: () => request<AuthStatus>("/auth/status"),
-    register: (data: { name: string; email: string; pin: string }) =>
+    register: (data: {
+      name: string;
+      email: string;
+      pin: string;
+      accountType: AccountType;
+    }) =>
       request<RegisterResult>("/auth/register", {
         method: "POST",
         body: JSON.stringify(data),
@@ -144,6 +208,45 @@ export const api = {
       }),
     remove: (id: string) =>
       request<{ deleted: boolean }>(`/users/${id}`, { method: "DELETE" }),
+    resetPin: (id: string, pin: string) =>
+      request<{ reset: boolean }>(`/users/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ newPin: pin }),
+      }),
+  },
+  /** The dedicated admin panel. Every route behind jsonAdmin. */
+  admin: {
+    overview: () => request<AdminOverview>("/admin/overview"),
+    health: () => request<AdminHealth>("/admin/health"),
+    families: () => request<AdminFamily[]>("/admin/families"),
+    renameFamily: (id: string, name: string) =>
+      request<AdminFamily>(`/admin/families/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ name }),
+      }),
+    setFamilyHead: (id: string, userId: string) =>
+      request<AdminFamily>(`/admin/families/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ headId: userId }),
+      }),
+    removeFamilyMember: (id: string, userId: string) =>
+      request<AdminFamily>(`/admin/families/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ removeUserId: userId }),
+      }),
+    dissolveFamily: (id: string) =>
+      request<{ deleted: boolean }>(`/admin/families/${id}`, { method: "DELETE" }),
+    audit: (params?: { action?: string; actorId?: string; take?: number }) => {
+      const q = new URLSearchParams();
+      if (params?.action) q.set("action", params.action);
+      if (params?.actorId) q.set("actorId", params.actorId);
+      if (params?.take) q.set("take", String(params.take));
+      const qs = q.toString();
+      return request<AuditEntry[]>(`/admin/audit${qs ? `?${qs}` : ""}`);
+    },
+    /** Reminder content for one account. Audited every time. */
+    userReminders: (id: string) =>
+      request<Reminder[]>(`/admin/users/${id}/reminders`),
   },
   settings: {
     get: () => request<Settings>("/settings"),
@@ -158,6 +261,7 @@ export const api = {
           | "idleTimeoutMins"
           | "emailOptIn"
           | "pushOptIn"
+          | "accountType"
         >
       > & { currentPin?: string; newPin?: string },
     ) => request<Settings>("/settings", { method: "PATCH", body: JSON.stringify(data) }),
@@ -167,9 +271,60 @@ export const api = {
         { method: "POST" },
       ),
   },
+  /** Families the caller belongs to, plus join/administration actions. */
+  families: {
+    list: () => request<FamilySummary[]>("/families"),
+    create: (name: string) =>
+      request<{ id: string; name: string; joinCode: string; role: "head" }>(
+        "/families",
+        { method: "POST", body: JSON.stringify({ name }) },
+      ),
+    join: (joinCode: string) =>
+      request<{ status: string; family: string; message: string }>(
+        "/families/join",
+        { method: "POST", body: JSON.stringify({ joinCode }) },
+      ),
+    rename: (id: string, name: string) =>
+      request<FamilySummary>(`/families/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ name }),
+      }),
+    rotateCode: (id: string) =>
+      request<{ id: string; name: string; joinCode: string }>(`/families/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ rotateCode: true }),
+      }),
+    transferHead: (id: string, userId: string) =>
+      request<{ role: string }>(`/families/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ transferHeadTo: userId }),
+      }),
+    dissolve: (id: string) =>
+      request<{ deleted: boolean }>(`/families/${id}`, { method: "DELETE" }),
+    requests: (id: string) =>
+      request<JoinRequestSummary[]>(`/families/${id}/requests`),
+    decide: (id: string, requestId: string, approve: boolean) =>
+      request<{ approved: boolean; name: string }>(`/families/${id}/requests`, {
+        method: "PATCH",
+        body: JSON.stringify({ requestId, approve }),
+      }),
+    removeMember: (id: string, userId: string) =>
+      request<{ removed: boolean; name: string; self: boolean }>(
+        `/families/${id}/members?userId=${encodeURIComponent(userId)}`,
+        { method: "DELETE" },
+      ),
+    leave: (id: string) =>
+      request<{ removed: boolean; self: boolean }>(`/families/${id}/members`, {
+        method: "DELETE",
+      }),
+  },
   categories: {
-    list: () => request<Category[]>("/categories"),
-    create: (data: Partial<Category>) =>
+    /** `scope`: omit for everything, "mine" for personal, or a familyId. */
+    list: (scope?: string) =>
+      request<Category[]>(
+        `/categories${scope ? `?scope=${encodeURIComponent(scope)}` : ""}`,
+      ),
+    create: (data: Partial<Category> & { familyId?: string | null }) =>
       request<Category>("/categories", { method: "POST", body: JSON.stringify(data) }),
     update: (id: string, data: Partial<Category>) =>
       request<Category>(`/categories/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
@@ -179,7 +334,11 @@ export const api = {
       }),
   },
   reminders: {
-    list: () => request<Reminder[]>("/reminders"),
+    /** `scope`: omit for everything visible, "mine" for personal, or a familyId. */
+    list: (scope?: string) =>
+      request<Reminder[]>(
+        `/reminders${scope ? `?scope=${encodeURIComponent(scope)}` : ""}`,
+      ),
     get: (id: string) => request<Reminder>(`/reminders/${id}`),
     create: (data: Record<string, unknown>) =>
       request<Reminder>("/reminders", { method: "POST", body: JSON.stringify(data) }),

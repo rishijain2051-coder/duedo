@@ -5,9 +5,12 @@ export interface CurrentUser {
   email: string;
   role: 'admin' | 'member';
   status: UserStatus;
+  /** solo hides every family surface in the UI; family unlocks it. */
+  accountType: AccountType;
 }
 
 export type UserStatus = 'pending' | 'active' | 'rejected';
+export type AccountType = 'solo' | 'family';
 
 /** An account as an admin sees it on the Users list. */
 export interface ManagedUser {
@@ -17,10 +20,12 @@ export interface ManagedUser {
   phone?: string | null;
   role: string;
   status: UserStatus;
+  accountType: AccountType;
   approvedAt?: string | null;
   createdAt: string;
   /** True for the admin viewing the list — the UI stops them locking themselves out. */
   self?: boolean;
+  counts?: { reminders: number; families: number; devices: number };
 }
 
 /**
@@ -31,6 +36,7 @@ export interface Settings {
   name: string;
   email: string;
   role: 'admin' | 'member';
+  accountType: AccountType;
   timezone: string;
   defaultTime: string; // "HH:mm"
   overdueRepeatMins: number;
@@ -47,6 +53,53 @@ export interface Settings {
   pushSubscriptions: number;
   /** Only set for admins: how many accounts are waiting for approval. */
   pendingApprovals?: number;
+}
+
+// ------------------------------------------------------------------ families
+
+export interface FamilyMemberSummary {
+  id: string;
+  name: string;
+  email: string;
+  role: 'head' | 'member';
+  joinedAt: string;
+  self: boolean;
+}
+
+export interface JoinRequestSummary {
+  id: string;
+  userId: string;
+  name: string;
+  email: string;
+  createdAt: string;
+}
+
+export interface FamilySummary {
+  id: string;
+  name: string;
+  role: 'head' | 'member';
+  createdAt: string;
+  /** Only sent to the head — a member has no business handing the code out. */
+  joinCode: string | null;
+  members: FamilyMemberSummary[];
+  pendingRequests: JoinRequestSummary[];
+}
+
+/** Who hears about a reminder when it fires. */
+export type Audience = 'owner' | 'assignee' | 'family';
+
+export const AUDIENCE_OPTIONS = [
+  { id: 'owner', label: 'Only me', hint: 'Nobody else is notified.' },
+  {
+    id: 'assignee',
+    label: 'The assigned member',
+    hint: 'Falls back to you if nobody is assigned.',
+  },
+  { id: 'family', label: 'Everyone in the family', hint: 'All members get it.' },
+] as const;
+
+export function isAudience(value: unknown): value is Audience {
+  return value === 'owner' || value === 'assignee' || value === 'family';
 }
 
 /** Inactivity choices offered in Settings. */
@@ -78,6 +131,9 @@ export interface Category {
   name: string;
   icon?: string | null;
   color?: string | null;
+  /** Null for a personal category; set for one belonging to a family. */
+  familyId?: string | null;
+  family?: { id: string; name: string } | null;
 }
 
 export interface Reminder {
@@ -98,6 +154,12 @@ export interface Reminder {
   amount?: number | null;
   snoozedUntil?: string | null;
   completedAt?: string | null;
+  /** Null = personal and private. Set = on that family's shared list. */
+  familyId?: string | null;
+  family?: { id: string; name: string } | null;
+  assignedToId?: string | null;
+  assignedTo?: { id: string; name: string } | null;
+  audience: Audience;
 }
 
 export interface DashboardStats {
@@ -112,6 +174,8 @@ export interface DashboardStats {
 export interface Activity {
   id: string;
   title: string;
+  /** Who completed it — only set for family reminders. */
+  by?: string | null;
   amount: number;
   status: string;
   completedOn: string;

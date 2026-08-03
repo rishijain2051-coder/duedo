@@ -129,16 +129,7 @@ export function countSubscriptions(userId: string): Promise<number> {
   });
 }
 
-/**
- * How many of this user's active reminders are due or overdue right now. Drives
- * the Home Screen icon badge, which on iOS is the closest thing a web app gets
- * to a widget.
- */
-export function countOutstanding(
-  userId: string,
-  now = new Date(),
-): Promise<number> {
-  return prisma.reminder.count({
-    where: { userId, status: "active", dueAt: { lte: now } },
-  });
-}
+// The Home Screen badge count lives in lib/recipients.ts as countOutstandingFor(),
+// not here: once a family reminder can be addressed to someone who didn't create
+// it, "what am I on the hook for" is an audience question rather than an ownership
+// one, and it has to agree with whatever the dispatcher decided.

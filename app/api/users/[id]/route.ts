@@ -1,6 +1,8 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db";
 import { HttpError, jsonAdmin } from "@/lib/http";
+import { hashPin, isValidPin } from "@/lib/pin";
+import { audit } from "@/lib/audit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -12,6 +14,7 @@ const SELECT = {
   phone: true,
   role: true,
   status: true,
+  accountType: true,
   approvedAt: true,
   createdAt: true,
 } as const;
@@ -60,6 +63,16 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
       data.role = role;
     }
 
+    // Force a new PIN for someone locked out. No current-PIN check — that's the
+    // whole point — so every reset is audited and every live session of theirs is
+    // dropped below, in case the lockout was somebody else holding the account.
+    if (body.newPin !== undefined) {
+      if (!isValidPin(body.newPin)) {
+        throw new HttpError(400, "PIN must be 4–6 digits.");
+      }
+      data.password_hash = await hashPin(body.newPin);
+    }
+
     if (Object.keys(data).length === 0) {
       throw new HttpError(400, "Nothing to update.");
     }
@@ -68,8 +81,36 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
 
     // resolveSession() would drop their logins on the next request anyway, but
     // doing it here makes revocation immediate rather than eventual.
-    if (data.status && data.status !== "active") {
+    if ((data.status && data.status !== "active") || data.password_hash) {
       await prisma.session.deleteMany({ where: { userId: id } });
+    }
+
+    if (data.status) {
+      await audit({
+        actorId: admin.id,
+        action: data.status === "active" ? "user.approve" : "user.reject",
+        entity: "user",
+        entityId: id,
+        detail: { email: target.email },
+      });
+    }
+    if (data.role) {
+      await audit({
+        actorId: admin.id,
+        action: "user.role",
+        entity: "user",
+        entityId: id,
+        detail: { role: data.role },
+      });
+    }
+    if (data.password_hash) {
+      await audit({
+        actorId: admin.id,
+        action: "user.pin.reset",
+        entity: "user",
+        entityId: id,
+        detail: { email: target.email },
+      });
     }
 
     return updated;
@@ -96,6 +137,12 @@ export async function DELETE(_req: NextRequest, ctx: { params: Promise<{ id: str
     if (!target) throw new HttpError(404, "Account not found");
 
     await prisma.user.delete({ where: { id } });
+    await audit({
+      actorId: admin.id,
+      action: "user.delete",
+      entity: "user",
+      entityId: id,
+    });
     return { deleted: true };
   });
 }

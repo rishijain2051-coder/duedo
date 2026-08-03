@@ -22,6 +22,7 @@ async function shape(userId: string): Promise<Settings> {
         name: true,
         email: true,
         role: true,
+        accountType: true,
         timezone: true,
         defaultTime: true,
         overdueRepeatMins: true,
@@ -46,6 +47,7 @@ async function shape(userId: string): Promise<Settings> {
     name: u.name,
     email: u.email,
     role: isAdmin ? "admin" : "member",
+    accountType: u.accountType === "family" ? "family" : "solo",
     timezone: u.timezone,
     defaultTime: u.defaultTime,
     overdueRepeatMins: u.overdueRepeatMins,
@@ -116,6 +118,25 @@ export async function PATCH(req: NextRequest) {
 
     if (body.emailOptIn !== undefined) data.emailOptIn = Boolean(body.emailOptIn);
     if (body.pushOptIn !== undefined) data.pushOptIn = Boolean(body.pushOptIn);
+
+    if (body.accountType !== undefined) {
+      const next = body.accountType === "family" ? "family" : "solo";
+      // Switching back to solo is refused while memberships exist: the family
+      // surfaces would vanish from the UI while the person was still in a family,
+      // still on its shared list, and still being notified about it.
+      if (next === "solo") {
+        const memberships = await prisma.familyMember.count({
+          where: { userId: user.id },
+        });
+        if (memberships > 0) {
+          throw new HttpError(
+            409,
+            "Leave your families first, then switch back to a single-person account.",
+          );
+        }
+      }
+      data.accountType = next;
+    }
 
     // Changing the PIN requires the current one, so a borrowed session can't
     // lock the owner out of their own account.

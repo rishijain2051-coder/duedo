@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { dispatchDueReminders } from "@/lib/dispatch";
+import { dispatchDueReminders, recordFailedRun } from "@/lib/dispatch";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -54,11 +54,16 @@ async function handle(req: NextRequest) {
     now = parsed;
   }
 
+  const startedAt = Date.now();
   try {
     const summary = await dispatchDueReminders(now);
     return NextResponse.json(summary);
   } catch (e) {
     console.error("[cron] dispatch failed:", e);
+    // Recorded, not just logged: a dispatcher that has been throwing for a day
+    // looks identical to an idle one from the outside, and the admin health page
+    // is where that difference has to be visible.
+    await recordFailedRun((e as Error).message, Date.now() - startedAt);
     return NextResponse.json({ message: (e as Error).message }, { status: 500 });
   }
 }
