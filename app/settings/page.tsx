@@ -51,6 +51,7 @@ import { formatDateTime } from "@/lib/format";
 import {
   ACCENTS,
   IDLE_TIMEOUT_OPTIONS,
+  PIN_LENGTH,
   type AccentId,
   type ThemeMode,
 } from "@/types";
@@ -1002,16 +1003,16 @@ export default function SettingsPage() {
               <Field label="Current PIN">
                 <Input
                   inputMode="numeric"
-                  maxLength={6}
+                  maxLength={PIN_LENGTH}
                   autoComplete="current-password"
                   value={currentPin}
                   onChange={(e) => setCurrentPin(e.target.value.replace(/\D/g, ""))}
                 />
               </Field>
-              <Field label="New PIN (4–6 digits)">
+              <Field label={`New PIN (${PIN_LENGTH} digits)`}>
                 <Input
                   inputMode="numeric"
-                  maxLength={6}
+                  maxLength={PIN_LENGTH}
                   autoComplete="new-password"
                   value={newPin}
                   onChange={(e) => setNewPin(e.target.value.replace(/\D/g, ""))}
@@ -1021,7 +1022,7 @@ export default function SettingsPage() {
             <Button
               type="submit"
               variant="outline"
-              disabled={busy !== null || newPin.length < 4}
+              disabled={busy !== null || newPin.length !== PIN_LENGTH}
             >
               {busy === "pin" && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Update PIN

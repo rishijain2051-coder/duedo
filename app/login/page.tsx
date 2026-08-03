@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   Loader2,
@@ -18,7 +18,7 @@ import { Field, Input } from "@/components/ui/form";
 import { Credit } from "@/components/credit";
 import { setCacheOwner } from "@/lib/cache";
 import { api } from "@/services/api";
-import type { AccountType } from "@/types";
+import { PIN_LENGTH, type AccountType } from "@/types";
 
 type Mode = "signin" | "register";
 
@@ -103,8 +103,7 @@ export default function LoginPage() {
     };
   }, [goToApp]);
 
-  async function submitSignIn(e: React.FormEvent) {
-    e.preventDefault();
+  const submitSignIn = useCallback(async () => {
     setBusy("pin");
     setError(null);
     try {
@@ -115,7 +114,37 @@ export default function LoginPage() {
       setError((e as Error).message);
       setBusy(null);
     }
-  }
+  }, [email, pin, goToApp]);
+
+  /**
+   * The PIN this effect has already submitted.
+   *
+   * Load-bearing. `busy` has to be a dependency (the effect must not fire mid
+   * request), but that means it re-runs when `busy` returns to null after a
+   * failure — at which point the rejected PIN is still sitting there at full
+   * length, and without this guard the effect resubmits it immediately, forever.
+   */
+  const attemptedPin = useRef<string | null>(null);
+
+  /** Editing the PIN arms it again, so retyping the same digits does retry. */
+  useEffect(() => {
+    if (pin.length < PIN_LENGTH) attemptedPin.current = null;
+  }, [pin]);
+
+  /**
+   * Signs in the moment the last digit lands, so unlocking is four taps and no
+   * button. Only possible because the PIN is a fixed length — with a range there
+   * is no "last digit" to detect.
+   */
+  useEffect(() => {
+    if (mode !== "signin") return;
+    if (busy !== null) return;
+    if (pin.length !== PIN_LENGTH) return;
+    if (!email.trim()) return; // nothing to submit against yet
+    if (attemptedPin.current === pin) return;
+    attemptedPin.current = pin;
+    void submitSignIn();
+  }, [pin, mode, busy, email, submitSignIn]);
 
   async function submitRegister(e: React.FormEvent) {
     e.preventDefault();
@@ -259,11 +288,11 @@ export default function LoginPage() {
                     placeholder="you@example.com"
                   />
                 </Field>
-                <Field label="Choose a PIN (4–6 digits)">
+                <Field label={`Choose a PIN (${PIN_LENGTH} digits)`}>
                   <Input
                     inputMode="numeric"
                     autoComplete="new-password"
-                    maxLength={6}
+                    maxLength={PIN_LENGTH}
                     value={pin}
                     onChange={(e) => setPin(e.target.value.replace(/\D/g, ""))}
                     placeholder="••••"
@@ -274,7 +303,7 @@ export default function LoginPage() {
                   <Input
                     inputMode="numeric"
                     autoComplete="new-password"
-                    maxLength={6}
+                    maxLength={PIN_LENGTH}
                     value={confirmPin}
                     onChange={(e) =>
                       setConfirmPin(e.target.value.replace(/\D/g, ""))
@@ -285,7 +314,9 @@ export default function LoginPage() {
                 <Button
                   className="w-full"
                   type="submit"
-                  disabled={busy !== null || pin.length < 4 || !email || !name}
+                  disabled={
+                    busy !== null || pin.length !== PIN_LENGTH || !email || !name
+                  }
                 >
                   {busy === "register" ? (
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -330,7 +361,13 @@ export default function LoginPage() {
                 </>
               )}
 
-              <form onSubmit={submitSignIn} className="space-y-4">
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  void submitSignIn();
+                }}
+                className="space-y-4"
+              >
                 <Field label="Email">
                   <Input
                     type="email"
@@ -341,29 +378,33 @@ export default function LoginPage() {
                     placeholder="you@example.com"
                   />
                 </Field>
-                <Field label="PIN">
+                <Field label={`PIN (${PIN_LENGTH} digits)`}>
                   <Input
                     inputMode="numeric"
                     autoComplete="current-password"
-                    maxLength={6}
+                    maxLength={PIN_LENGTH}
                     value={pin}
                     onChange={(e) => setPin(e.target.value.replace(/\D/g, ""))}
                     placeholder="••••"
                     className="text-center tracking-[0.5em]"
+                    disabled={busy === "pin"}
                   />
                 </Field>
+                {/* Kept as a fallback: the PIN submits itself once the last digit
+                    lands, but a paste, a password manager or a keyboard user
+                    tabbing through still needs something to press. */}
                 <Button
                   className="w-full"
                   type="submit"
                   variant={passkeysPossible ? "outline" : "default"}
-                  disabled={busy !== null || pin.length < 4 || !email}
+                  disabled={busy !== null || pin.length !== PIN_LENGTH || !email}
                 >
                   {busy === "pin" ? (
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                   ) : (
                     <KeyRound className="mr-2 h-4 w-4" />
                   )}
-                  Unlock
+                  {busy === "pin" ? "Unlocking…" : "Unlock"}
                 </Button>
               </form>
 

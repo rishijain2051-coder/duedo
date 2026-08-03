@@ -65,7 +65,7 @@ and every such view is written to the audit log. That's a deliberate trade of
 privacy for debuggability — worth knowing, since the app says so in Settings rather
 than promising something it doesn't deliver.
 
-- **Signing up** is self-service: name, email, and a 4–6 digit PIN.
+- **Signing up** is self-service: name, email, and a 4-digit PIN.
 - **An admin must approve** a new account before it can sign in. Until then it sits
   as `pending`.
 - The **first account on a fresh install** is auto-approved and becomes the admin —

@@ -12,6 +12,16 @@ export interface CurrentUser {
 export type UserStatus = 'pending' | 'active' | 'rejected';
 export type AccountType = 'solo' | 'family';
 
+/**
+ * PINs are exactly this many digits.
+ *
+ * Fixed rather than a range because the login form submits itself the moment the
+ * last digit lands — with a variable length there is no "last digit" to detect,
+ * and the form would either fire early or need a button after all. Declared here
+ * so the client and lib/pin.ts can't disagree.
+ */
+export const PIN_LENGTH = 4;
+
 /** An account as an admin sees it on the Users list. */
 export interface ManagedUser {
   id: string;

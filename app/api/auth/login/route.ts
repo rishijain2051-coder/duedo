@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { verifyPin, isValidPin } from "@/lib/pin";
+import { verifyPin, isValidPin, PIN_LENGTH } from "@/lib/pin";
 import { createSession } from "@/lib/auth";
 import { SESSION_COOKIE, sessionCookieOptions } from "@/lib/session";
 
@@ -28,7 +28,7 @@ export async function POST(req: NextRequest) {
 
     if (!email || !isValidPin(pin)) {
       return NextResponse.json(
-        { message: "Enter your email and a 4–6 digit PIN." },
+        { message: `Enter your email and your ${PIN_LENGTH}-digit PIN.` },
         { status: 400 },
       );
     }

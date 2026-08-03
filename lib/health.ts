@@ -11,7 +11,10 @@ import { isMailConfigured } from "./mail";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-export async function deliveryHealth(runLimit = 20) {
+/** Kept short on purpose: a wall of near-identical rows hides the one that matters. */
+export const RUN_LIST_LIMIT = 3;
+
+export async function deliveryHealth(runLimit = RUN_LIST_LIMIT) {
   const now = Date.now();
 
   const [runs, failuresLast24h, failingDevices] = await Promise.all([

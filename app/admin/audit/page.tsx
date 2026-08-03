@@ -26,7 +26,7 @@ export default function AdminAuditPage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      setRows(await api.admin.audit({ action: action || undefined, take: 200 }));
+      setRows(await api.admin.audit({ action: action || undefined, take: 3 }));
       setError(null);
     } catch (e) {
       setError((e as Error).message);
@@ -46,6 +46,10 @@ export default function AdminAuditPage() {
           {error}
         </div>
       )}
+
+      <p className="text-xs text-muted-foreground">
+        The 3 most recent entries.
+      </p>
 
       <Select
         value={action}

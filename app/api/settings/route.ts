@@ -3,7 +3,7 @@ import { prisma } from "@/lib/db";
 import { json, HttpError, type AuthUser } from "@/lib/http";
 import { isPushConfigured, countSubscriptions } from "@/lib/push";
 import { isMailConfigured } from "@/lib/mail";
-import { hashPin, verifyPin, isValidPin } from "@/lib/pin";
+import { hashPin, verifyPin, isValidPin, PIN_LENGTH } from "@/lib/pin";
 import { IDLE_TIMEOUT_OPTIONS, type Settings } from "@/types";
 
 export const runtime = "nodejs";
@@ -142,7 +142,7 @@ export async function PATCH(req: NextRequest) {
     // lock the owner out of their own account.
     if (body.newPin !== undefined) {
       if (!isValidPin(body.newPin)) {
-        throw new HttpError(400, "New PIN must be 4–6 digits.");
+        throw new HttpError(400, `New PIN must be ${PIN_LENGTH} digits.`);
       }
       const current = await prisma.user.findUniqueOrThrow({
         where: { id: user.id },

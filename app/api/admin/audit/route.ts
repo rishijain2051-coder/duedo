@@ -11,7 +11,9 @@ export async function GET(req: NextRequest) {
     const p = req.nextUrl.searchParams;
     const action = p.get("action");
     const actorId = p.get("actorId");
-    const take = Math.min(Number(p.get("take") ?? 100) || 100, 500);
+    // Short by default, matching the health run list. `take` still raises it, so
+    // the trail is all there when something needs digging into.
+    const take = Math.min(Number(p.get("take") ?? 3) || 3, 500);
 
     const rows = await prisma.activityLog.findMany({
       where: {

@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db";
 import { HttpError, jsonAdmin } from "@/lib/http";
-import { hashPin, isValidPin } from "@/lib/pin";
+import { hashPin, isValidPin, PIN_LENGTH } from "@/lib/pin";
 import { audit } from "@/lib/audit";
 
 export const runtime = "nodejs";
@@ -68,7 +68,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
     // dropped below, in case the lockout was somebody else holding the account.
     if (body.newPin !== undefined) {
       if (!isValidPin(body.newPin)) {
-        throw new HttpError(400, "PIN must be 4–6 digits.");
+        throw new HttpError(400, `PIN must be ${PIN_LENGTH} digits.`);
       }
       data.password_hash = await hashPin(body.newPin);
     }

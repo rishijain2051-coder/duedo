@@ -110,7 +110,7 @@ export default function AdminHealthPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-sm">Recent dispatch runs</CardTitle>
+          <CardTitle className="text-sm">Last 3 dispatch runs</CardTitle>
         </CardHeader>
         <CardContent className="p-0">
           {data.runs.length === 0 ? (

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { hashPin, isValidPin } from "@/lib/pin";
+import { hashPin, isValidPin, PIN_LENGTH } from "@/lib/pin";
 import { createSession } from "@/lib/auth";
 import { audit } from "@/lib/audit";
 import { SESSION_COOKIE, sessionCookieOptions } from "@/lib/session";
@@ -39,7 +39,7 @@ export async function POST(req: NextRequest) {
     }
     if (!isValidPin(pin)) {
       return NextResponse.json(
-        { message: "PIN must be 4–6 digits." },
+        { message: `PIN must be ${PIN_LENGTH} digits.` },
         { status: 400 },
       );
     }

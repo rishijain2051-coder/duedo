@@ -9,7 +9,7 @@ import { Modal } from "@/components/ui/modal";
 import { useApp } from "@/components/app-context";
 import { api } from "@/services/api";
 import { formatDateTime } from "@/lib/format";
-import type { ManagedUser, Reminder } from "@/types";
+import { PIN_LENGTH, type ManagedUser, type Reminder } from "@/types";
 
 const STATUSES = ["", "pending", "active", "rejected"];
 
@@ -281,10 +281,10 @@ export default function AdminAccountsPage() {
           </p>
           <Input
             inputMode="numeric"
-            maxLength={6}
+            maxLength={PIN_LENGTH}
             value={newPin}
             onChange={(e) => setNewPin(e.target.value.replace(/\D/g, ""))}
-            placeholder="4–6 digits"
+            placeholder={`${PIN_LENGTH} digits`}
             className="text-center tracking-[0.5em]"
           />
           <div className="flex justify-end gap-2">
@@ -292,7 +292,7 @@ export default function AdminAccountsPage() {
               Cancel
             </Button>
             <Button
-              disabled={newPin.length < 4}
+              disabled={newPin.length !== PIN_LENGTH}
               onClick={async () => {
                 if (!pinFor) return;
                 try {

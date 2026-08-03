@@ -34,8 +34,7 @@ export async function GET() {
       prisma.reminder.count({ where: { status: "active", dueAt: { lte: now } } }),
       prisma.pushSubscription.count(),
       prisma.pushSubscription.count({ where: { blockedAt: { not: null } } }),
-      // Only the last few runs here; the health page asks for more.
-      deliveryHealth(5),
+      deliveryHealth(),
     ]);
 
     return {
