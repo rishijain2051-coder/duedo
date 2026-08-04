@@ -5,7 +5,12 @@ import { formatInZone, humanizeMinutes } from "./time";
 // Kept apart from lib/mail.ts (the transport) and lib/dispatch.ts (the engine) so
 // the templating can be read and changed without wading through either.
 
-export type AlertKind = "lead" | "due" | "overdue";
+/**
+ * `escalation` is the chain in lib/escalation.ts reaching past the assignee. It is an
+ * AlertKind rather than a separate concept so it inherits the dedupe key, the notification
+ * feed and the email template — see the note on Fire.offsetMin in lib/dispatch.ts.
+ */
+export type AlertKind = "lead" | "due" | "overdue" | "escalation";
 
 export interface ReminderEmailInput {
   userName: string;
@@ -39,11 +44,16 @@ function statusLabel(input: ReminderEmailInput): string {
     return `Due in ${humanizeMinutes(input.minutesUntilDue)}`;
   }
   if (input.kind === "due") return "Due now";
+  if (input.kind === "escalation") {
+    // Says why *this* person is being written to, which is the only thing separating an
+    // escalation from a reminder they never asked for.
+    return `Still not done after ${humanizeMinutes(-input.minutesUntilDue)}`;
+  }
   return `Overdue by ${humanizeMinutes(-input.minutesUntilDue)}`;
 }
 
 function accentFor(kind: AlertKind): string {
-  if (kind === "overdue") return "#dc2626";
+  if (kind === "overdue" || kind === "escalation") return "#dc2626";
   if (kind === "due") return "#ea580c";
   return "#2563eb";
 }
@@ -68,11 +78,13 @@ export function buildReminderEmail(input: ReminderEmailInput): {
   const url = process.env.APP_URL?.replace(/\/$/, "");
 
   const subject =
-    input.kind === "overdue"
-      ? `⚠️ ${appName}: still due — ${input.title}`
-      : input.kind === "due"
-        ? `${appName}: due now — ${input.title}`
-        : `${appName}: ${input.title} — ${status.toLowerCase()}`;
+    input.kind === "escalation"
+      ? `${appName}: nobody has dealt with ${input.title}`
+      : input.kind === "overdue"
+        ? `⚠️ ${appName}: still due — ${input.title}`
+        : input.kind === "due"
+          ? `${appName}: due now — ${input.title}`
+          : `${appName}: ${input.title} — ${status.toLowerCase()}`;
 
   const rows = [
     row("Status", `<strong style="color:${accent};">${escapeHtml(status)}</strong>`),

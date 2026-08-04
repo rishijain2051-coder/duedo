@@ -541,6 +541,9 @@ model DispatchRun {
   firedLead    Int      @default(0)
   firedDue     Int      @default(0)
   firedOverdue Int      @default(0)
+  /// Steps of an escalation chain that fired. Separate from firedOverdue so the health
+  /// page can answer "why was someone outside the app written to" without guessing.
+  firedEscalation Int   @default(0)
   pushesSent   Int      @default(0)
   pushesFailed Int      @default(0)
   emailsSent   Int      @default(0)

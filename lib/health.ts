@@ -131,6 +131,7 @@ export async function deliveryHealth(runLimit = RUN_LIST_LIMIT) {
       firedLead: r.firedLead,
       firedDue: r.firedDue,
       firedOverdue: r.firedOverdue,
+      firedEscalation: r.firedEscalation,
       pushesSent: r.pushesSent,
       pushesFailed: r.pushesFailed,
       emailsSent: r.emailsSent,

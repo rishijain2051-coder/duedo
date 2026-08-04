@@ -1,7 +1,9 @@
+import { Prisma } from "@prisma/client";
 import { prisma } from "./db";
 import { HttpError } from "./http";
 import { assertMember } from "./families";
 import { assertCategoryInScope } from "./ownership";
+import { assertContactsOwned, parseEscalation } from "./escalation";
 
 // Validates the *destination* of a reminder write: which list, who it's assigned
 // to, and who hears about it.
@@ -95,5 +97,16 @@ export async function assertReminderDestination(
 
   if (data.categoryId !== undefined) {
     await assertCategoryInScope(data.categoryId, userId, familyId);
+  }
+
+  // Escalation, validated and normalised in place. Done here rather than in
+  // sanitizeReminderInput because it needs the database (to prove the external contacts
+  // belong to this caller) and because parseEscalation throws HttpError — both of which
+  // that file deliberately stays clear of.
+  if (data.escalation !== undefined) {
+    const steps = parseEscalation(data.escalation);
+    if (steps) await assertContactsOwned(steps, userId);
+    // Prisma needs DbNull for "no value" on a Json column; a plain null is rejected.
+    data.escalation = steps ?? Prisma.DbNull;
   }
 }

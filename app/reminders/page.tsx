@@ -11,6 +11,8 @@ import {
   Loader2,
   BellOff,
   BellRing,
+  Hand,
+  MessageSquare,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -18,6 +20,9 @@ import { Modal } from "@/components/ui/modal";
 import { Field, Input, Select, Textarea } from "@/components/ui/form";
 import { useApp } from "@/components/app-context";
 import { ScopeTabs } from "@/components/scope-tabs";
+import { ReminderThread } from "@/components/reminder-thread";
+import { TemplatePacksCard } from "@/components/template-packs";
+import { EscalationEditor } from "@/components/escalation-editor";
 import { useCached } from "@/lib/cache";
 import { api } from "@/services/api";
 import {
@@ -34,6 +39,7 @@ import {
   SNOOZE_OPTIONS,
   type Audience,
   type Category,
+  type EscalationStep,
   type Reminder,
 } from "@/types";
 
@@ -53,6 +59,7 @@ const emptyForm = {
   familyId: null as string | null,
   assignedToId: "",
   audience: "owner" as Audience,
+  escalation: [] as EscalationStep[],
 };
 
 /** Stable identities, so empty results don't invalidate hook deps every render. */
@@ -102,6 +109,7 @@ export default function RemindersPage() {
   const [completeAmount, setCompleteAmount] = useState("");
   const [completeRemarks, setCompleteRemarks] = useState("");
   const [snoozing, setSnoozing] = useState<Reminder | null>(null);
+  const [thread, setThread] = useState<Reminder | null>(null);
   const shortcutHandled = useRef(false);
 
   const openCreate = useCallback(() => {
@@ -123,12 +131,25 @@ export default function RemindersPage() {
   // behind a Suspense boundary just for a client-only nicety.
   useEffect(() => {
     if (shortcutHandled.current || loading || categories.length === 0) return;
-    if (new URLSearchParams(window.location.search).get("new") === "1") {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("new") === "1") {
       shortcutHandled.current = true;
       openCreate();
       window.history.replaceState(null, "", "/reminders");
+      return;
     }
-  }, [loading, categories.length, openCreate]);
+    // From the Assign action on a push notification. A notification's buttons are fixed
+    // when it is sent, so no picker can live inside one — this opens the reminder with the
+    // assignee field in front of the user instead. One tap to the picker.
+    const assign = params.get("assign");
+    if (assign) {
+      shortcutHandled.current = true;
+      const target = reminders.find((r) => r.id === assign);
+      window.history.replaceState(null, "", "/reminders");
+      if (target) openEdit(target);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, categories.length, openCreate, reminders]);
 
   const visible = reminders.filter((r) =>
     filter === "all" ? true : r.status === filter,
@@ -148,6 +169,7 @@ export default function RemindersPage() {
       familyId: r.familyId ?? null,
       assignedToId: r.assignedToId ?? "",
       audience: r.audience ?? "owner",
+      escalation: r.escalation ?? [],
     });
     setFormOpen(true);
   }
@@ -185,6 +207,9 @@ export default function RemindersPage() {
         // away too, but sending null keeps the intent obvious in the request.
         assignedToId: form.familyId ? form.assignedToId || null : null,
         audience: form.familyId ? form.audience : "owner",
+        // An empty list is sent as null, so a reminder with no chain stores nothing and
+        // takes exactly the paths it did before escalation existed.
+        escalation: form.escalation.length > 0 ? form.escalation : null,
       };
       if (editingId) await api.reminders.update(editingId, payload);
       else await api.reminders.create(payload);
@@ -297,6 +322,23 @@ export default function RemindersPage() {
             )}
           </Button>
         )}
+        {/* Only on a shared list. A thread of one is a notes field, and the reminder
+            already has a description for that. */}
+        {r.familyId && (
+          <Button
+            variant="ghost"
+            size="icon"
+            title={r.acknowledgedAt ? "Someone is handling this" : "Notes and who's handling it"}
+            className={r.acknowledgedAt ? "text-green-500" : ""}
+            onClick={() => setThread(r)}
+          >
+            {r.acknowledgedAt ? (
+              <Hand className="h-4 w-4" />
+            ) : (
+              <MessageSquare className="h-4 w-4" />
+            )}
+          </Button>
+        )}
         <Button variant="ghost" size="icon" title="Edit" onClick={() => openEdit(r)}>
           <Pencil className="h-4 w-4" />
         </Button>
@@ -391,11 +433,24 @@ export default function RemindersPage() {
           <Loader2 className="mr-2 h-5 w-5 animate-spin" /> Loading…
         </div>
       ) : visible.length === 0 ? (
-        <Card>
-          <CardContent className="py-10 text-center text-muted-foreground">
-            No reminders here yet.
-          </CardContent>
-        </Card>
+        <div className="space-y-3">
+          <Card>
+            <CardContent className="py-8 text-center text-muted-foreground">
+              No reminders here yet.
+            </CardContent>
+          </Card>
+          {/* Where the packs earn their place: an empty list beside a "New reminder"
+              button asks the person to remember everything they came here to be
+              reminded about. Only on the empty state — once there is a list, this is
+              clutter, and it lives in Settings too. */}
+          {filter === "active" && (
+            <TemplatePacksCard
+              onNotice={setNotice}
+              onError={setError}
+              onImported={load}
+            />
+          )}
+        </div>
       ) : (
         <>
           {/* Phones get a plain list. Wrapping these cards in another Card just
@@ -651,6 +706,14 @@ export default function RemindersPage() {
             </div>
           )}
 
+          <div className="border-t border-border pt-4">
+            <EscalationEditor
+              isFamily={Boolean(form.familyId)}
+              steps={form.escalation}
+              onChange={(escalation) => setForm((f) => ({ ...f, escalation }))}
+            />
+          </div>
+
           <div className="grid sm:grid-cols-2 gap-4">
             <Field label="Recurrence">
               <Select
@@ -769,6 +832,17 @@ export default function RemindersPage() {
           </div>
         </div>
       </Modal>
+
+      {/* Acknowledgement, nudges and notes for one shared reminder. */}
+      <ReminderThread
+        reminder={thread}
+        onClose={() => setThread(null)}
+        onChanged={(patch) => {
+          setThread((t) => (t ? { ...t, ...patch } : t));
+          void load();
+        }}
+        onError={setError}
+      />
     </div>
   );
 }

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { dispatchDueReminders, recordFailedRun } from "@/lib/dispatch";
 import { rotateAuditLogIfDue } from "@/lib/audit-rotate";
 import { runMonthlyMaintenance } from "@/lib/rollup";
+import { advanceStreaks } from "@/lib/streaks";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -139,6 +140,7 @@ async function handle(req: NextRequest) {
     // it are one-way doors, and time travel exists to test the *engine*.
     let rollup: Awaited<ReturnType<typeof runMonthlyMaintenance>> | { error: string } | null =
       null;
+    let streaks: Awaited<ReturnType<typeof advanceStreaks>> | { error: string } | null = null;
     if (!nowParam) {
       try {
         rollup = await runMonthlyMaintenance(now, forceRollup);
@@ -146,9 +148,15 @@ async function handle(req: NextRequest) {
         console.error("[cron] monthly maintenance failed:", e);
         rollup = { error: (e as Error).message };
       }
+      try {
+        streaks = await advanceStreaks(now, forceRollup);
+      } catch (e) {
+        console.error("[cron] streak advance failed:", e);
+        streaks = { error: (e as Error).message };
+      }
     }
 
-    return NextResponse.json({ ...summary, audit, rollup });
+    return NextResponse.json({ ...summary, audit, rollup, streaks });
   } catch (e) {
     console.error("[cron] dispatch failed:", e);
     // Recorded, not just logged: a dispatcher that has been throwing for a day

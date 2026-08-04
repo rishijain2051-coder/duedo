@@ -69,6 +69,11 @@ export function sanitizeReminderInput(
     out.amount = Number.isFinite(n) ? n : 0;
   }
 
+  // Escalation is validated in the route rather than here: parseEscalation throws
+  // HttpError, and assertContactsOwned needs the database — neither belongs in this file,
+  // which stays pure. Passed straight through so the route can validate and overwrite it.
+  if (data.escalation !== undefined) out.escalation = data.escalation;
+
   // The client sends wall-clock text ("2026-08-03T17:30" or "2026-08-03"); the
   // absolute instant is resolved here so the user's own zone is the only source
   // of truth.

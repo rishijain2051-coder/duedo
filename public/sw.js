@@ -55,14 +55,27 @@ self.addEventListener("push", (event) => {
     data: {
       reminderId: data.reminderId || null,
       kind: data.kind || "due",
+      family: Boolean(data.family),
       url: data.url || "/reminders",
     },
-    actions: hasReminder
-      ? [
-          { action: "complete", title: "Complete" },
-          { action: "snooze", title: "Snooze 1h" },
-        ]
-      : [],
+    // Two actions, because iOS shows at most two and a third would simply not appear.
+    //
+    // There is deliberately no "assign to <person>" here: action buttons are fixed when
+    // the notification is *sent*, so a member picker cannot live inside one on any
+    // platform. A family reminder therefore trades Snooze for Assign, which deep-links
+    // straight into the app with the picker already open — one tap to the picker rather
+    // than one tap to assign, which is the closest thing that actually exists.
+    actions: !hasReminder
+      ? []
+      : data.family
+        ? [
+            { action: "complete", title: "Complete" },
+            { action: "assign", title: "Assign" },
+          ]
+        : [
+            { action: "complete", title: "Complete" },
+            { action: "snooze", title: "Snooze 1h" },
+          ],
   };
 
   event.waitUntil(
@@ -128,6 +141,13 @@ self.addEventListener("notificationclick", (event) => {
   const data = event.notification.data || {};
   const action = event.action;
   event.notification.close();
+
+  // Nothing is assigned from here — see the note on `actions` above. The app is opened
+  // at the reminder with `?assign=<id>`, which is what makes the picker appear.
+  if (data.reminderId && action === "assign") {
+    event.waitUntil(openApp(`/reminders?assign=${encodeURIComponent(data.reminderId)}`));
+    return;
+  }
 
   if (data.reminderId && (action === "complete" || action === "snooze")) {
     const path =

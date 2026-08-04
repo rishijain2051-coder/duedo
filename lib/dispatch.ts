@@ -2,6 +2,8 @@ import { prisma } from "./db";
 import { sendPushToUser, isPushConfigured } from "./push";
 import { sendMail, isMailConfigured } from "./mail";
 import { buildReminderEmail, type AlertKind } from "./reminder-email";
+import { readEscalation, type EscalationTarget } from "./escalation";
+import { contactSendable } from "./external-contacts";
 import { recipientsFor, countOutstandingFor } from "./recipients";
 import { familyIdsFor } from "./families";
 import { formatInZone, formatTimeInZone, humanizeMinutes } from "./time";
@@ -72,6 +74,9 @@ interface ReminderRow {
   createdAt: Date;
   lastNaggedAt: Date | null;
   snoozedUntil: Date | null;
+  acknowledgedAt: Date | null;
+  /** Raw Json; read through readEscalation, which tolerates anything unexpected. */
+  escalation: unknown;
   user: Owner;
   family: { name: string } | null;
   category: { name: string } | null;
@@ -80,10 +85,18 @@ interface ReminderRow {
 interface Fire {
   reminder: ReminderRow;
   kind: AlertKind;
-  /** lead: the offset in minutes. due: 0. overdue: whole minutes since dueAt. */
+  /**
+   * lead: the offset in minutes. due: 0. overdue: whole minutes since dueAt.
+   * escalation: the step's own `afterMins`, which is what makes each step fire once per
+   * cycle through the existing dedupe key with no new machinery.
+   */
   offsetMin: number;
   /** Minutes until due — negative once overdue. */
   minutesUntilDue: number;
+  /** Set only on an escalation fire: who this step is climbing to. */
+  escalateTo?: EscalationTarget;
+  /** Set only when escalateTo is "external". */
+  contactId?: string;
 }
 
 /** The per-recipient facts needed to decide and address a delivery. */
@@ -113,6 +126,8 @@ export interface DispatchSummary {
   emailsSent: number;
   emailsThrottled: number;
   emailsSkippedOptOut: number;
+  /** Escalations to an outside address that the consent rule stopped. Not a failure. */
+  escalationsWithheld: number;
   durationMs: number;
 }
 
@@ -163,6 +178,37 @@ function planFires(r: ReminderRow, now: Date, overdueRepeatMins: number): Fire[]
       if (slot > 0) {
         fires.push({ reminder: r, kind: "overdue", offsetMin: slot, minutesUntilDue });
       }
+    }
+  }
+
+  // ------------------------------------------------------------------ escalation
+  // Every step whose time has come, once per cycle each. `offsetMin` is the step's own
+  // `afterMins`, so the existing unique key on
+  // (reminderId, userId, cycleDueAt, kind, offsetMin) does the once-only work with nothing
+  // added — which is a good sign the key was right to begin with.
+  //
+  // Three guards, and none of them is obvious:
+  //
+  //   * acknowledgement stops the chain dead. Somebody saying "I'll handle it" is the
+  //     exact signal escalation exists to wait for, and climbing past it would punish the
+  //     one person who answered;
+  //   * the same OVERDUE_NAG_LIMIT_DAYS cap applies, so a chain can't outlive the nagging
+  //     it escalates — otherwise the app goes quiet to the assignee while still mailing
+  //     the landlord every day;
+  //   * a reminder with no chain never enters this block at all, so it takes byte-identical
+  //     paths to before escalation existed.
+  if (!r.acknowledgedAt && daysOverdue <= OVERDUE_NAG_LIMIT_DAYS) {
+    const minutesOverdue = Math.floor((nowMs - dueMs) / MS_PER_MIN);
+    for (const step of readEscalation(r.escalation)) {
+      if (minutesOverdue < step.afterMins) continue;
+      fires.push({
+        reminder: r,
+        kind: "escalation",
+        offsetMin: step.afterMins,
+        minutesUntilDue,
+        escalateTo: step.notify,
+        contactId: step.contactId,
+      });
     }
   }
 
@@ -228,6 +274,8 @@ export async function dispatchDueReminders(
       createdAt: true,
       lastNaggedAt: true,
       snoozedUntil: true,
+      acknowledgedAt: true,
+      escalation: true,
       user: { select: { id: true, overdueRepeatMins: true } },
       family: { select: { name: true } },
       category: { select: { name: true } },
@@ -243,7 +291,7 @@ export async function dispatchDueReminders(
     }),
     considered: reminders.length,
     recipients: 0,
-    fired: { lead: 0, due: 0, overdue: 0 },
+    fired: { lead: 0, due: 0, overdue: 0, escalation: 0 },
     skippedAlreadySent: 0,
     notificationsCreated: 0,
     pushesSent: 0,
@@ -252,6 +300,7 @@ export async function dispatchDueReminders(
     emailsSent: 0,
     emailsThrottled: 0,
     emailsSkippedOptOut: 0,
+    escalationsWithheld: 0,
     durationMs: 0,
   };
 
@@ -318,10 +367,104 @@ export async function dispatchDueReminders(
     return undefined;
   }
 
+  /**
+   * Who an escalation step climbs to.
+   *
+   * Falls back to the creator whenever the intended target has gone, on the same reasoning
+   * as recipientsFor(): silence is the worse failure. An `external` step returns no in-app
+   * recipients at all — it is handled before this loop, because there is no User row to
+   * address.
+   */
+  async function escalationRecipients(
+    r: ReminderRow,
+    to: EscalationTarget,
+  ): Promise<string[]> {
+    if (to === "assignee") return [r.assignedToId ?? r.userId];
+    if (to === "head") {
+      if (!r.familyId) return [r.userId];
+      const head = await prisma.familyMember.findFirst({
+        where: { familyId: r.familyId, role: "head", user: { status: "active" } },
+        select: { userId: true },
+      });
+      return [head?.userId ?? r.userId];
+    }
+    if (to === "admins") {
+      const admins = await prisma.user.findMany({
+        where: { role: "admin", status: "active" },
+        select: { id: true },
+      });
+      return admins.length > 0 ? admins.map((a) => a.id) : [r.userId];
+    }
+    return [];
+  }
+
   for (const fire of plan) {
     const { reminder: r, kind, offsetMin } = fire;
 
-    const ids = await resolveRecipients(r);
+    // ------------------------------------------------ escalation to someone outside
+    // Handled apart from the per-recipient loop because there is no account to loop
+    // over: an ExternalContact is an address, not a user. The dedupe row is still
+    // written, against the *creator's* id — the (reminder, cycle, kind, offsetMin) part
+    // is what makes it once-per-cycle, and steps are de-duplicated by minute when the
+    // chain is saved, so no two can collide on the same creator.
+    if (fire.escalateTo === "external") {
+      if (!fire.contactId) continue;
+      const claimed = await prisma.reminderDispatch.createMany({
+        data: [
+          {
+            reminderId: r.id,
+            userId: r.userId,
+            cycleDueAt: r.dueAt,
+            kind,
+            offsetMin,
+          },
+        ],
+        skipDuplicates: true,
+      });
+      if (claimed.count === 0) {
+        summary.skippedAlreadySent++;
+        continue;
+      }
+
+      const creator = userCache.get(r.userId) ?? (await loadUsers([r.userId]), userCache.get(r.userId));
+      const state = await contactSendable(fire.contactId, {
+        reminderTitle: r.title,
+        requesterName: creator?.name ?? "Someone",
+      });
+      if (state !== "confirmed") {
+        // Not an error. An unconfirmed or blocked contact is the consent rule working;
+        // the slot stays claimed so the next tick doesn't re-invite them.
+        summary.escalationsWithheld++;
+        continue;
+      }
+
+      const contact = await prisma.externalContact.findUnique({
+        where: { id: fire.contactId },
+        select: { email: true },
+      });
+      if (!contact) continue;
+
+      const mail = buildReminderEmail({
+        userName: contact.email,
+        title: r.title,
+        description: r.description,
+        category: r.category?.name ?? null,
+        amount: r.amount,
+        dueAt: r.dueAt,
+        timeZone: creator?.timezone ?? "Asia/Kolkata",
+        kind,
+        minutesUntilDue: fire.minutesUntilDue,
+      });
+      if (await sendMail({ to: contact.email, subject: mail.subject, html: mail.html })) {
+        summary.emailsSent++;
+        summary.fired.escalation++;
+      }
+      continue;
+    }
+
+    const ids = fire.escalateTo
+      ? await escalationRecipients(r, fire.escalateTo)
+      : await resolveRecipients(r);
     await loadUsers(ids);
 
     let deliveredToAnyone = false;
@@ -392,6 +535,7 @@ export async function dispatchDueReminders(
           reminderId: r.id,
           kind,
           badge,
+          family: Boolean(r.familyId),
           url: "/reminders",
         });
 
@@ -489,6 +633,7 @@ async function recordRun(s: DispatchSummary, error?: string): Promise<void> {
         firedLead: s.fired.lead,
         firedDue: s.fired.due,
         firedOverdue: s.fired.overdue,
+        firedEscalation: s.fired.escalation,
         pushesSent: s.pushesSent,
         pushesFailed: s.pushesFailed,
         emailsSent: s.emailsSent,
@@ -570,7 +715,7 @@ export async function recordFailedRun(
       subscriptions: 0,
       considered: 0,
       recipients: 0,
-      fired: { lead: 0, due: 0, overdue: 0 },
+      fired: { lead: 0, due: 0, overdue: 0, escalation: 0 },
       skippedAlreadySent: 0,
       notificationsCreated: 0,
       pushesSent: 0,
@@ -579,6 +724,7 @@ export async function recordFailedRun(
       emailsSent: 0,
       emailsThrottled: 0,
       emailsSkippedOptOut: 0,
+      escalationsWithheld: 0,
       durationMs,
     },
     error.slice(0, 500),

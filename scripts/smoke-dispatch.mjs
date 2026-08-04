@@ -139,6 +139,10 @@ try {
     lead: 0,
     due: 0,
     overdue: 0,
+    // Present on every run since escalation became an AlertKind. Asserted as part of the
+    // whole shape on purpose: a reminder with no chain must report zero here, which is the
+    // cheapest possible check that escalation didn't leak into the ordinary path.
+    escalation: 0,
   });
   check("1-day lead fires", (await tick(DUE - 1439 * MIN)).fired.lead, 1);
   check("and does not fire twice", (await tick(DUE - 1438 * MIN)).fired.lead, 0);

@@ -47,8 +47,18 @@ member, and picks who gets alerted:
 | Everyone in the family | Every member |
 
 Any member can **complete or snooze** something on the shared list — that's what
-makes it shared. Editing, reassigning and changing the audience stay with the
-creator and the head, because those change the thing for everyone.
+makes it shared. A recipient can also tap **I'll handle it**, which tells everyone
+somebody has it and pauses any escalation, and anyone who can see a reminder can leave
+a **note** on it, so a shared list doesn't need a chat app beside it.
+
+Each family has an **activity feed** (who completed what, and what was said) and a
+**this month** panel showing each member's assigned / completed / on-time counts. Both
+are always on. What is **off until the head switches it on**: ordering members against
+each other, streak badges, and letting members nudge each other. A household that
+hasn't asked to be a league table isn't one.
+
+Editing, reassigning and changing the audience stay with the creator and the head,
+because those change the thing for everyone.
 
 The head can rename the family, rotate the join code, remove members, hand over
 headship, and dissolve it. **Dissolving is refused while any reminder is
@@ -115,6 +125,37 @@ account here.
 Sessions are stored in the database, so **Settings → Security** can list every
 active login and sign any of them out, and an optional inactivity timeout is
 enforced server-side rather than merely honoured by the browser.
+
+## Starter packs
+
+An empty list beside a "New reminder" button asks you to remember everything you came
+here to be reminded about. Four packs — **Indian household**, **Homeowner**,
+**Family life**, **Freelancer** — cover the paperwork and payments that come round
+anyway. You get a checklist with real dates and amounts and untick what you don't want,
+and importing the same pack twice adds only what's missing.
+
+## Spending
+
+Reminders carry an amount, so completing them records what you paid. **Spending** shows
+this month's total, a per-category breakdown, each category against its own 3-month
+average, what's due in the next 7 days, and a rolling twelve months. CSV download for
+the last three months.
+
+Not a budgeting tool and not an accounting one: no financial year, no envelopes, nothing
+to set up. It answers "roughly what have I been spending, and what's about to land".
+Older months are kept as monthly totals only, and deleting a reminder removes its
+history — the download says so.
+
+## Escalation
+
+Per reminder, up to two steps: **if this still isn't done N hours late, tell someone
+else** — the assignee again, the family head, an admin, or an address outside the app
+entirely. Escalation stops the moment somebody says they'll handle it.
+
+An outside address is asked **once** whether it wants this at all, and nothing reaches
+it until it agrees; declining blocks it permanently for everyone. That isn't politeness —
+every message this install sends leaves through one Gmail account, and unconfirmed mail
+to strangers is what gets a sender throttled.
 
 ## Reminders
 
@@ -230,6 +271,25 @@ It also copies the existing log out and puts it back, so a run can't cost you hi
 node --env-file=.env scripts/smoke-audit-rotate.mjs
 ```
 
+Spending insights — the totals, and more importantly the scoping. These routes read
+`ReminderHistory` rather than `Reminder`, so they bypass `lib/ownership.ts` entirely; a
+missing clause leaks money rather than throwing. Also covers the month close and the
+history prune, whose one inviolable rule is that **a month with no rollup is never
+pruned**:
+
+```bash
+node --env-file=.env scripts/smoke-insights.mjs
+```
+
+Family accountability, packs and escalation — mostly negative assertions, because
+everything here writes to a *shared* row: who may not acknowledge, comment, nudge or read
+a scoreboard. The escalation section drives `?now=` time travel, since it changes
+`planFires()` in `lib/dispatch.ts` — the one file where a bug means silence:
+
+```bash
+node --env-file=.env scripts/smoke-family.mjs
+```
+
 Route contracts — the edges nobody exercises by hand. Every protected route refuses
 an anonymous caller with 401; every method a route doesn't declare answers 405; a
 malformed body is a 400 rather than a 500; an unknown id is a 404 rather than a
@@ -250,3 +310,7 @@ a guard you can switch off is a guard that will be switched off.
 
 > **Tip:** don't run `npm run build` while `npm run dev` is running — they share the
 > `.next` folder and corrupt it. Stop dev first.
+>
+> Same for `prisma generate`: a running dev server holds the old client in memory, so a
+> newly added column reads as undefined and writes fail in ways that look like a bug in
+> whatever you were testing. Restart dev after regenerating.

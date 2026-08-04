@@ -146,6 +146,8 @@ export interface Category {
 
 export interface Reminder {
   id: string;
+  /** The creator. Needed on the client to work out who an alert is actually addressed to. */
+  userId: string;
   title: string;
   description?: string | null;
   categoryId: string;
@@ -168,6 +170,15 @@ export interface Reminder {
   assignedToId?: string | null;
   assignedTo?: { id: string; name: string } | null;
   audience: Audience;
+  /** Set once somebody has said they'll handle this cycle. Cleared on completion. */
+  acknowledgedAt?: string | null;
+  acknowledgedById?: string | null;
+  /** Who to tell if it stays undone. Null on almost every reminder. */
+  escalation?: EscalationStep[] | null;
+  /** Which starter-pack item this came from, if any. */
+  templateKey?: string | null;
+  /** Bumped on every write; the offline sync uses it as the version token. */
+  updatedAt?: string;
 }
 
 export interface DashboardStats {
@@ -198,6 +209,13 @@ export interface AppNotification {
   kind: string;
   read: boolean;
   createdAt: string;
+}
+
+/** Escalation, as the reminder form stores and sends it. See lib/escalation.ts. */
+export interface EscalationStep {
+  afterMins: number;
+  notify: "assignee" | "head" | "admins" | "external";
+  contactId?: string;
 }
 
 export const RECURRENCE_OPTIONS = [

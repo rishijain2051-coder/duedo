@@ -130,6 +130,85 @@ export interface YearInsights {
   detailFrom: string;
 }
 
+export interface PackItemView {
+  key: string;
+  title: string;
+  category: string;
+  recurrence: string;
+  leadOffsets: number[];
+  amount: number;
+  note: string | null;
+  dueAt: string;
+  /** The date is a stand-in — a birthday has no date a pack could know. */
+  datePlaceholder: boolean;
+  alreadyImported: boolean;
+}
+
+export interface TemplatePacks {
+  scope: string;
+  packs: { id: string; name: string; blurb: string; items: PackItemView[] }[];
+}
+
+export interface FamilyEvent {
+  id: string;
+  kind: "completed" | "commented";
+  at: string;
+  who: string;
+  reminderId: string | null;
+  title: string;
+  amount: number;
+  /** Null when the completion predates cycle recording — unknown, not late. */
+  onTime: boolean | null;
+  body: string | null;
+}
+
+export interface ScoreboardMember {
+  userId: string;
+  name: string;
+  role: string;
+  self: boolean;
+  assigned: number;
+  completed: number;
+  onTime: number;
+  outstanding: number;
+  streakWeeks?: number;
+  bestStreakWeeks?: number;
+  streakMonths?: number;
+  bestStreakMonths?: number;
+}
+
+export interface Scoreboard {
+  month: string;
+  ranked: boolean;
+  streaks: boolean;
+  nudges: boolean;
+  members: ScoreboardMember[];
+}
+
+export interface FamilyFlags {
+  showRanking: boolean;
+  showStreaks: boolean;
+  allowNudges: boolean;
+  monthlyReportToHead: boolean;
+}
+
+export interface ExternalContactRow {
+  id: string;
+  email: string;
+  label: string | null;
+  state: "new" | "invited" | "confirmed" | "blocked";
+  confirmedAt?: string | null;
+  invitedAt?: string | null;
+}
+
+export interface ReminderComment {
+  id: string;
+  body: string;
+  createdAt: string;
+  author: string;
+  self: boolean;
+}
+
 export interface PasskeySummary {
   id: string;
   label: string | null;
@@ -184,6 +263,7 @@ export interface DispatchRunRow {
   firedLead: number;
   firedDue: number;
   firedOverdue: number;
+  firedEscalation: number;
   pushesSent: number;
   pushesFailed: number;
   emailsSent: number;
@@ -435,6 +515,30 @@ export const api = {
         method: "POST",
         body: JSON.stringify({ minutes }),
       }),
+    acknowledge: (id: string) =>
+      request<{ acknowledgedAt: string | null; acknowledgedById: string | null }>(
+        `/reminders/${id}/acknowledge`,
+        { method: "POST" },
+      ),
+    unacknowledge: (id: string) =>
+      request<{ acknowledgedAt: null; acknowledgedById: null }>(
+        `/reminders/${id}/acknowledge`,
+        { method: "DELETE" },
+      ),
+    nudge: (id: string) =>
+      request<{ nudged: string; pushed: number }>(`/reminders/${id}/nudge`, {
+        method: "POST",
+      }),
+    comments: (id: string) => request<ReminderComment[]>(`/reminders/${id}/comments`),
+    comment: (id: string, body: string) =>
+      request<ReminderComment>(`/reminders/${id}/comments`, {
+        method: "POST",
+        body: JSON.stringify({ body }),
+      }),
+    removeComment: (id: string, commentId: string) =>
+      request<{ deleted: boolean }>(`/reminders/${id}/comments/${commentId}`, {
+        method: "DELETE",
+      }),
   },
   reports: {
     /** Stats + upcoming + recent activity in one request, for the dashboard. */
@@ -447,6 +551,38 @@ export const api = {
     /** Just the counters — used by the badge sync, which needs nothing else. */
     dashboard: () => request<DashboardStats>("/reports/dashboard"),
     recentActivity: () => request<Activity[]>("/reports/recent-activity"),
+  },
+  templates: {
+    list: (scope: string) =>
+      request<TemplatePacks>(`/templates?scope=${encodeURIComponent(scope)}`),
+    import: (pack: string, scope: string, keys: string[]) =>
+      request<{ created: number; skipped: number; categoriesCreated: number }>(
+        "/templates/import",
+        { method: "POST", body: JSON.stringify({ pack, scope, keys }) },
+      ),
+  },
+  family: {
+    activity: (id: string) => request<FamilyEvent[]>(`/families/${id}/activity`),
+    scoreboard: (id: string, back = 0) =>
+      request<Scoreboard>(`/families/${id}/scoreboard?back=${back}`),
+    setFlags: (id: string, flags: Partial<FamilyFlags>) =>
+      request<{ ok: true }>(`/families/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify(flags),
+      }),
+  },
+  contacts: {
+    list: () => request<ExternalContactRow[]>("/contacts"),
+    add: (email: string, label?: string) =>
+      request<ExternalContactRow>("/contacts", {
+        method: "POST",
+        body: JSON.stringify({ email, label }),
+      }),
+    remove: (id: string) =>
+      request<{ deleted: boolean }>("/contacts", {
+        method: "DELETE",
+        body: JSON.stringify({ id }),
+      }),
   },
   insights: {
     month: (scope: string) =>

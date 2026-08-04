@@ -33,9 +33,19 @@ export interface PushPayload {
   /** Collapse key — a later push with the same tag replaces the earlier one. */
   tag?: string;
   reminderId?: string;
-  kind?: "lead" | "due" | "overdue" | "test";
+  /**
+   * `nudge` is one member prodding another; `escalation` is the chain in lib/escalation.ts
+   * having given up on the assignee. Both are distinguished from the engine's own alerts
+   * because the service worker offers different actions for them.
+   */
+  kind?: "lead" | "due" | "overdue" | "test" | "nudge" | "escalation";
   /** Rendered on the Home Screen icon by the service worker. */
   badge?: number;
+  /**
+   * True for a reminder on a family list. The service worker uses it to choose between
+   * offering Snooze and offering Assign — a personal reminder has nobody to assign to.
+   */
+  family?: boolean;
   url?: string;
 }
 

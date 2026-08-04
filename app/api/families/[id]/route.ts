@@ -30,6 +30,25 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
       });
     }
 
+    // What the family opts into. Head-only, and every one of them defaults off except
+    // the monthly mail to the head — see the note on the Family model. Grouped rather
+    // than handled one field at a time because they are a single decision in the UI.
+    const FLAGS = ["showRanking", "showStreaks", "allowNudges", "monthlyReportToHead"] as const;
+    const flags: Record<string, boolean> = {};
+    for (const flag of FLAGS) {
+      if (body[flag] !== undefined) flags[flag] = body[flag] === true;
+    }
+    if (Object.keys(flags).length > 0) {
+      await prisma.family.update({ where: { id }, data: flags });
+      await audit({
+        actorId: user.id,
+        action: "family.settings",
+        entity: "family",
+        entityId: id,
+        detail: flags,
+      });
+    }
+
     if (body.rotateCode === true) {
       const joinCode = await uniqueJoinCode();
       await prisma.family.update({ where: { id }, data: { joinCode } });
