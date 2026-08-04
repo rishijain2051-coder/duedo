@@ -43,9 +43,15 @@ export async function GET(req: NextRequest) {
           select: { reminders: true, families: true, pushDevices: true },
         },
       },
-      // Pending first — the whole point of the page is to act on them.
-      orderBy: [{ status: "asc" }, { createdAt: "asc" }],
+      orderBy: { createdAt: "asc" },
     });
+
+    // Pending first — the whole point of the page is to act on them. This used to
+    // be `orderBy: status asc`, which sorts the *word*: "active" comes before
+    // "pending", so on any install with more than a handful of approved accounts
+    // the queue was buried at the bottom of the list.
+    const RANK: Record<string, number> = { pending: 0, active: 1, rejected: 2 };
+    users.sort((a, b) => (RANK[a.status] ?? 9) - (RANK[b.status] ?? 9));
 
     return users.map((u) => ({
       id: u.id,

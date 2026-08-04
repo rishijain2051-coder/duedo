@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db";
-import { json, HttpError } from "@/lib/http";
+import { json, HttpError, readJson } from "@/lib/http";
 import { DEFAULT_CATEGORIES, uniqueJoinCode } from "@/lib/families";
 import { audit } from "@/lib/audit";
 
@@ -64,7 +64,7 @@ export async function GET() {
 /** Creates a family; the caller becomes its head. */
 export async function POST(req: NextRequest) {
   return json(async (user) => {
-    const body = await req.json().catch(() => ({}));
+    const body = await readJson(req);
     const name = typeof body?.name === "string" ? body.name.trim() : "";
     if (name.length < 2) throw new HttpError(400, "Give the family a name.");
 

@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db";
-import { HttpError, jsonAdmin } from "@/lib/http";
+import { HttpError, jsonAdmin, readJson } from "@/lib/http";
 import { audit } from "@/lib/audit";
 
 export const runtime = "nodejs";
@@ -47,7 +47,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
     const exists = await prisma.family.findUnique({ where: { id }, select: { id: true } });
     if (!exists) throw new HttpError(404, "Family not found");
 
-    const body = await req.json().catch(() => ({}));
+    const body = await readJson(req);
 
     if (body.name !== undefined) {
       const name = String(body.name).trim();

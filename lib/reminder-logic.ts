@@ -2,6 +2,20 @@
 
 import { parseDueAt, LEAD_OFFSET_VALUES } from "./time";
 import { isAudience } from "./recipients";
+import { PRIORITY_OPTIONS, RECURRENCE_OPTIONS, REMINDER_STATUSES } from "@/types";
+
+/**
+ * Keeps a value only if it is one of the ones the app knows about.
+ *
+ * Unrecognised values are dropped rather than rejected, matching how `audience`
+ * is handled: on create the field falls back to its default, and on update it is
+ * left as it was. An old client sending a value that has since been renamed
+ * therefore loses that one field instead of the whole save.
+ */
+function oneOf(value: unknown, allowed: readonly string[]): string | undefined {
+  const s = String(value);
+  return allowed.includes(s) ? s : undefined;
+}
 
 /** Keeps only offsets the UI actually offers, de-duplicated, longest lead first. */
 export function sanitizeLeadOffsets(input: unknown): number[] {
@@ -26,10 +40,13 @@ export function sanitizeReminderInput(
   defaultTime: string,
 ) {
   const out: Record<string, unknown> = {};
-  if (data.title !== undefined) out.title = String(data.title);
+  if (data.title !== undefined) out.title = String(data.title).trim();
   if (data.description !== undefined)
     out.description = data.description ? String(data.description) : null;
-  if (data.categoryId !== undefined) out.categoryId = data.categoryId;
+  // Forced to a string so a number or an object in the body can't reach a Prisma
+  // `where` clause, which would throw a validation error and surface as a 500.
+  if (data.categoryId !== undefined)
+    out.categoryId = data.categoryId ? String(data.categoryId) : null;
 
   // Which list the reminder lives on. Whitelisted here but *verified* in the
   // route — membership can't be checked without the database, and this file
@@ -40,21 +57,34 @@ export function sanitizeReminderInput(
     out.assignedToId = data.assignedToId ? String(data.assignedToId) : null;
   if (data.audience !== undefined && isAudience(data.audience))
     out.audience = data.audience;
-  if (data.priority !== undefined) out.priority = data.priority;
-  if (data.status !== undefined) out.status = data.status;
-  if (data.recurrenceRule !== undefined) out.recurrenceRule = data.recurrenceRule;
+  if (data.priority !== undefined) out.priority = oneOf(data.priority, PRIORITY_OPTIONS);
+  if (data.status !== undefined) out.status = oneOf(data.status, REMINDER_STATUSES);
+  if (data.recurrenceRule !== undefined)
+    out.recurrenceRule = oneOf(data.recurrenceRule, RECURRENCE_OPTIONS);
   if (data.leadOffsets !== undefined)
     out.leadOffsets = sanitizeLeadOffsets(data.leadOffsets);
-  if (data.amount !== undefined)
-    out.amount = data.amount === "" || data.amount == null ? 0 : Number(data.amount);
+  if (data.amount !== undefined) {
+    const n = data.amount === "" || data.amount == null ? 0 : Number(data.amount);
+    // NaN would reach the database as a Float and fail there instead of here.
+    out.amount = Number.isFinite(n) ? n : 0;
+  }
 
   // The client sends wall-clock text ("2026-08-03T17:30" or "2026-08-03"); the
   // absolute instant is resolved here so the user's own zone is the only source
   // of truth.
   if (data.dueAt !== undefined && data.dueAt !== null && data.dueAt !== "") {
-    const { dueAt, hasTime } = parseDueAt(String(data.dueAt), timeZone, defaultTime);
-    out.dueAt = dueAt;
-    out.hasTime = hasTime;
+    try {
+      const { dueAt, hasTime } = parseDueAt(String(data.dueAt), timeZone, defaultTime);
+      out.dueAt = dueAt;
+      out.hasTime = hasTime;
+    } catch {
+      // parseDueAt throws on text it can't read. Recording an Invalid Date rather
+      // than rethrowing keeps this file free of HTTP concerns; the check in
+      // lib/reminder-scope turns it into a 400 with a message, and does so on
+      // updates as well as creates — dropping the field silently would let a
+      // mangled date leave the old one in place and look like a save that worked.
+      out.dueAt = new Date(NaN);
+    }
   }
 
   if (isCreate) {
@@ -67,12 +97,15 @@ export function sanitizeReminderInput(
     if (out.audience === undefined) out.audience = "owner";
   }
 
-  // A personal reminder has nobody to assign to and no audience beyond its owner.
-  // Normalising here means the rest of the app never has to consider the
-  // combination "personal, but addressed to a family".
+  // A personal reminder has nobody to assign to and no audience beyond its owner,
+  // so the rest of the app never has to consider "personal, but addressed to a
+  // family". Only *absent* fields are filled in here: a body that actually asked
+  // for an assignee or a wider audience is left alone so lib/reminder-scope can
+  // refuse it and say why. Overwriting it instead would hand back a reminder that
+  // quietly wasn't what the caller filled in.
   if (out.familyId === null) {
-    out.assignedToId = null;
-    out.audience = "owner";
+    if (out.assignedToId === undefined) out.assignedToId = null;
+    if (out.audience === undefined) out.audience = "owner";
   }
 
   return out;

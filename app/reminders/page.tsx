@@ -327,7 +327,14 @@ export default function RemindersPage() {
               : `${visible.length} ${filter === "all" ? "total" : filter}`}
           </p>
         </div>
-        <Button onClick={openCreate} disabled={noCategories} className="shrink-0">
+        {/* aria-label because the text beside the icon is hidden on a phone, which
+            left the page's primary action with no accessible name at all. */}
+        <Button
+          onClick={openCreate}
+          disabled={noCategories}
+          className="shrink-0"
+          aria-label="New reminder"
+        >
           <Plus className="h-4 w-4 sm:mr-2" />
           <span className="hidden sm:inline">New Reminder</span>
         </Button>
@@ -355,9 +362,12 @@ export default function RemindersPage() {
         </div>
       )}
 
-      {/* Which list. Solo accounts never see this — there is only one. */}
+      {/* Which list. Solo accounts never see this — there is only one.
+          Wraps rather than scrolling: family names can be long, and a strip that
+          scrolls sideways on touch draws no scrollbar, so a second family would sit
+          off the edge of a phone with nothing to say it was there. */}
       {isFamilyAccount && families.length > 0 && (
-        <div className="flex gap-2 overflow-x-auto pb-1">
+        <div className="flex flex-wrap gap-2 pb-1">
           {[{ id: "mine", label: "Mine" }, ...families.map((f) => ({ id: f.id, label: f.name }))].map(
             (tab) => (
               <button
@@ -382,7 +392,7 @@ export default function RemindersPage() {
         </p>
       )}
 
-      <div className="flex gap-2 overflow-x-auto pb-1">
+      <div className="flex flex-wrap gap-2 pb-1">
         {STATUS_FILTERS.map((f) => (
           <button
             key={f}

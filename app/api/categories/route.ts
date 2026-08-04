@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db";
-import { json, HttpError } from "@/lib/http";
+import { json, HttpError, readJson } from "@/lib/http";
 import {
   DEFAULT_CATEGORIES,
   assertMember,
@@ -65,7 +65,7 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   return json(async (user) => {
-    const body = await req.json();
+    const body = await readJson(req);
     const name = typeof body?.name === "string" ? body.name.trim() : "";
     if (!name) throw new HttpError(400, "Name is required");
 
@@ -88,7 +88,14 @@ export async function POST(req: NextRequest) {
     }
 
     return prisma.category.create({
-      data: { ...scope, name, icon: body.icon ?? null, color: body.color ?? null },
+      data: {
+        ...scope,
+        name,
+        // Text or nothing. Anything else in the body is not a lucide icon name or
+        // a colour, and would only fail further down at the database.
+        icon: typeof body.icon === "string" ? body.icon : null,
+        color: typeof body.color === "string" ? body.color : null,
+      },
     });
   }, 201);
 }

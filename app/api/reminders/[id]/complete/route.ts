@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db";
-import { json } from "@/lib/http";
+import { json, readJson } from "@/lib/http";
 import { computeNextDueAt } from "@/lib/reminder-logic";
 import { assertReminderAction } from "@/lib/ownership";
 
@@ -16,7 +16,7 @@ const INCLUDE = {
 export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   return json(async (user) => {
     const { id } = await ctx.params;
-    const body = await req.json().catch(() => ({}));
+    const body = await readJson(req);
     // Assignee and family head may complete, not only the creator.
     const reminder = await assertReminderAction(id, user.id, "complete");
 
@@ -25,9 +25,15 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
         reminderId: id,
         // Worth recording on a shared list: "who actually paid this".
         completedById: user.id,
-        amount: body.amount != null ? Number(body.amount) : reminder.amount,
+        // Omitted, or a figure that isn't a number, falls back to what the
+        // reminder said — rather than reaching the database as NaN and failing the
+        // whole save over a stray character in one field.
+        amount:
+          body.amount == null || !Number.isFinite(Number(body.amount))
+            ? reminder.amount
+            : Number(body.amount),
         status: "completed",
-        remarks: body.remarks ?? null,
+        remarks: typeof body.remarks === "string" ? body.remarks : null,
       },
     });
 

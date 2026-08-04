@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db";
-import { HttpError, json } from "@/lib/http";
+import { HttpError, json, readJson } from "@/lib/http";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -24,10 +24,11 @@ export const dynamic = "force-dynamic";
  */
 export async function POST(req: NextRequest) {
   return json(async (user) => {
-    const body = await req.json().catch(() => ({}));
-    const endpoint = body?.endpoint;
-    const p256dh = body?.keys?.p256dh;
-    const auth = body?.keys?.auth;
+    const body = await readJson(req);
+    const endpoint = body.endpoint;
+    const keys = (body.keys ?? {}) as Record<string, unknown>;
+    const p256dh = keys.p256dh;
+    const auth = keys.auth;
 
     if (typeof endpoint !== "string" || !endpoint.startsWith("https://")) {
       throw new HttpError(400, "A valid https push endpoint is required.");

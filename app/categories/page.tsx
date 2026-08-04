@@ -139,6 +139,8 @@ export default function CategoriesPage() {
                     size="icon"
                     className="text-destructive hover:bg-destructive hover:text-white"
                     onClick={() => remove(c)}
+                    aria-label={`Delete ${c.name}`}
+                    title={`Delete ${c.name}`}
                   >
                     <Trash2 className="h-4 w-4" />
                   </Button>

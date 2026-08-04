@@ -16,6 +16,39 @@ interface Destination {
 }
 
 /**
+ * The fields the database insists on, checked before it gets the chance.
+ *
+ * Prisma will refuse a reminder with no title, no due date or no category — but
+ * it refuses by throwing, which `lib/http.ts` can only report as a 500. So the
+ * user is told "Internal server error" about their own empty field, and the log
+ * fills with unhandled exceptions that look like outages. Checking here turns
+ * each one back into a 400 and a sentence.
+ *
+ * On an update only the fields actually present are checked, so a PATCH that
+ * touches one field doesn't have to resend the rest.
+ */
+export function assertReminderFields(
+  data: Record<string, unknown>,
+  isCreate: boolean,
+): void {
+  if (isCreate ? !data.title : data.title !== undefined && !data.title) {
+    throw new HttpError(400, "Give the reminder a title.");
+  }
+
+  if (data.dueAt === undefined) {
+    if (isCreate) throw new HttpError(400, "Give the reminder a due date.");
+  } else if (Number.isNaN((data.dueAt as Date).getTime())) {
+    // parseDueAt hands back an Invalid Date rather than throwing, so a mangled
+    // "2026-13-45" gets this far looking like a Date.
+    throw new HttpError(400, "That due date could not be read.");
+  }
+
+  if (isCreate && !data.categoryId) {
+    throw new HttpError(400, "Pick a category for the reminder.");
+  }
+}
+
+/**
  * Checks a sanitised reminder payload against what the caller may actually do,
  * mutating nothing and throwing on anything invalid.
  *

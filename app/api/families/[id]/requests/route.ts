@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db";
-import { json, HttpError } from "@/lib/http";
+import { json, HttpError, readJson } from "@/lib/http";
 import { assertHead } from "@/lib/families";
 import { audit } from "@/lib/audit";
 
@@ -33,7 +33,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
     const { id } = await ctx.params;
     await assertHead(user.id, id);
 
-    const body = await req.json().catch(() => ({}));
+    const body = await readJson(req);
     const requestId = String(body?.requestId ?? "");
     const approve = body?.approve === true;
     if (!requestId) throw new HttpError(400, "Which request?");

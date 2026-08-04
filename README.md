@@ -165,7 +165,7 @@ node scripts/generate-icons.mjs
 
 ### Smoke suites
 
-With the dev server running, these check the two things that break quietly.
+With the dev server running, these check the three things that break quietly.
 
 The reminder engine — lead/due/overdue ordering, the nag interval, no back-fill,
 snooze, dedupe against a repeated cron tick, and recurrence re-arming. It uses the
@@ -186,9 +186,21 @@ immediately:
 node --env-file=.env scripts/smoke-security.mjs
 ```
 
-Both seed throwaway accounts with **both channels switched off** and delete them
-afterwards, so neither ever emails or pushes anywhere. `smoke-dispatch` additionally
-refuses to run while any device is subscribed to push (override with `SMOKE_FORCE=1`).
+Route contracts — the edges nobody exercises by hand. Every protected route refuses
+an anonymous caller with 401; every method a route doesn't declare answers 405; a
+malformed body is a 400 rather than a 500; an unknown id is a 404 rather than a
+crash; every query parameter can be given rubbish. A 500 is the interesting failure
+here — it means a bad request reached code that assumed a good one:
+
+```bash
+node --env-file=.env scripts/smoke-routes.mjs
+```
+
+All three seed throwaway accounts with **both channels switched off** and delete them
+afterwards, so none of them ever emails or pushes anywhere. `smoke-dispatch`
+additionally refuses to run while any device is subscribed to push, and all three
+refuse to run against a database holding real accounts (override either with
+`SMOKE_FORCE=1`).
 
 > **Tip:** don't run `npm run build` while `npm run dev` is running — they share the
 > `.next` folder and corrupt it. Stop dev first.

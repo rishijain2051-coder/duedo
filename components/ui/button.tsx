@@ -18,10 +18,15 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
             'border border-border bg-transparent shadow-sm hover:bg-accent hover:text-accent-foreground': variant === 'outline',
             'hover:bg-accent hover:text-accent-foreground': variant === 'ghost',
             'glass hover:bg-white/10': variant === 'glass',
-            'h-9 px-4 py-2': size === 'default',
-            'h-8 rounded-md px-3 text-xs': size === 'sm',
-            'h-10 rounded-md px-8': size === 'lg',
-            'h-9 w-9': size === 'icon',
+            // Every size is taller on a phone and returns to its desktop height
+            // from sm up. 44px is the target the rest of the app already uses by
+            // hand (`min-h-11` on the tab strips, `h-11 w-11` in the header); a
+            // 32px "sm" button next to those was a coin-flip to hit, and these
+            // include Approve, Reject and Delete.
+            'h-11 px-4 py-2 sm:h-9': size === 'default',
+            'h-10 rounded-md px-3 text-xs sm:h-8': size === 'sm',
+            'h-12 rounded-md px-8 sm:h-10': size === 'lg',
+            'h-11 w-11 sm:h-9 sm:w-9': size === 'icon',
           },
           className
         )}

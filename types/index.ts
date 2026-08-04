@@ -214,6 +214,15 @@ export const RECURRENCE_OPTIONS = [
 
 export const PRIORITY_OPTIONS = ['low', 'normal', 'high'] as const;
 
+/**
+ * The states a reminder can be in.
+ *
+ * Listed here so the API can discard anything else. Without a whitelist a client
+ * typo lands in the database and the reminder disappears from every list that
+ * filters on a known status — visible nowhere, deletable nowhere.
+ */
+export const REMINDER_STATUSES = ['draft', 'active', 'completed', 'archived'] as const;
+
 /** Snooze choices offered on the notification and in the reminder list. */
 export const SNOOZE_OPTIONS = [
   { minutes: 10, label: '10 minutes' },

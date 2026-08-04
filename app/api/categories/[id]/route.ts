@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db";
-import { HttpError, json } from "@/lib/http";
+import { HttpError, json, readJson } from "@/lib/http";
 import { membershipIn } from "@/lib/families";
 
 export const runtime = "nodejs";
@@ -35,7 +35,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
   return json(async (user) => {
     const { id } = await ctx.params;
     await findWritable(id, user.id);
-    const body = await req.json();
+    const body = await readJson(req);
 
     return prisma.category.update({
       where: { id },

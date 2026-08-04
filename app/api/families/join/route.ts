@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db";
-import { json, HttpError } from "@/lib/http";
+import { json, HttpError, readJson } from "@/lib/http";
 import { normalizeJoinCode } from "@/lib/families";
 import { audit } from "@/lib/audit";
 
@@ -14,7 +14,7 @@ export const dynamic = "force-dynamic";
  */
 export async function POST(req: NextRequest) {
   return json(async (user) => {
-    const body = await req.json().catch(() => ({}));
+    const body = await readJson(req);
     const joinCode = normalizeJoinCode(body?.joinCode);
     if (joinCode.length < 4) throw new HttpError(400, "Enter the family's join code.");
 

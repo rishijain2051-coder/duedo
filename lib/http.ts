@@ -14,6 +14,36 @@ export class HttpError extends Error {
 }
 
 /**
+ * The request body as an object, for handlers that run inside `json`/`jsonAdmin`.
+ *
+ * Three cases, deliberately distinguished:
+ *   * no body at all  →  `{}`, because several routes are called bodyless and mean
+ *     "nothing to change" (the Snooze action on a notification, for one)
+ *   * valid JSON      →  the object
+ *   * present but not JSON  →  400
+ *
+ * The last case is the reason this exists. `await req.json()` throws a SyntaxError
+ * on a mangled body, which `run` below can only report as a 500 — so a client bug
+ * looked like a server outage in the logs, and the caller was told "Internal
+ * server error" about their own malformed request. Swallowing it with
+ * `.catch(() => ({}))` instead goes too far the other way: a truncated payload
+ * would then be silently treated as an empty one and quietly do nothing.
+ */
+export async function readJson(req: Request): Promise<Record<string, unknown>> {
+  const text = await req.text();
+  if (!text.trim()) return {};
+  try {
+    const parsed = JSON.parse(text);
+    // A bare `null`, string or array is not something any handler here expects.
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : {};
+  } catch {
+    throw new HttpError(400, "The request body was not valid JSON.");
+  }
+}
+
+/**
  * Runs a handler for a PROTECTED data route: requires a valid login session
  * (401 otherwise), then returns JSON and maps HttpError / unknown errors.
  *

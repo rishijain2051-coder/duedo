@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db";
-import { json, HttpError } from "@/lib/http";
+import { json, HttpError, readJson } from "@/lib/http";
 import { assertHead, uniqueJoinCode } from "@/lib/families";
 import { audit } from "@/lib/audit";
 
@@ -15,7 +15,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
   return json(async (user) => {
     const { id } = await ctx.params;
     await assertHead(user.id, id);
-    const body = await req.json().catch(() => ({}));
+    const body = await readJson(req);
 
     if (body.name !== undefined) {
       const name = String(body.name).trim();

@@ -1,8 +1,20 @@
 import * as React from "react";
 import { cn } from "@/lib/utils";
 
+/**
+ * `text-base sm:text-sm` is not a style choice.
+ *
+ * iOS Safari zooms the whole page in when a form control smaller than 16px takes
+ * focus, and it does not zoom back out afterwards — so tapping the title field
+ * left the reminder form magnified and half off-screen, and every field after it
+ * had to be found by panning. 16px on a phone stops that; 14px returns from `sm`
+ * up, where it is a mouse and the browser never zooms.
+ *
+ * The 44px height goes with it: a 40px control is under the size a fingertip
+ * reliably hits, and these are the app's main input surface.
+ */
 const baseField =
-  "flex h-10 w-full rounded-md border border-border bg-background px-3 py-2 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary disabled:opacity-50";
+  "flex h-11 w-full rounded-md border border-border bg-background px-3 py-2 text-base shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary disabled:opacity-50 sm:h-10 sm:text-sm";
 
 export function Label({
   className,
@@ -30,7 +42,9 @@ export const Textarea = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <textarea
     ref={ref}
-    className={cn(baseField, "h-auto min-h-[80px]", className)}
+    // sm:h-auto as well as h-auto: baseField sets sm:h-10, which would otherwise
+    // clamp the box back to one line's worth on anything wider than a phone.
+    className={cn(baseField, "h-auto min-h-[80px] sm:h-auto", className)}
     {...props}
   />
 ));

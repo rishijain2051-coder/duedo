@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db";
-import { json, HttpError, type AuthUser } from "@/lib/http";
+import { json, HttpError, type AuthUser, readJson } from "@/lib/http";
 import { isPushConfigured, countSubscriptions } from "@/lib/push";
 import { isMailConfigured } from "@/lib/mail";
 import { hashPin, verifyPin, isValidPin, PIN_LENGTH } from "@/lib/pin";
@@ -69,7 +69,7 @@ export async function GET() {
 
 export async function PATCH(req: NextRequest) {
   return json(async (user: AuthUser) => {
-    const body = await req.json();
+    const body = await readJson(req);
     const data: Record<string, unknown> = {};
 
     if (body.name !== undefined) {

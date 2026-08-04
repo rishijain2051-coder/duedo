@@ -1,9 +1,9 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db";
-import { json } from "@/lib/http";
+import { json, readJson } from "@/lib/http";
 import { sanitizeReminderInput } from "@/lib/reminder-logic";
 import { visibleReminderWhere } from "@/lib/ownership";
-import { assertReminderDestination } from "@/lib/reminder-scope";
+import { assertReminderDestination, assertReminderFields } from "@/lib/reminder-scope";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -47,8 +47,10 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   return json(async (user) => {
-    const body = await req.json();
+    // A body that isn't JSON is the client's mistake, not a server fault.
+    const body = await readJson(req);
     const data = sanitizeReminderInput(body, true, user.timezone, user.defaultTime);
+    assertReminderFields(data, true);
     await assertReminderDestination(data, user.id);
 
     return prisma.reminder.create({

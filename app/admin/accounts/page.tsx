@@ -189,8 +189,14 @@ export default function AdminAccountsPage() {
                   </p>
                 </div>
 
+                {/* No shrink-0 on the action group below. It and flex-wrap cancel
+                    each other out: the group keeps its max-content width, so it
+                    never gets narrow enough for its own wrapping to trigger, and on
+                    a phone the row of six buttons ran ~130px past the screen edge —
+                    clipped by the shell's overflow and unreachable. Allowed to
+                    shrink, the group drops onto its own line and wraps there. */}
                 {!u.self && (
-                  <div className="flex shrink-0 flex-wrap items-center gap-1">
+                  <div className="flex flex-wrap items-center gap-1">
                     {u.status !== "active" && (
                       <Button
                         size="sm"

@@ -127,8 +127,9 @@ export default function DashboardPage() {
       </Card>
 
       {/* min-w-0 on the grid items is load-bearing: grid tracks size to min-content,
-          and the truncated titles inside are white-space:nowrap, so without it the
-          tracks blow past the viewport and body's overflow-hidden clips them away. */}
+          so without it a long title can push a track past the viewport and body's
+          overflow-hidden clips it away. The titles below wrap rather than being cut
+          to one line, which keeps min-content down to the longest single word. */}
       <div className="grid gap-3 md:gap-4 lg:grid-cols-7">
         <Card className="min-w-0 lg:col-span-4">
           <CardHeader>
@@ -150,14 +151,19 @@ export default function DashboardPage() {
                   return (
                     <div
                       key={r.id}
-                      className="flex items-center justify-between rounded-lg border p-3 glass"
+                      className="flex items-start justify-between gap-2 rounded-lg border p-3 glass"
                     >
-                      <div className="flex min-w-0 items-center gap-3">
+                      <div className="flex min-w-0 items-start gap-3">
                         <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/20">
                           <Calendar className="h-5 w-5 text-primary" />
                         </div>
                         <div className="min-w-0">
-                          <h4 className="truncate font-semibold">{r.title}</h4>
+                          {/* Two lines, not one. The 40px icon and the status label
+                              either side left about 134px for the title on a phone,
+                              so "Renew the car insurance before the grace period
+                              ends" arrived as "Renew the car insu…" — long enough to
+                              read as a reminder, too short to tell two apart. */}
+                          <h4 className="line-clamp-2 font-semibold">{r.title}</h4>
                           <p className="text-sm text-muted-foreground">
                             {r.category?.name} ·{" "}
                             {formatDateTime(r.dueAt, r.hasTime, timeZone)}
@@ -196,7 +202,7 @@ export default function DashboardPage() {
                   <div key={a.id} className="flex items-center gap-3">
                     <CheckCircle2 className="h-5 w-5 shrink-0 text-green-500" />
                     <div className="min-w-0 flex-1">
-                      <h4 className="truncate text-sm font-semibold">
+                      <h4 className="line-clamp-2 text-sm font-semibold">
                         {a.title}
                         {a.amount ? ` · ${formatCurrency(a.amount)}` : ""}
                       </h4>

@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db";
-import { HttpError, json } from "@/lib/http";
+import { HttpError, json, readJson } from "@/lib/http";
 import { assertReminderAction } from "@/lib/ownership";
 import { SNOOZE_OPTIONS } from "@/types";
 
@@ -19,7 +19,7 @@ const ALLOWED = SNOOZE_OPTIONS.map((o) => o.minutes) as readonly number[];
 export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   return json(async (user) => {
     const { id } = await ctx.params;
-    const body = await req.json().catch(() => ({}));
+    const body = await readJson(req);
     const minutes = Number(body.minutes ?? 60);
     if (!ALLOWED.includes(minutes)) {
       throw new HttpError(400, `Snooze must be one of: ${ALLOWED.join(", ")} minutes.`);

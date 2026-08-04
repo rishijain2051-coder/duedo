@@ -1,9 +1,9 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db";
-import { HttpError, json } from "@/lib/http";
+import { HttpError, json, readJson } from "@/lib/http";
 import { sanitizeReminderInput } from "@/lib/reminder-logic";
 import { assertReminderAction, findVisibleReminder } from "@/lib/ownership";
-import { assertReminderDestination } from "@/lib/reminder-scope";
+import { assertReminderDestination, assertReminderFields } from "@/lib/reminder-scope";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -33,8 +33,9 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
     const { id } = await ctx.params;
     const existing = await assertReminderAction(id, user.id, "edit");
 
-    const body = await req.json();
+    const body = await readJson(req);
     const data = sanitizeReminderInput(body, false, user.timezone, user.defaultTime);
+    assertReminderFields(data, false);
     await assertReminderDestination(data, user.id, existing.familyId);
 
     // Moving a reminder between lists changes who hears about it, so stale

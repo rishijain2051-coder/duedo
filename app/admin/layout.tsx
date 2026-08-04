@@ -60,7 +60,11 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         </p>
       </div>
 
-      <div className="flex gap-2 overflow-x-auto pb-1">
+      {/* Wraps rather than scrolls. The five tabs need ~500px and a phone gives
+          343px, so as a horizontal scroller Health and Audit log sat off-screen
+          with nothing to suggest they were there — touch draws no scrollbar. Two
+          rows on a phone, one from md up where they fit anyway. */}
+      <div className="flex flex-wrap gap-2 pb-1">
         {TABS.map((tab) => {
           const active =
             tab.href === "/admin" ? pathname === "/admin" : pathname.startsWith(tab.href);

@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db";
-import { HttpError, jsonAdmin } from "@/lib/http";
+import { HttpError, jsonAdmin, readJson } from "@/lib/http";
 import { hashPin, isValidPin, PIN_LENGTH } from "@/lib/pin";
 import { audit } from "@/lib/audit";
 
@@ -41,7 +41,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
     const target = await prisma.user.findUnique({ where: { id }, select: SELECT });
     if (!target) throw new HttpError(404, "Account not found");
 
-    const body = await req.json().catch(() => ({}));
+    const body = await readJson(req);
     const data: Record<string, unknown> = {};
 
     if (body.status !== undefined) {
