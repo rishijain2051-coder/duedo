@@ -102,7 +102,9 @@ export default function AdminHealthPage() {
             hint={
               data.scheduler.pgNetInstalled
                 ? "Installed — Postgres can make the outbound call."
-                : "Missing. pg_cron will fire and fail on net.http_post, so nothing reaches the app. Run: create extension if not exists pg_net;"
+                : // The schema matters: without it the extension lands in `public`,
+                  // which Supabase's own linter flags.
+                  "Missing. pg_cron will fire and fail on net.http_post, so nothing reaches the app. Run: create extension if not exists pg_net with schema extensions;"
             }
           />
           <Flag

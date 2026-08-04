@@ -19,7 +19,12 @@
 -- shared secret between Supabase and Vercel rather than a user credential.
 
 create extension if not exists pg_cron;
-create extension if not exists pg_net;
+-- `with schema extensions`, because without it pg_net is created in whatever schema
+-- happens to be current — usually `public`, which Supabase's linter flags and which a
+-- `prisma db push --force-reset` would drop along with the app's own tables. The
+-- functions themselves always live in `net` regardless, which is why the cron command
+-- below calls `net.http_post`.
+create extension if not exists pg_net with schema extensions;
 
 -- Re-running is safe: drop any previous schedule first.
 select cron.unschedule('prosys-dispatch')
@@ -53,12 +58,30 @@ select cron.schedule(
 -- That page now checks for the extension by name and says so; if it ever reads
 -- "missing", this is the whole fix:
 --
---   create extension if not exists pg_net;
+--   create extension if not exists pg_net with schema extensions;
 --
--- pg_net is not relocatable (`extrelocatable = false`), so it stays associated with
--- whichever schema it was created in, and its functions always live in `net`. Note
--- that `prisma db push --force-reset` drops the public schema and would take it with
--- it; an ordinary `prisma db push` does not.
+-- Keep `with schema extensions`. pg_net reports `extrelocatable = false`, so ALTER
+-- EXTENSION ... SET SCHEMA is refused afterwards — the schema is only choosable at
+-- creation, and getting it wrong means living in `public` or repeating the
+-- drop-and-recreate below. Its functions land in `net` either way, which is why the
+-- cron command calls `net.http_post`.
+--
+-- To move an existing one out of `public`, drop and recreate in a single transaction so
+-- no tick can land while net.http_post is absent:
+--
+--   begin;
+--   drop extension pg_net;
+--   create extension pg_net with schema extensions;
+--   -- must return 1 before you commit; roll back if it doesn't
+--   select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+--    where n.nspname = 'net' and p.proname = 'http_post';
+--   commit;
+--
+-- This loses net._http_response, the log of what the app replied — a diagnostic
+-- convenience, nothing the app reads.
+--
+-- Either way, note that `prisma db push --force-reset` drops the public schema; with
+-- pg_net in `extensions` that no longer takes the extension with it.
 --
 -- ---------------------------------------------------------------- verification
 -- Confirm the job is registered:
