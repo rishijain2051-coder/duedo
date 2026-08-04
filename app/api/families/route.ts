@@ -8,9 +8,9 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 /**
- * Every family the caller belongs to, with members. The join code and pending
- * requests are only included where they are the head — a plain member has no
- * business handing the code out or seeing who has applied.
+ * Every family the caller belongs to, with members. The join code is only included
+ * where they are the head — a plain member has no business handing it out, and
+ * since the code alone now admits someone, that matters more than it used to.
  */
 export async function GET() {
   return json(async (user) => {
@@ -22,10 +22,6 @@ export async function GET() {
           include: {
             members: {
               orderBy: { joinedAt: "asc" },
-              include: { user: { select: { id: true, name: true, email: true } } },
-            },
-            joinRequests: {
-              where: { status: "pending" },
               include: { user: { select: { id: true, name: true, email: true } } },
             },
           },
@@ -47,16 +43,6 @@ export async function GET() {
         joinedAt: m.joinedAt,
         self: m.user.id === user.id,
       })),
-      pendingRequests:
-        role === "head"
-          ? family.joinRequests.map((r) => ({
-              id: r.id,
-              userId: r.user.id,
-              name: r.user.name,
-              email: r.user.email,
-              createdAt: r.createdAt,
-            }))
-          : [],
     }));
   });
 }

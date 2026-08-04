@@ -65,7 +65,6 @@ model User {
   passkeys          Passkey[]
   pushDevices       PushSubscription[]
   families          FamilyMember[]
-  joinRequests      FamilyJoinRequest[]
   dispatches        ReminderDispatch[]
   completedHistory  ReminderHistory[]   @relation("CompletedReminders")
 
@@ -91,7 +90,6 @@ model Family {
   members      FamilyMember[]
   reminders    Reminder[]
   categories   Category[]
-  joinRequests FamilyJoinRequest[]
 }
 
 /// Membership is many-to-many: a person can belong to several families at once
@@ -113,23 +111,9 @@ model FamilyMember {
   @@index([familyId, role])
 }
 
-/// Someone entered a family's join code. The head approves or rejects; nobody
-/// lands in a family just by knowing the code.
-model FamilyJoinRequest {
-  id       String @id @default(uuid())
-  familyId String
-  family   Family @relation(fields: [familyId], references: [id], onDelete: Cascade)
-  userId   String
-  user     User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  status    String    @default("pending") // pending | approved | rejected
-  createdAt DateTime  @default(now())
-  decidedAt DateTime?
-
-  @@unique([familyId, userId])
-  @@index([familyId, status])
-  @@index([userId])
-}
+/// There is no join-request model. Entering a valid code creates the FamilyMember
+/// row directly — see app/api/families/join/route.ts for why the approval step was
+/// removed and what the head's controls are instead.
 
 /// One row per active login, which is what makes sessions listable and
 /// revocable. The cookie is still a signed token, but it now names a row here —

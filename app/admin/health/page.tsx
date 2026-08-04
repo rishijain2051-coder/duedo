@@ -93,8 +93,46 @@ export default function AdminHealthPage() {
                 : `Last ran ${data.lastRunMinutesAgo} minute${data.lastRunMinutesAgo === 1 ? "" : "s"} ago. It should run every minute.`
             }
           />
+          {/* Asked of Postgres, not inferred from the app's own rows. When the
+              dispatcher is never reached there is no DispatchRun to explain why,
+              which is exactly when this is the only thing that can tell you. */}
+          <Flag
+            ok={data.scheduler.pgNetInstalled}
+            label="pg_net extension"
+            hint={
+              data.scheduler.pgNetInstalled
+                ? "Installed — Postgres can make the outbound call."
+                : "Missing. pg_cron will fire and fail on net.http_post, so nothing reaches the app. Run: create extension if not exists pg_net;"
+            }
+          />
+          <Flag
+            ok={data.scheduler.jobScheduled && data.scheduler.jobActive}
+            label="pg_cron job"
+            hint={
+              !data.scheduler.readable
+                ? "Could not read the cron catalogs — this says nothing about whether the job works."
+                : !data.scheduler.jobScheduled
+                  ? "No job named prosys-dispatch. Run scripts/pg-cron-setup.sql."
+                  : data.scheduler.jobActive
+                    ? `Scheduled and active. Last tick ${data.scheduler.lastTickStatus ?? "unknown"}.`
+                    : "Scheduled but inactive — it will never fire."
+            }
+          />
         </CardContent>
       </Card>
+
+      {data.scheduler.lastTickError && (
+        <div className="rounded-md border border-destructive/40 bg-destructive/10 px-4 py-2 text-sm text-red-700 dark:text-red-400">
+          <p className="font-medium">Postgres could not run the scheduled job</p>
+          <p className="mt-1 whitespace-pre-wrap break-words font-mono text-xs">
+            {data.scheduler.lastTickError}
+          </p>
+          <p className="mt-1 text-xs">
+            This is the database&rsquo;s own error, before the app was reached — so no
+            dispatch run was recorded for it.
+          </p>
+        </div>
+      )}
 
       {data.lastRunError && (
         <div className="rounded-md border border-destructive/40 bg-destructive/10 px-4 py-2 text-sm text-red-700 dark:text-red-400">

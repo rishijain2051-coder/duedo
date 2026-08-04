@@ -22,22 +22,24 @@ export type AuditAction =
   | "family.create"
   | "family.rename"
   | "family.code.rotate"
-  | "family.join.request"
-  | "family.join.approve"
-  | "family.join.reject"
+  | "family.join"
   | "family.member.remove"
   | "family.member.leave"
   | "family.head.transfer"
   | "family.dissolve"
   // admin reaching into another account
   | "admin.read.reminders"
-  | "admin.read.family";
+  | "admin.read.family"
+  // Housekeeping. Written straight after the daily dump is mailed and the old
+  // entries deleted, so an emptied log still opens with a line saying where the
+  // previous day's history went — and doubles as the "already done today" marker.
+  | "audit.rotate";
 
 interface RecordArgs {
   /** Null for system actions such as the dispatcher. */
   actorId: string | null;
   action: AuditAction;
-  entity: "user" | "family" | "reminder" | "session" | "system";
+  entity: "user" | "family" | "reminder" | "session" | "system" | "audit";
   entityId?: string | null;
   detail?: Prisma.InputJsonValue;
 }

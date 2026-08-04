@@ -148,6 +148,8 @@ try {
 
   const PROTECTED = [
     ["GET", "/api/auth/me"],
+    ["GET", "/api/bootstrap"],
+    ["GET", "/api/badge"],
     ["GET", "/api/users"],
     ["PATCH", `/api/users/${GHOST}`, { status: "active" }],
     ["DELETE", `/api/users/${GHOST}`],
@@ -162,8 +164,6 @@ try {
     ["POST", "/api/families", { name: "x" }],
     ["PATCH", `/api/families/${GHOST}`, { name: "x" }],
     ["DELETE", `/api/families/${GHOST}`],
-    ["GET", `/api/families/${GHOST}/requests`],
-    ["PATCH", `/api/families/${GHOST}/requests`, { requestId: GHOST, approve: true }],
     ["DELETE", `/api/families/${GHOST}/members`],
     ["POST", "/api/families/join", { joinCode: "ABCD2345" }],
     ["GET", "/api/categories"],
@@ -223,6 +223,13 @@ try {
     check(`${method} ${path} not allowed`, (await anon(method, path)).status, 405);
   }
   check("GET /api/no-such-route", (await anon("GET", "/api/no-such-route")).status, 404);
+  // The approval route was removed with the approval step. 404, not 401 — a route
+  // that still existed would answer "not authenticated" to an anonymous caller.
+  check(
+    "the join-approval route is gone",
+    (await anon("GET", `/api/families/${GHOST}/requests`)).status,
+    404,
+  );
 
   // ────────────────────────────────────────────────────────────────────────────
   console.log("\n4. Registration and sign-in validation");
@@ -343,6 +350,33 @@ try {
     200,
   );
 
+  // One request has to carry the whole shell, so assert its shape rather than just
+  // its status: a missing key here means a blank app rather than an error.
+  const boot = await member("GET", "/api/bootstrap");
+  check("bootstrap returns 200", boot.status, 200);
+  check("bootstrap carries the user", boot.data?.user?.email, MEMBER);
+  check("bootstrap carries settings", boot.data?.settings?.timezone !== undefined, true);
+  check("bootstrap carries families", Array.isArray(boot.data?.families), true);
+  check("bootstrap carries the badge", typeof boot.data?.badge?.outstanding, "number");
+  check(
+    "bootstrap carries the unread count",
+    typeof boot.data?.badge?.unreadNotifications,
+    "number",
+  );
+  check("bootstrap carries the build id", typeof boot.data?.buildId, "string");
+  check(
+    "bootstrap never leaks the PIN hash",
+    JSON.stringify(boot.data).includes("password_hash"),
+    false,
+  );
+
+  const badge = await member("GET", "/api/badge");
+  check("badge returns 200", badge.status, 200);
+  check("badge is just the two numbers", Object.keys(badge.data ?? {}).sort(), [
+    "outstanding",
+    "unreadNotifications",
+  ]);
+
   const me = await member("GET", "/api/auth/me");
   check("me returns the account", me.data?.email, MEMBER);
   check("me reports accountType", me.data?.accountType, "solo");
@@ -386,7 +420,6 @@ try {
     ["DELETE", `/api/categories/${GHOST}`, 404],
     ["PATCH", `/api/families/${GHOST}`, 404, { name: "x" }],
     ["DELETE", `/api/families/${GHOST}`, 404],
-    ["GET", `/api/families/${GHOST}/requests`, 404],
     ["DELETE", `/api/families/${GHOST}/members`, 404],
   ];
   for (const [method, path, expect, body] of GHOST_TARGETS) {
@@ -762,68 +795,35 @@ try {
     404,
   );
   check(
-    "an outsider cannot see its requests",
-    (await outsider("GET", `/api/families/${familyId}/requests`)).status,
-    404,
-  );
-  check(
     "an outsider cannot dissolve it",
     (await outsider("DELETE", `/api/families/${familyId}`)).status,
     404,
   );
 
+  // The code is the permission: a valid one joins outright, with no approval step.
   const join = await outsider("POST", "/api/families/join", { joinCode });
-  check("joining with the code queues a request", join.data?.status, "pending");
+  check("joining with the code returns 201", join.status, 201);
+  check("and reports the join", join.data?.status, "joined");
+  check("naming the family", join.data?.family, FAMILY_NAME);
   check(
-    "asking twice is not an error",
-    (await outsider("POST", "/api/families/join", { joinCode })).data?.status,
-    "pending",
-  );
-  check(
-    "the outsider is still not a member",
-    (await outsider("GET", "/api/families")).data?.length,
-    0,
-  );
-  const requests = await member("GET", `/api/families/${familyId}/requests`);
-  check("the head sees one request", requests.data?.length, 1);
-  check(
-    "a plain member cannot see requests",
-    (await outsider("GET", `/api/families/${familyId}/requests`)).status,
-    404,
-  );
-  check(
-    "approving needs a request id",
-    (await member("PATCH", `/api/families/${familyId}/requests`, { approve: true })).status,
-    400,
-  );
-  check(
-    "approving an unknown request",
-    (await member("PATCH", `/api/families/${familyId}/requests`, {
-      requestId: GHOST,
-      approve: true,
-    })).status,
-    404,
-  );
-  check(
-    "approving works",
-    (await member("PATCH", `/api/families/${familyId}/requests`, {
-      requestId: requests.data[0].id,
-      approve: true,
-    })).data?.approved,
-    true,
-  );
-  check(
-    "the same request cannot be approved twice",
-    (await member("PATCH", `/api/families/${familyId}/requests`, {
-      requestId: requests.data[0].id,
-      approve: true,
-    })).status,
-    404,
-  );
-  check(
-    "the new member sees the family",
+    "the new member sees the family straight away",
     (await outsider("GET", "/api/families")).data?.length,
     1,
+  );
+  check(
+    "and is a plain member, not the head",
+    (await outsider("GET", "/api/families")).data?.[0]?.role,
+    "member",
+  );
+  check(
+    "joining flips the account to family",
+    (await outsider("GET", "/api/auth/me")).data?.accountType,
+    "family",
+  );
+  check(
+    "the head's member list now has two",
+    (await member("GET", "/api/families")).data?.[0]?.members?.length,
+    2,
   );
   check(
     "a plain member does not see the join code",

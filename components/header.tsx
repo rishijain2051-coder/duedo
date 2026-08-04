@@ -1,27 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
 import { Bell, LogOut, Menu, UserCircle } from "lucide-react";
 import { useApp } from "@/components/app-context";
-import { api } from "@/services/api";
 
 export function Header({ onMenuToggle }: { onMenuToggle?: () => void }) {
-  const { user, logout } = useApp();
-  const [unread, setUnread] = useState(0);
-
-  useEffect(() => {
-    let active = true;
-    api.notifications
-      .list()
-      .then((n) => {
-        if (active) setUnread(n.filter((x) => !x.read).length);
-      })
-      .catch(() => {});
-    return () => {
-      active = false;
-    };
-  }, []);
+  // No request of its own. This used to fetch up to 100 notification rows — every
+  // column of each — to render one digit, and after that a /badge call the shell was
+  // already making. The count now comes from the bootstrap payload via context.
+  const { user, logout, unreadNotifications: unread } = useApp();
 
   return (
     // The height is the bar *plus* the notch inset, not a fixed total.

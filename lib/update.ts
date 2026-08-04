@@ -18,6 +18,29 @@ export interface UpdateCheck {
   error?: string;
 }
 
+/**
+ * Compares a deployed build id against the running one.
+ *
+ * Split from the fetch so the shell can pass the id that came back with
+ * /api/bootstrap instead of spending a second request on it — the value only changes
+ * on deploy, and on Vercel each route is its own function, so an avoidable call can
+ * mean an avoidable cold start on the critical path.
+ */
+export function compareBuild(buildId: string | null): UpdateCheck {
+  return {
+    // Never claim an update when either side is unknown — that would show the
+    // banner forever on a build without an id.
+    updateAvailable:
+      buildId !== null &&
+      buildId !== "unknown" &&
+      RUNNING_BUILD_ID !== "unknown" &&
+      buildId !== RUNNING_BUILD_ID,
+    running: RUNNING_BUILD_ID,
+    deployed: buildId,
+  };
+}
+
+/** Asks the server directly. Used for a re-check after the shell has loaded. */
 export async function checkForUpdate(): Promise<UpdateCheck> {
   try {
     const { buildId } = await api.version();

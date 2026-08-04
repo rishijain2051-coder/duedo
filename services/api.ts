@@ -6,7 +6,6 @@ import type {
   CurrentUser,
   DashboardStats,
   FamilySummary,
-  JoinRequestSummary,
   ManagedUser,
   Reminder,
   Settings,
@@ -143,6 +142,21 @@ export interface AdminHealth {
   lastRunError: string | null;
   /** Runs that threw in the last 24h — non-zero means delivery is degraded. */
   failuresLast24h: number;
+  /**
+   * The scheduler as Postgres sees it, for the case where the dispatcher is never
+   * reached at all and therefore records nothing of its own.
+   */
+  scheduler: {
+    /** False when the cron catalogs couldn't be read — not a verdict either way. */
+    readable: boolean;
+    pgCronInstalled: boolean;
+    pgNetInstalled: boolean;
+    jobScheduled: boolean;
+    jobActive: boolean;
+    lastTickAt: string | null;
+    lastTickStatus: string | null;
+    lastTickError: string | null;
+  };
   runs: DispatchRunRow[];
   /** Devices with consecutive send failures, worth chasing. */
   failingDevices: { id: string; label: string | null; user: string; failures: number }[];
@@ -280,7 +294,7 @@ export const api = {
         { method: "POST", body: JSON.stringify({ name }) },
       ),
     join: (joinCode: string) =>
-      request<{ status: string; family: string; message: string }>(
+      request<{ status: string; family: string; familyId: string; message: string }>(
         "/families/join",
         { method: "POST", body: JSON.stringify({ joinCode }) },
       ),
@@ -301,13 +315,6 @@ export const api = {
       }),
     dissolve: (id: string) =>
       request<{ deleted: boolean }>(`/families/${id}`, { method: "DELETE" }),
-    requests: (id: string) =>
-      request<JoinRequestSummary[]>(`/families/${id}/requests`),
-    decide: (id: string, requestId: string, approve: boolean) =>
-      request<{ approved: boolean; name: string }>(`/families/${id}/requests`, {
-        method: "PATCH",
-        body: JSON.stringify({ requestId, approve }),
-      }),
     removeMember: (id: string, userId: string) =>
       request<{ removed: boolean; name: string; self: boolean }>(
         `/families/${id}/members?userId=${encodeURIComponent(userId)}`,
@@ -415,6 +422,21 @@ export const api = {
         method: "DELETE",
       }),
   },
+  /**
+   * Everything the app shell needs, in one call. Replaces the serial
+   * /auth/me -> /settings -> /families chain plus a dashboard query for the badge.
+   */
+  bootstrap: () =>
+    request<{
+      user: CurrentUser;
+      settings: Settings;
+      families: FamilySummary[];
+      badge: { outstanding: number; unreadNotifications: number };
+      buildId: string;
+    }>("/bootstrap"),
+  /** Just the two numbers the chrome shows. Two COUNTs. */
+  badge: () =>
+    request<{ outstanding: number; unreadNotifications: number }>("/badge"),
   version: () => request<VersionInfo>("/version"),
   passkeys: {
     list: () => request<PasskeySummary[]>("/webauthn/passkeys"),

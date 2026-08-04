@@ -1,9 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Loader2, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { checkForUpdate, applyUpdate } from "@/lib/update";
+import { checkForUpdate, compareBuild, applyUpdate } from "@/lib/update";
+import { useApp } from "@/components/app-context";
 
 /**
  * Surfaces a new deployment. An installed PWA can keep running an old bundle for
@@ -11,16 +12,29 @@ import { checkForUpdate, applyUpdate } from "@/lib/update";
  * passive check on load and on foreground is the only way anyone finds out.
  */
 export function UpdateBanner() {
+  const { deployedBuildId } = useApp();
   const [stale, setStale] = useState(false);
   const [busy, setBusy] = useState(false);
 
+  const lastCheck = useRef(0);
   const check = useCallback(async () => {
+    // Same reasoning as the badge: this is on visibilitychange, which fires far more
+    // often than a deployment happens. Five minutes is still far quicker than anyone
+    // needs to hear about a new build.
+    if (Date.now() - lastCheck.current < 5 * 60_000) return;
+    lastCheck.current = Date.now();
     const res = await checkForUpdate();
     setStale(res.updateAvailable);
   }, []);
 
+  // The first answer rides along with /api/bootstrap, which the shell fetches anyway.
+  // Only the later re-checks — on foreground, and the half-hourly poll for a session
+  // left open — need a request of their own.
   useEffect(() => {
-    void check();
+    if (deployedBuildId) setStale(compareBuild(deployedBuildId).updateAvailable);
+  }, [deployedBuildId]);
+
+  useEffect(() => {
     const onVisible = () => {
       if (document.visibilityState === "visible") void check();
     };

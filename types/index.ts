@@ -76,14 +76,6 @@ export interface FamilyMemberSummary {
   self: boolean;
 }
 
-export interface JoinRequestSummary {
-  id: string;
-  userId: string;
-  name: string;
-  email: string;
-  createdAt: string;
-}
-
 export interface FamilySummary {
   id: string;
   name: string;
@@ -92,7 +84,6 @@ export interface FamilySummary {
   /** Only sent to the head — a member has no business handing the code out. */
   joinCode: string | null;
   members: FamilyMemberSummary[];
-  pendingRequests: JoinRequestSummary[];
 }
 
 /** Who hears about a reminder when it fires. */

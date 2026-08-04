@@ -109,7 +109,7 @@ export async function DELETE(_req: NextRequest, ctx: { params: Promise<{ id: str
       select: { name: true, _count: { select: { members: true } } },
     });
 
-    // Members, join requests and the family's categories cascade.
+    // Members and the family's own categories cascade.
     await prisma.family.delete({ where: { id } });
 
     await audit({

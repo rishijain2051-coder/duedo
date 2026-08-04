@@ -8,9 +8,18 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 /**
- * Submits a join code. Knowing the code gets you into the queue, not the family —
- * the head still has to approve, so a leaked code can't quietly add strangers to a
- * shared reminder list.
+ * Joins a family by its code. The code *is* the permission — entering a valid one
+ * makes you a member there and then.
+ *
+ * There used to be a head-approval step in between. It was dropped deliberately:
+ * the code only ever comes from the head, so approving asked them to confirm a
+ * decision they had already made by sharing it, and in the meantime the person who
+ * entered it saw nothing and had no way to tell whether it had worked.
+ *
+ * The trade is real: a leaked code now admits whoever has it rather than queueing
+ * them. The head's controls are rotating the code, which invalidates the old one,
+ * and removing a member — so the recovery is quick, and nothing on the shared list
+ * stays visible to someone who has been removed.
  */
 export async function POST(req: NextRequest) {
   return json(async (user) => {
@@ -32,22 +41,12 @@ export async function POST(req: NextRequest) {
     });
     if (already) throw new HttpError(409, `You're already in ${family.name}.`);
 
-    const existing = await prisma.familyJoinRequest.findUnique({
-      where: { familyId_userId: { familyId: family.id, userId: user.id } },
+    await prisma.familyMember.create({
+      data: { familyId: family.id, userId: user.id, role: "member" },
     });
 
-    if (existing?.status === "pending") {
-      return { status: "pending", family: family.name, message: "Already waiting for approval." };
-    }
-
-    // A previous rejection shouldn't block a fresh attempt forever — the head
-    // simply sees the request again.
-    await prisma.familyJoinRequest.upsert({
-      where: { familyId_userId: { familyId: family.id, userId: user.id } },
-      create: { familyId: family.id, userId: user.id },
-      update: { status: "pending", createdAt: new Date(), decidedAt: null },
-    });
-
+    // Being in a family is what makes someone a family account; without this the
+    // UI would keep hiding every family surface from them.
     if (user.accountType !== "family") {
       await prisma.user.update({
         where: { id: user.id },
@@ -57,15 +56,17 @@ export async function POST(req: NextRequest) {
 
     await audit({
       actorId: user.id,
-      action: "family.join.request",
+      action: "family.join",
       entity: "family",
       entityId: family.id,
+      detail: { name: family.name },
     });
 
     return {
-      status: "pending",
+      status: "joined",
       family: family.name,
-      message: `Request sent to ${family.name}. The family head has to approve it.`,
+      familyId: family.id,
+      message: `You're in ${family.name}.`,
     };
   }, 201);
 }

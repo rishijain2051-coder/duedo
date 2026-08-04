@@ -57,9 +57,10 @@ export async function DELETE(req: NextRequest, ctx: { params: Promise<{ id: stri
       prisma.familyMember.delete({
         where: { familyId_userId: { familyId: id, userId: targetId } },
       }),
-      // Clear any old decision so they can ask to rejoin later.
-      prisma.familyJoinRequest.deleteMany({ where: { familyId: id, userId: targetId } }),
     ]);
+    // Nothing else to clear: with no approval step there is no stored decision that
+    // could block them rejoining. Being removed and given the code again is enough,
+    // which is also why the head should rotate it when removing someone for cause.
 
     await audit({
       actorId: user.id,

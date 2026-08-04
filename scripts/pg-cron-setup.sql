@@ -42,6 +42,24 @@ select cron.schedule(
   $$
 );
 
+-- ------------------------------------------------------- if reminders go silent
+-- The failure this has actually hit: `pg_net` disappearing from the database. The
+-- job keeps firing every minute and fails instantly with
+--
+--   ERROR:  schema "net" does not exist
+--
+-- Nothing in the app can report that, because the dispatcher is never reached and so
+-- records no run — the only symptom is a stale "last ran" on the admin health page.
+-- That page now checks for the extension by name and says so; if it ever reads
+-- "missing", this is the whole fix:
+--
+--   create extension if not exists pg_net;
+--
+-- pg_net is not relocatable (`extrelocatable = false`), so it stays associated with
+-- whichever schema it was created in, and its functions always live in `net`. Note
+-- that `prisma db push --force-reset` drops the public schema and would take it with
+-- it; an ordinary `prisma db push` does not.
+--
 -- ---------------------------------------------------------------- verification
 -- Confirm the job is registered:
 --   select jobid, jobname, schedule, active from cron.job;

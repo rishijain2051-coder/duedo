@@ -34,6 +34,8 @@ export interface SendMailOptions {
   subject: string;
   html: string;
   text?: string;
+  /** Files to attach. Used by the daily audit dump, which sends a CSV. */
+  attachments?: { filename: string; content: string | Buffer; contentType?: string }[];
 }
 
 /** Sends one email. Returns true on success, false if skipped/failed (never throws). */
@@ -50,6 +52,7 @@ export async function sendMail(options: SendMailOptions): Promise<boolean> {
       subject: options.subject,
       html: options.html,
       text: options.text ?? options.html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim(),
+      ...(options.attachments ? { attachments: options.attachments } : {}),
     });
     return true;
   } catch (err) {

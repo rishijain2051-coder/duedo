@@ -10,7 +10,6 @@ import {
   Trash2,
   UserPlus,
   Users,
-  X,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -24,8 +23,9 @@ import type { FamilySummary } from "@/types";
  * Family management, for family accounts.
  *
  * Split out of the Settings page because it is the one card whose contents depend
- * on a role — a head sees the join code and the approval queue, a member sees
- * neither — and interleaving that with the rest of Settings made both harder to read.
+ * on a role — a head sees the join code and the member controls, a plain member
+ * sees neither — and interleaving that with the rest of Settings made both harder
+ * to read.
  */
 export function FamilySettings({
   onNotice,
@@ -144,14 +144,14 @@ export function FamilySettings({
                 ) : (
                   <UserPlus className="mr-2 h-4 w-4" />
                 )}
-                Request to join
+                Join
               </Button>
             </div>
           </div>
           <p className="text-xs text-muted-foreground">
-            Knowing a code only puts you in the queue — the family head still has to
-            approve you, so a code that gets passed around can&apos;t quietly add
-            strangers to a shared list.
+            A valid code puts you straight in. That makes the code worth guarding —
+            anyone who has it can join, so the head should share it directly and
+            press <strong>New code</strong> if it gets passed around.
           </p>
         </div>
 
@@ -265,54 +265,6 @@ function FamilyBlock({
         </div>
       )}
 
-      {/* Head-only: pending join requests */}
-      {isHead && family.pendingRequests.length > 0 && (
-        <div className="space-y-2">
-          <p className="text-sm font-medium">
-            {family.pendingRequests.length} waiting to join
-          </p>
-          <ul className="divide-y divide-border rounded-md border">
-            {family.pendingRequests.map((r) => (
-              <li
-                key={r.id}
-                className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-sm"
-              >
-                <div className="min-w-0">
-                  <p className="truncate font-medium">{r.name}</p>
-                  <p className="truncate text-xs text-muted-foreground">{r.email}</p>
-                </div>
-                <div className="flex shrink-0 gap-1">
-                  <Button
-                    size="sm"
-                    disabled={busy !== null}
-                    onClick={() =>
-                      onRun(`approve-${r.id}`, async () => {
-                        const res = await api.families.decide(family.id, r.id, true);
-                        return `${res.name} is now in ${family.name}.`;
-                      })
-                    }
-                  >
-                    <Check className="mr-1 h-3.5 w-3.5" /> Approve
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={busy !== null}
-                    onClick={() =>
-                      onRun(`reject-${r.id}`, async () => {
-                        const res = await api.families.decide(family.id, r.id, false);
-                        return `${res.name} was rejected.`;
-                      })
-                    }
-                  >
-                    <X className="mr-1 h-3.5 w-3.5" /> Reject
-                  </Button>
-                </div>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
 
       {/* Members */}
       <ul className="divide-y divide-border rounded-md border">

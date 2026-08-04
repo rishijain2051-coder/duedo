@@ -5,12 +5,13 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
 } from "react";
 import { useRouter } from "next/navigation";
 import { api } from "@/services/api";
-import { clearCache } from "@/lib/cache";
+import { clearCache, readCache, setCacheOwner, writeCache } from "@/lib/cache";
 import { ensurePushSubscribed, setBadge } from "@/lib/push-client";
 import {
   applyTheme,
@@ -29,6 +30,19 @@ import type {
   ThemeMode,
 } from "@/types";
 
+type BootstrapPayload = Awaited<ReturnType<typeof api.bootstrap>>;
+
+const BOOT_CACHE_KEY = "bootstrap";
+/**
+ * How stale a cached shell may be before it is ignored rather than painted.
+ *
+ * A day is generous on purpose: the point is that the chrome and the user's own
+ * settings appear instantly, and the fresh payload lands moments later regardless.
+ * Anything older than this is more likely to be a browser someone left alone for a
+ * week, where showing week-old counts would be worse than a brief spinner.
+ */
+const BOOT_CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+
 interface AppContextValue {
   /** The signed-in account. Null until the first /auth/me resolves. */
   user: CurrentUser | null;
@@ -40,6 +54,13 @@ interface AppContextValue {
   isFamilyAccount: boolean;
   /** The user's own zone, used for every date the UI renders. */
   timeZone: string | undefined;
+  /**
+   * Unread notifications, from the same bootstrap payload the shell already fetched.
+   * The header renders one digit from it and used to fetch up to 100 rows to do so.
+   */
+  unreadNotifications: number;
+  /** The deployed build, so the update banner needn't fetch /api/version on load. */
+  deployedBuildId: string | null;
   loading: boolean;
   refreshSettings: () => Promise<void>;
   refreshFamilies: () => Promise<void>;
@@ -66,6 +87,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<CurrentUser | null>(null);
   const [settings, setSettings] = useState<Settings | null>(null);
   const [families, setFamilies] = useState<FamilySummary[]>([]);
+  const [unreadNotifications, setUnread] = useState(0);
+  const [deployedBuildId, setDeployedBuildId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [themeMode, setThemeModeState] = useState<ThemeMode>(DEFAULT_MODE);
   const [accent, setAccentState] = useState<AccentId>(DEFAULT_ACCENT);
@@ -86,10 +109,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  const lastBadgeSync = useRef(0);
   const syncBadge = useCallback(async () => {
+    // Throttled, because the trigger is "app came to the foreground" and that fires
+    // on every glance at the phone. The numbers change at most once a minute — when
+    // the dispatcher runs — so anything more often is a request that cannot tell you
+    // something new.
+    if (Date.now() - lastBadgeSync.current < 30_000) return;
+    lastBadgeSync.current = Date.now();
     try {
-      const stats = await api.reports.dashboard();
-      await setBadge(stats.outstanding);
+      // /badge, not /reports/dashboard: the badge needs one number and the dashboard
+      // computes six aggregates to produce it.
+      const { outstanding, unreadNotifications: unread } = await api.badge();
+      setUnread(unread);
+      await setBadge(outstanding);
     } catch {
       /* best-effort */
     }
@@ -129,20 +162,55 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return () => mq.removeEventListener("change", onChange);
   }, [themeMode, accent]);
 
+  /**
+   * Paint from the last known bootstrap before the network is even asked.
+   *
+   * Without this the whole app sits behind one request: the shell renders a spinner,
+   * waits for /api/bootstrap, and only then can any page start its own fetch. Reading
+   * the cache synchronously in a layout effect — not during render, which would
+   * mismatch hydration — means a repeat visit and a cold PWA launch show the real
+   * chrome immediately, with the fresh payload swapping in behind it.
+   *
+   * `loading` is only cleared here when there *is* a cached payload, so a first-ever
+   * visit still waits rather than flashing an empty app.
+   */
+  useLayoutEffect(() => {
+    const cached = readCache<BootstrapPayload>(BOOT_CACHE_KEY, BOOT_CACHE_MAX_AGE_MS);
+    if (!cached) return;
+    setUser(cached.user);
+    setSettings(cached.settings);
+    setFamilies(cached.families);
+    setUnread(cached.badge.unreadNotifications);
+    setLoading(false);
+  }, []);
+
   useEffect(() => {
     (async () => {
       try {
-        const me = await api.auth.me();
-        setUser(me);
-        await refreshSettings();
-        if (me.accountType === "family") await refreshFamilies();
+        // One request for the whole shell. This was /auth/me, then /settings, then
+        // /families — three serial round trips, each its own serverless function
+        // re-resolving the session, with nothing on screen until the last returned.
+        const boot = await api.bootstrap();
+        // Bound to the account, so a cached shell can never paint for the next person
+        // on a shared browser.
+        setCacheOwner(boot.user.id);
+        writeCache(BOOT_CACHE_KEY, boot);
+        setUser(boot.user);
+        setSettings(boot.settings);
+        setFamilies(boot.families);
+        setUnread(boot.badge.unreadNotifications);
+        setDeployedBuildId(boot.buildId);
+        void setBadge(boot.badge.outstanding);
         // Registers the worker AND re-hands this device's subscription to the
         // server on every authenticated load, so a pruned or rotated
         // subscription heals itself instead of failing silently — and a device
         // someone else was signed in on is re-pointed at this account. No-ops
         // unless permission is already granted, so it never prompts.
         void ensurePushSubscribed();
-        void syncBadge();
+        // No syncBadge() here: the payload above already carried both counts, and
+        // calling it would spend a second request re-reading what was just set.
+        // Returning to the app is what makes them stale, and that path still syncs.
+        lastBadgeSync.current = Date.now();
       } catch {
         router.replace("/login");
       } finally {
@@ -221,6 +289,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         isFamilyAccount:
           (settings?.accountType ?? user?.accountType) === "family",
         timeZone: settings?.timezone,
+        unreadNotifications,
+        deployedBuildId,
         loading,
         refreshSettings,
         refreshFamilies,

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { dispatchDueReminders, recordFailedRun } from "@/lib/dispatch";
+import { rotateAuditLogIfDue } from "@/lib/audit-rotate";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -57,7 +58,53 @@ async function handle(req: NextRequest) {
   const startedAt = Date.now();
   try {
     const summary = await dispatchDueReminders(now);
-    return NextResponse.json(summary);
+
+    // Piggy-backed on the minute tick rather than given its own schedule: this is
+    // already the one thing guaranteed to run, and a second cron job would be a
+    // second thing that can silently stop. rotateAuditLogIfDue() decides for itself
+    // whether the day has turned, so all but one call a day is a single indexed
+    // lookup. It never throws — a rotation problem must not take dispatch down with
+    // it, because reminders matter more than log housekeeping.
+    // Dev-only, same rules as `now` above: forces the dump's send to fail so the
+    // "nothing is deleted unless the mail was accepted" guarantee can be tested for
+    // real. Provoking a genuine SMTP rejection isn't dependable — an address at a
+    // reserved .invalid domain is *accepted* at submission and bounces later, which
+    // makes a test built on it delete the log while looking like proof it wouldn't.
+    const failSend = req.nextUrl.searchParams.get("failAuditMail") === "1";
+    if (failSend && isServerless) {
+      return NextResponse.json(
+        { message: "failAuditMail is not available in production." },
+        { status: 400 },
+      );
+    }
+
+    let audit:
+      | Awaited<ReturnType<typeof rotateAuditLogIfDue>>
+      | { error: string }
+      | { ran: false; reason: string };
+
+    // Not while the clock is being overridden. `?now=` exists so the engine's
+    // lead/due/overdue spacing can be tested without waiting out real minutes, and
+    // the dispatch suite drives it months into the future — which made the rotation
+    // believe a new day had turned, mail a dump to the real admin, and delete the
+    // log. Time travel must stay inside the engine: it decides what to *send*, and
+    // sending is already dedupe-guarded, but mailing the owner and clearing an audit
+    // trail are one-way doors.
+    if (nowParam) {
+      audit = { ran: false, reason: "skipped: the clock is overridden" };
+    } else {
+      try {
+        audit = await rotateAuditLogIfDue(
+          now,
+          failSend ? async () => false : undefined,
+        );
+      } catch (e) {
+        console.error("[cron] audit rotation failed:", e);
+        audit = { error: (e as Error).message };
+      }
+    }
+
+    return NextResponse.json({ ...summary, audit });
   } catch (e) {
     console.error("[cron] dispatch failed:", e);
     // Recorded, not just logged: a dispatcher that has been throwing for a day

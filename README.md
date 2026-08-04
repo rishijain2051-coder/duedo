@@ -186,6 +186,15 @@ immediately:
 node --env-file=.env scripts/smoke-security.mjs
 ```
 
+Audit rotation — the daily dump. The property it rests on is that **nothing is
+deleted unless the email was accepted**, so a mail outage delays the reset rather than
+destroying the trail. Guarded: it refuses to run against a database holding real
+accounts, because it clears the whole log:
+
+```bash
+node --env-file=.env scripts/smoke-audit-rotate.mjs
+```
+
 Route contracts — the edges nobody exercises by hand. Every protected route refuses
 an anonymous caller with 401; every method a route doesn't declare answers 405; a
 malformed body is a 400 rather than a 500; an unknown id is a 404 rather than a

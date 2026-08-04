@@ -340,9 +340,9 @@ try {
     404,
   );
   check(
-    "Bob cannot see its join requests",
-    (await bob("GET", `/api/families/${f1.id}/requests`)).status,
-    404,
+    "Bob cannot read its join code",
+    (await bob("GET", "/api/families")).data?.some((f) => f.id === f1.id),
+    false,
   );
   check(
     "Bob cannot dissolve it",
@@ -352,23 +352,14 @@ try {
 
   console.log("\n9. A member is not a head");
   const joined = await carol("POST", "/api/families/join", { joinCode: f1.joinCode });
-  check("Carol's request is pending", joined.data?.status, "pending");
-  check(
-    "pending means no access yet",
-    ((await carol("GET", `/api/reminders?scope=${f1.id}`)).data ?? []).length,
-    0,
-  );
+  // The code is the permission now — a valid one joins outright, so access to the
+  // shared list arrives with the join rather than after an approval.
+  check("Carol joins with the code", joined.data?.status, "joined");
 
-  const reqs = (await alice("GET", `/api/families/${f1.id}/requests`)).data ?? [];
-  check("Alice sees the request", reqs.length, 1);
-  await alice("PATCH", `/api/families/${f1.id}/requests`, {
-    requestId: reqs[0].id,
-    approve: true,
-  });
-
+  const carolScoped = await carol("GET", `/api/reminders?scope=${f1.id}`);
   check(
     "Carol now sees the shared reminder",
-    ((await carol("GET", `/api/reminders?scope=${f1.id}`)).data ?? []).some(
+    (Array.isArray(carolScoped.data) ? carolScoped.data : []).some(
       (r) => r.id === shared.id,
     ),
     true,
@@ -384,12 +375,9 @@ try {
     403,
   );
   check(
-    "Carol cannot approve requests",
-    (await carol("PATCH", `/api/families/${f1.id}/requests`, {
-      requestId: reqs[0].id,
-      approve: true,
-    })).status,
-    403,
+    "Carol, a plain member, is not given the join code",
+    (await carol("GET", "/api/families")).data?.find((f) => f.id === f1.id)?.joinCode,
+    null,
   );
   check(
     "Carol cannot remove Alice",

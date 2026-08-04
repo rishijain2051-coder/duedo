@@ -32,6 +32,23 @@ const EMAIL_OVERDUE_MIN_GAP_MINS = 12 * 60;
 /** How many DispatchRun rows to keep. Enough to see a pattern, not unbounded. */
 const RUN_HISTORY = 500;
 
+/**
+ * How long an overdue reminder keeps nagging. The reminder stays overdue and visible
+ * in the list forever — this only stops the notifications.
+ */
+const OVERDUE_NAG_LIMIT_DAYS = 14;
+
+/**
+ * How long the dedupe ledger and the notification feed are kept.
+ *
+ * Both were unbounded. ReminderDispatch exists to stop an alert going twice, which
+ * only matters while a due-cycle is current; Notification is a feed the UI reads 100
+ * rows of. Keeping 90 days of each leaves plenty of history to look back through
+ * while making total storage a function of *active* use rather than of how long the
+ * install has existed.
+ */
+const RETENTION_DAYS = 90;
+
 interface Owner {
   id: string;
   overdueRepeatMins: number;
@@ -129,11 +146,23 @@ function planFires(r: ReminderRow, now: Date, overdueRepeatMins: number): Fire[]
   // Then keep nagging on an interval until the reminder is completed or snoozed.
   // Baseline is the last nag, or the due instant itself for the first one, so the
   // first nag lands one full interval after the due alert rather than alongside it.
-  const baseline = (r.lastNaggedAt ?? r.dueAt).getTime();
-  if (nowMs - baseline >= overdueRepeatMins * MS_PER_MIN) {
-    const slot = Math.floor((nowMs - dueMs) / MS_PER_MIN);
-    if (slot > 0) {
-      fires.push({ reminder: r, kind: "overdue", offsetMin: slot, minutesUntilDue });
+  //
+  // Nagging stops after OVERDUE_NAG_LIMIT_DAYS. Two reasons, and the second is the
+  // one that forced it: something a fortnight overdue is not a reminder any more —
+  // hourly notifications about it have stopped being information and become noise
+  // people learn to swipe away. And because `offsetMin` is minutes-since-due, every
+  // nag is a distinct ReminderDispatch plus Notification row, so an abandoned
+  // reminder wrote ~24 row-pairs a day forever: measured at 571 bytes a pair, that is
+  // 5 MB per year *each*, more than a whole active household generates. It was the
+  // only unbounded growth path in the schema.
+  const daysOverdue = (nowMs - dueMs) / (24 * 60 * MS_PER_MIN);
+  if (daysOverdue <= OVERDUE_NAG_LIMIT_DAYS) {
+    const baseline = (r.lastNaggedAt ?? r.dueAt).getTime();
+    if (nowMs - baseline >= overdueRepeatMins * MS_PER_MIN) {
+      const slot = Math.floor((nowMs - dueMs) / MS_PER_MIN);
+      if (slot > 0) {
+        fires.push({ reminder: r, kind: "overdue", offsetMin: slot, minutesUntilDue });
+      }
     }
   }
 
@@ -435,6 +464,7 @@ export async function dispatchDueReminders(
 
   summary.durationMs = Date.now() - startedAt;
   await recordRun(summary);
+  await pruneRetention(now);
   return summary;
 }
 
@@ -474,6 +504,37 @@ async function recordRun(s: DispatchSummary, error?: string): Promise<void> {
     }
   } catch (err) {
     console.error("[dispatch] could not record run:", (err as Error).message);
+  }
+}
+
+/**
+ * Drops dedupe rows and feed entries past the retention window.
+ *
+ * Sampled rather than run every minute: at one in sixty ticks this is roughly hourly,
+ * which is far more often than a 90-day window needs, and it keeps the ordinary tick
+ * down to the work it exists to do. Both deletes are indexed range scans.
+ *
+ * Safe for a reminder that is *still* overdue at the cutoff: `offsetMin` on an
+ * overdue row is minutes-since-due, so it only ever increases — a pruned slot can
+ * never come round again and be re-sent. Lead and due rows are keyed on the cycle's
+ * dueAt, and a cycle 90 days behind has either rolled over or stopped nagging.
+ */
+async function pruneRetention(now: Date): Promise<void> {
+  if (Math.floor(now.getTime() / 60_000) % 60 !== 0) return;
+  const cutoff = new Date(now.getTime() - RETENTION_DAYS * 24 * 60 * MS_PER_MIN);
+  try {
+    const [dispatches, notifications] = await Promise.all([
+      prisma.reminderDispatch.deleteMany({ where: { cycleDueAt: { lt: cutoff } } }),
+      prisma.notification.deleteMany({ where: { createdAt: { lt: cutoff } } }),
+    ]);
+    if (dispatches.count || notifications.count) {
+      console.log(
+        `[dispatch] pruned ${dispatches.count} dedupe rows and ${notifications.count} notifications older than ${RETENTION_DAYS} days`,
+      );
+    }
+  } catch (err) {
+    // Housekeeping must never stop delivery.
+    console.error("[dispatch] retention prune failed:", (err as Error).message);
   }
 }
 

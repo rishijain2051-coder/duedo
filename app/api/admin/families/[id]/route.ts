@@ -113,7 +113,6 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
         prisma.familyMember.delete({
           where: { familyId_userId: { familyId: id, userId: targetId } },
         }),
-        prisma.familyJoinRequest.deleteMany({ where: { familyId: id, userId: targetId } }),
       ]);
       await audit({
         actorId: admin.id,
