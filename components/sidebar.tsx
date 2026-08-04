@@ -1,12 +1,14 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect } from "react";
 import { usePathname } from "next/navigation";
 import {
   LayoutDashboard,
   Calendar as CalendarIcon,
   ListTodo,
   Folder,
+  LogOut,
   Settings,
   Bell,
   ShieldCheck,
@@ -26,7 +28,12 @@ const NAV = [
   { href: "/notifications", label: "Notifications", icon: Bell },
 ];
 
-function NavLinks() {
+/**
+ * `onLogout` is passed only by the mobile drawer. On a desktop the header has the
+ * room to carry Logout itself; on a phone it was a mis-tap away from the
+ * Notifications bell, so it comes down here with the other account actions.
+ */
+function NavLinks({ onLogout }: { onLogout?: () => void }) {
   const pathname = usePathname();
   const { settings, isAdmin } = useApp();
   const isActive = (href: string) =>
@@ -88,6 +95,14 @@ function NavLinks() {
         >
           <Settings className="h-5 w-5" /> Settings
         </Link>
+        {onLogout && (
+          <button
+            onClick={onLogout}
+            className="flex w-full min-h-12 items-center gap-3 rounded-md px-3 py-2.5 text-left text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+          >
+            <LogOut className="h-5 w-5" /> Log out
+          </button>
+        )}
         <Credit className="mt-3 px-3" />
       </div>
     </>
@@ -128,15 +143,31 @@ export function MobileNav({
   open: boolean;
   onClose: () => void;
 }) {
+  const { logout } = useApp();
+
+  // Escape closes it. The drawer covers the whole screen, so without this a
+  // keyboard user who opened it had no way back except the close button.
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, onClose]);
+
   if (!open) return null;
 
   return (
     <div className="fixed inset-0 z-50 md:hidden">
+      {/* touch-none so a swipe that lands on the backdrop doesn't scroll the page
+          underneath it. The app's scroll container is a div rather than the body,
+          so locking body overflow would do nothing here. */}
       <div
-        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+        className="absolute inset-0 touch-none bg-black/60 backdrop-blur-sm"
         onClick={onClose}
       />
-      <aside className="absolute left-0 top-0 h-full w-64 bg-card border-r flex flex-col shadow-xl pt-[env(safe-area-inset-top)]">
+      <aside className="absolute left-0 top-0 flex h-full w-64 flex-col overscroll-contain border-r bg-card pt-[env(safe-area-inset-top)] shadow-xl">
         <div className="flex items-center justify-between p-5 border-b border-border/50">
           <Wordmark small />
           <button
@@ -147,7 +178,7 @@ export function MobileNav({
             <X className="h-5 w-5" />
           </button>
         </div>
-        <NavLinks />
+        <NavLinks onLogout={() => logout()} />
       </aside>
     </div>
   );
