@@ -112,10 +112,6 @@ export interface DispatchSummary {
   durationMs: number;
 }
 
-function isUniqueViolation(err: unknown): boolean {
-  return (err as { code?: string })?.code === "P2002";
-}
-
 /**
  * Works out everything that should fire for one reminder at `now`.
  *
@@ -334,22 +330,32 @@ export async function dispatchDueReminders(
       // (reminderId, userId, cycleDueAt, kind, offsetMin) is what makes a repeated
       // or overlapping cron tick a no-op instead of a second notification — and
       // including userId is what stops one family member's row suppressing the rest.
-      try {
-        await prisma.reminderDispatch.create({
-          data: {
+      //
+      // `createMany` + skipDuplicates, not `create` in a try/catch: it compiles to
+      // INSERT ... ON CONFLICT DO NOTHING, so an already-claimed slot returns a count
+      // of 0 instead of raising. The claim is just as atomic, and the difference shows
+      // up in the database log.
+      //
+      // It matters because a duplicate here is *normal steady state*, not an
+      // exception. Every tick re-plans the `due` alert for anything overdue, so each
+      // overdue reminder produced one failed INSERT a minute per recipient — around
+      // 1,400 Postgres ERROR lines a day, each one an aborted transaction, and each
+      // one indistinguishable at a glance from a real fault in the logs.
+      const claimed = await prisma.reminderDispatch.createMany({
+        data: [
+          {
             reminderId: r.id,
             userId: recipientId,
             cycleDueAt: r.dueAt,
             kind,
             offsetMin,
           },
-        });
-      } catch (err) {
-        if (isUniqueViolation(err)) {
-          summary.skippedAlreadySent++;
-          continue;
-        }
-        throw err;
+        ],
+        skipDuplicates: true,
+      });
+      if (claimed.count === 0) {
+        summary.skippedAlreadySent++;
+        continue;
       }
 
       deliveredToAnyone = true;

@@ -68,6 +68,32 @@ guarded only ever moves forward, so it can never come round again.
 **The audit log** is separately handled — it is emailed to the main admin and cleared
 daily, so it no longer grows at all (`lib/audit-rotate.ts`).
 
+## The dispatcher was writing thousands of ERROR lines a day
+
+Found in the Supabase Postgres log:
+
+```
+duplicate key value violates unique constraint
+  "ReminderDispatch_reminderId_userId_cycleDueAt_kind_offsetMi_key"
+```
+
+Nothing was broken — that violation *is* the dedupe. The engine claims a slot by
+inserting before it sends, and a collision means "already sent", which the code
+handled. But it handled it by catching a raised error, and Postgres logs every
+constraint violation at ERROR whether or not the client copes.
+
+The volume is the problem. Every tick re-plans the `due` alert for anything overdue,
+so **each overdue reminder produced one failed INSERT per minute per recipient** —
+around 1,400 ERROR lines a day, each an aborted transaction, and each
+indistinguishable at a glance from a real fault. Ten overdue reminders would have
+buried a genuine error under 14,000 lines of normal operation.
+
+The claim is now `createMany` with `skipDuplicates`, which compiles to
+`INSERT … ON CONFLICT DO NOTHING`: equally atomic, returns a count of 0 instead of
+raising. Measured across four consecutive ticks on an overdue reminder, aborted
+transactions went from one per repeat tick to **zero**, and `smoke-dispatch` now
+asserts that count stays at zero.
+
 ---
 
 ## Speed

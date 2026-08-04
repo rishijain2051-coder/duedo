@@ -105,6 +105,15 @@ try {
   const countFor = (id, kind) =>
     prisma.reminderDispatch.count({ where: { reminderId: id, kind } });
   const notifs = (id) => prisma.notification.count({ where: { reminderId: id } });
+  /** Postgres' own count of aborted transactions — one per raised constraint error. */
+  const abortedTransactions = async () =>
+    Number(
+      (
+        await pool.query(
+          "select xact_rollback from pg_stat_database where datname = current_database()",
+        )
+      ).rows[0].xact_rollback,
+    );
 
   // The base instant everything is measured from. Fixed and in the future, so the
   // run is deterministic and can never collide with real reminders.
@@ -325,8 +334,20 @@ try {
   check("both members are distinct", new Set(rows.map((r) => r.userId)).size, 2);
   check("each member got a feed entry", await notifs(toAll.id), 2);
 
+  // Counted around the repeat tick, not just before and after it. A failed INSERT
+  // aborts a transaction; ON CONFLICT DO NOTHING does not. The claim used to be a
+  // create() in a try/catch, which meant every re-planned `due` alert on an overdue
+  // reminder raised a duplicate-key ERROR in the Postgres log — roughly 1,400 lines a
+  // day per overdue reminder, all of it normal operation, all of it looking like
+  // faults. Zero here is what keeps a real error visible in that log.
+  const rollbacksBefore = await abortedTransactions();
   await tick(DUE + 602 * MIN);
   check("a repeat tick adds nothing", (await dispatchesFor(toAll.id)).length, 2);
+  check(
+    "and raises no constraint violation",
+    (await abortedTransactions()) - rollbacksBefore,
+    0,
+  );
 
   console.log("\n10. audience=assignee reaches only the assignee");
   const toAssignee = await prisma.reminder.create({
