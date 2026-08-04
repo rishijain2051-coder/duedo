@@ -85,17 +85,20 @@ model User {
   createdAt  DateTime  @default(now()) @db.Timestamptz
   updatedAt  DateTime  @updatedAt @db.Timestamptz
 
-  reminders         Reminder[]
-  assignedReminders Reminder[]         @relation("AssignedReminders")
-  categories        Category[]
-  notifications     Notification[]
-  activities        ActivityLog[]
-  sessions          Session[]
-  passkeys          Passkey[]
-  pushDevices       PushSubscription[]
-  families          FamilyMember[]
-  dispatches        ReminderDispatch[]
-  completedHistory  ReminderHistory[]  @relation("CompletedReminders")
+  reminders             Reminder[]
+  assignedReminders     Reminder[]         @relation("AssignedReminders")
+  acknowledgedReminders Reminder[]         @relation("AcknowledgedReminders")
+  comments              ReminderComment[]
+  externalContacts      ExternalContact[]
+  categories            Category[]
+  notifications         Notification[]
+  activities            ActivityLog[]
+  sessions              Session[]
+  passkeys              Passkey[]
+  pushDevices           PushSubscription[]
+  families              FamilyMember[]
+  dispatches            ReminderDispatch[]
+  completedHistory      ReminderHistory[]  @relation("CompletedReminders")
 
   @@index([status])
 }
@@ -116,6 +119,20 @@ model Family {
   createdAt DateTime @default(now()) @db.Timestamptz
   updatedAt DateTime @updatedAt @db.Timestamptz
 
+  // ------------------------------------------------- what the family opts into
+  /// All head-controlled. The defaults are the point: everyone always sees their own
+  /// numbers and the shared activity feed, and the parts that turn a household into a
+  /// scoreboard stay off until someone decides they want them.
+  ///
+  /// The monthly mail is the exception, and it is on because it goes to the head alone
+  /// — a summary to the one person who signed up to administer the family is not the
+  /// same as ranking everybody in public. It carries only what is switched on, so by
+  /// default that is assigned/completed/on-time counts with no ordering and no streaks.
+  showRanking         Boolean @default(false)
+  showStreaks         Boolean @default(false)
+  allowNudges         Boolean @default(false)
+  monthlyReportToHead Boolean @default(true)
+
   members    FamilyMember[]
   reminders  Reminder[]
   categories Category[]
@@ -134,6 +151,23 @@ model FamilyMember {
   user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   role     String   @default("member") // head | member
   joinedAt DateTime @default(now()) @db.Timestamptz
+
+  /// Streaks, held as counters rather than computed.
+  ///
+  /// The obvious implementation is a query over ReminderHistory, and it cannot work
+  /// here: detail is pruned after three months, so a computed weekly streak could never
+  /// exceed about thirteen. Advancing a counter once at each week and month close costs
+  /// two integers, survives the prune untouched, reaches any length, and is less code
+  /// than the query it replaces.
+  ///
+  /// On a membership rather than the user, because a streak is per household — and it
+  /// should die with the membership, which cascading from here gives for free.
+  streakWeeks      Int       @default(0)
+  bestStreakWeeks  Int       @default(0)
+  streakMonths     Int       @default(0)
+  bestStreakMonths Int       @default(0)
+  /// Last period boundary already accounted for, so a re-run advances nothing twice.
+  streakCheckedAt  DateTime? @db.Timestamptz
 
   @@unique([familyId, userId])
   @@index([userId])
@@ -291,6 +325,26 @@ model Reminder {
   recurrenceRule String? // One Time, Daily, Weekly, Monthly, Quarterly, Half-Yearly, Yearly
   amount         Float?  @default(0)
 
+  /// "I'll handle it", set by a recipient and cleared on completion or a recurrence
+  /// roll. One per cycle on purpose: the question it answers is "has anyone seen this?",
+  /// not "which of us saw it". It also stops an escalation chain — someone saying they
+  /// have it is precisely the signal escalation exists to wait for.
+  acknowledgedAt   DateTime? @db.Timestamptz
+  acknowledgedById String?
+  acknowledgedBy   User?     @relation("AcknowledgedReminders", fields: [acknowledgedById], references: [id], onDelete: SetNull)
+
+  /// Escalation steps, as [{ afterMins, notify, contactId? }].
+  ///
+  /// Json rather than a table because it is per-reminder and never queried by content.
+  /// A policy table would only be right if policies were shared between reminders.
+  /// Validated on write by lib/escalation.ts; null means the reminder takes exactly the
+  /// paths it did before escalation existed.
+  escalation Json?
+
+  /// Which template pack item this came from, so importing a pack twice is a no-op and
+  /// the import screen can say what you already have.
+  templateKey String?
+
   /// Suppresses all alerts until this instant (set by the Snooze action).
   snoozedUntil DateTime? @db.Timestamptz
   /// Last overdue nag. A fact about the reminder's cycle, not about any one
@@ -304,11 +358,61 @@ model Reminder {
 
   history    ReminderHistory[]
   dispatches ReminderDispatch[]
+  comments   ReminderComment[]
 
   @@index([userId, status, dueAt])
   @@index([familyId, status, dueAt])
   @@index([status, dueAt])
   @@index([assignedToId])
+  @@index([templateKey])
+}
+
+/// A comment on a family reminder — "I'll pay this on Monday" — so a shared list
+/// doesn't need a WhatsApp thread beside it.
+///
+/// One level deep, no replies. A reply to a reply is a conversation, and a conversation
+/// belongs somewhere built for one.
+///
+/// Cascades with the reminder, unlike payment history: a discussion about something
+/// that no longer exists has nothing to attach to.
+model ReminderComment {
+  id         String   @id @default(uuid())
+  reminderId String
+  reminder   Reminder @relation(fields: [reminderId], references: [id], onDelete: Cascade)
+
+  authorId String?
+  author   User?   @relation(fields: [authorId], references: [id], onDelete: SetNull)
+
+  body      String
+  createdAt DateTime @default(now()) @db.Timestamptz
+
+  @@index([reminderId, createdAt])
+}
+
+/// Someone outside the app who can be escalated to — a landlord, an accountant.
+///
+/// Nothing is sent until they have agreed. That is not politeness: every reminder in
+/// this install leaves through one Gmail account, and enough unconfirmed mail to
+/// strangers gets that account throttled, which takes out every reminder for every user.
+/// The consent step protects the delivery channel the whole app runs on.
+model ExternalContact {
+  id      String @id @default(uuid())
+  ownerId String
+  owner   User   @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+
+  email String
+  label String?
+
+  confirmedAt DateTime? @db.Timestamptz
+  /// HMAC of the outstanding confirm/block token, never the token — same construction
+  /// and the same reasoning as lib/verify-email.ts.
+  tokenHash   String?
+  tokenSentAt DateTime? @db.Timestamptz
+  /// Set when they decline. Permanent, and nobody can re-invite a blocked address.
+  blockedAt   DateTime? @db.Timestamptz
+
+  @@unique([ownerId, email])
+  @@index([email])
 }
 
 model ReminderHistory {
@@ -321,12 +425,57 @@ model ReminderHistory {
   completedById String?
   completedBy   User?   @relation("CompletedReminders", fields: [completedById], references: [id], onDelete: SetNull)
 
+  /// The due instant THIS completion settled.
+  ///
+  /// Completing a recurring reminder advances Reminder.dueAt to the next cycle, so
+  /// afterwards the only due date on record is the *next* one — which makes "was it
+  /// done on time?" unanswerable without stamping the cycle here. Every on-time
+  /// figure and every streak rests on this column.
+  ///
+  /// Null on rows written before it existed. Those are left alone rather than
+  /// backfilled from the reminder's current dueAt, which would be a guess for
+  /// anything already rolled forward; on-time statistics simply start from the
+  /// migration instead of quietly counting invented data.
+  cycleDueAt DateTime? @db.Timestamptz
+
   completedOn DateTime @default(now()) @db.Timestamptz
   amount      Float?
   status      String
   remarks     String?
 
   @@index([reminderId])
+  /// Spending queries and the monthly rollup both scan by date.
+  @@index([completedOn])
+}
+
+/// One month, closed and totalled.
+///
+/// Exists because detail is pruned after three months: past that, this is the only
+/// record of what was spent, so the yearly view reads from here and the current month
+/// is computed live on top.
+model MonthlyRollup {
+  id String @id @default(uuid())
+
+  /// "u:<userId>" for a personal total, "f:<familyId>" for a shared list.
+  ///
+  /// One string rather than two nullable columns because Postgres does not treat NULLs
+  /// as equal in a unique index — (userId, familyId, month, categoryId) would accept
+  /// duplicates indefinitely and the rollup would double on every run.
+  scopeKey     String
+  /// First instant of the month in the owning account's timezone, stored UTC.
+  month        DateTime @db.Timestamptz
+  /// Category id, or the literal "none". Same NULL-in-unique-index reason as scopeKey.
+  categoryKey  String
+  /// Frozen at close, so renaming a category later doesn't relabel a settled month.
+  categoryName String
+
+  spent       Float @default(0)
+  completions Int   @default(0)
+
+  createdAt DateTime @default(now()) @db.Timestamptz
+
+  @@unique([scopeKey, month, categoryKey])
+  @@index([scopeKey, month])
 }
 
 /// One row per alert actually sent to one person, which is how the dispatcher

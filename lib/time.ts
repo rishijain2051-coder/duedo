@@ -118,6 +118,54 @@ export function zonedMonthStart(instant: Date, timeZone: string): Date {
   return zonedToUtc(w.year, w.month, 1, 0, 0, timeZone);
 }
 
+/**
+ * The start of the month `delta` months from the one `instant` falls in.
+ *
+ * `delta` of -1 is last month, 1 is next. Month arithmetic is done on the 1-based
+ * calendar month and normalised through Date.UTC, so December + 1 rolls the year without
+ * special-casing — and the result is re-resolved through zonedToUtc, so a month boundary
+ * that crosses a DST change still lands on local midnight.
+ */
+export function zonedMonthStartOffset(
+  instant: Date,
+  timeZone: string,
+  delta: number,
+): Date {
+  const w = wallClock(instant, timeZone);
+  const shifted = new Date(Date.UTC(w.year, w.month - 1 + delta, 1));
+  return zonedToUtc(
+    shifted.getUTCFullYear(),
+    shifted.getUTCMonth() + 1,
+    1,
+    0,
+    0,
+    timeZone,
+  );
+}
+
+/**
+ * The UTC instants bounding the ISO week (Monday–Sunday) that `instant` falls in.
+ *
+ * Monday, because that is what a week means to the people using this — a streak that
+ * resets on Sunday morning is a streak that resets mid-weekend.
+ */
+export function zonedWeekBounds(
+  instant: Date,
+  timeZone: string,
+): { start: Date; end: Date } {
+  const { start: dayStart } = zonedDayBounds(instant, timeZone);
+  // getUTCDay on the local-midnight instant is not reliable across zones, so ask Intl.
+  const weekday = new Intl.DateTimeFormat("en-US", { timeZone, weekday: "short" }).format(
+    instant,
+  );
+  const order = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+  const back = Math.max(0, order.indexOf(weekday));
+  const w = wallClock(dayStart, timeZone);
+  const start = zonedToUtc(w.year, w.month, w.day - back, 0, 0, timeZone);
+  const next = zonedToUtc(w.year, w.month, w.day - back + 7, 0, 0, timeZone);
+  return { start, end: new Date(next.getTime() - 1) };
+}
+
 export function formatInZone(
   instant: Date,
   timeZone: string,

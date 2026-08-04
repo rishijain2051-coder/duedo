@@ -12,6 +12,7 @@ import {
   Settings,
   Bell,
   ShieldCheck,
+  Wallet,
   X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -25,6 +26,7 @@ const NAV = [
   { href: "/reminders", label: "Reminders", icon: ListTodo },
   { href: "/calendar", label: "Calendar", icon: CalendarIcon },
   { href: "/categories", label: "Categories", icon: Folder },
+  { href: "/insights", label: "Spending", icon: Wallet },
   { href: "/notifications", label: "Notifications", icon: Bell },
 ];
 

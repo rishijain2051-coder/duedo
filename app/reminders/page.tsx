@@ -17,6 +17,7 @@ import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import { Field, Input, Select, Textarea } from "@/components/ui/form";
 import { useApp } from "@/components/app-context";
+import { ScopeTabs } from "@/components/scope-tabs";
 import { useCached } from "@/lib/cache";
 import { api } from "@/services/api";
 import {
@@ -66,10 +67,9 @@ function isSnoozed(r: Reminder): boolean {
 }
 
 export default function RemindersPage() {
-  const { timeZone, syncBadge, families, isFamilyAccount } = useApp();
-
-  /** Which list is on screen: "mine", or a family id. */
-  const [scope, setScope] = useState<string>("mine");
+  // `scope` is shared app state, not local: picking a family here and then opening the
+  // dashboard used to put you silently back on your personal list.
+  const { timeZone, syncBadge, families, scope } = useApp();
   const activeFamily = families.find((f) => f.id === scope) ?? null;
 
   // Cached per scope so switching tabs doesn't re-spinner, and a repeat visit
@@ -362,29 +362,7 @@ export default function RemindersPage() {
         </div>
       )}
 
-      {/* Which list. Solo accounts never see this — there is only one.
-          Wraps rather than scrolling: family names can be long, and a strip that
-          scrolls sideways on touch draws no scrollbar, so a second family would sit
-          off the edge of a phone with nothing to say it was there. */}
-      {isFamilyAccount && families.length > 0 && (
-        <div className="flex flex-wrap gap-2 pb-1">
-          {[{ id: "mine", label: "Mine" }, ...families.map((f) => ({ id: f.id, label: f.name }))].map(
-            (tab) => (
-              <button
-                key={tab.id}
-                onClick={() => setScope(tab.id)}
-                className={`flex shrink-0 items-center rounded-md border px-4 text-sm font-medium transition-colors min-h-11 md:min-h-0 md:py-1.5 ${
-                  scope === tab.id
-                    ? "border-primary bg-primary/10 text-primary"
-                    : "border-border text-muted-foreground hover:bg-accent"
-                }`}
-              >
-                {tab.label}
-              </button>
-            ),
-          )}
-        </div>
-      )}
+      <ScopeTabs />
 
       {scope !== "mine" && activeFamily && (
         <p className="text-xs text-muted-foreground">

@@ -1,4 +1,5 @@
 import { prisma } from "./db";
+import { toCsv } from "./csv";
 import { sendMail, isMailConfigured } from "./mail";
 import { zonedDayBounds } from "./time";
 import { toDateKey } from "./format";
@@ -55,13 +56,6 @@ async function mainAdmin() {
     orderBy: [{ isRootAdmin: "desc" }, { createdAt: "asc" }],
     select: { id: true, name: true, email: true, timezone: true },
   });
-}
-
-/** RFC 4180: quote everything, double any embedded quote. Cheap and unambiguous. */
-function csvCell(value: unknown): string {
-  if (value === null || value === undefined) return '""';
-  const text = typeof value === "object" ? JSON.stringify(value) : String(value);
-  return `"${text.replace(/"/g, '""')}"`;
 }
 
 /**
@@ -124,23 +118,18 @@ export async function rotateAuditLogIfDue(
   }
 
   const truncated = rows.length === MAX_ROWS_PER_DUMP;
-  const header = "timestamp,actor,actor_email,action,entity,entity_id,detail";
-  const csv = [
-    header,
-    ...rows.map((r) =>
-      [
-        r.timestamp.toISOString(),
-        r.actor?.name ?? "system",
-        r.actor?.email ?? "",
-        r.action,
-        r.entity,
-        r.entityId ?? "",
-        r.detail,
-      ]
-        .map(csvCell)
-        .join(","),
-    ),
-  ].join("\r\n");
+  const csv = toCsv(
+    ["timestamp", "actor", "actor_email", "action", "entity", "entity_id", "detail"],
+    rows.map((r) => [
+      r.timestamp.toISOString(),
+      r.actor?.name ?? "system",
+      r.actor?.email ?? "",
+      r.action,
+      r.entity,
+      r.entityId ?? "",
+      r.detail,
+    ]),
+  );
 
   const dateLabel = toDateKey(now, admin.timezone);
   const appName = process.env.APP_NAME || "PRO-SYS";

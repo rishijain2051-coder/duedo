@@ -25,6 +25,10 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
         reminderId: id,
         // Worth recording on a shared list: "who actually paid this".
         completedById: user.id,
+        // The cycle this settles, captured *before* the update below rolls dueAt
+        // forward. Afterwards the reminder only knows about its next occurrence, so
+        // this is the one moment "was it done on time?" can still be answered.
+        cycleDueAt: reminder.dueAt,
         // Omitted, or a figure that isn't a number, falls back to what the
         // reminder said — rather than reaching the database as NaN and failing the
         // whole save over a stray character in one field.
@@ -51,12 +55,17 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
             snoozedUntil: null,
             lastNaggedAt: null,
             completedAt: null,
+            // A new cycle has nobody on the hook for it yet.
+            acknowledgedAt: null,
+            acknowledgedById: null,
           }
         : {
             status: "completed",
             completedAt: new Date(),
             snoozedUntil: null,
             lastNaggedAt: null,
+            acknowledgedAt: null,
+            acknowledgedById: null,
           },
       include: INCLUDE,
     });

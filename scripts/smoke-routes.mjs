@@ -180,6 +180,12 @@ try {
     ["GET", "/api/reports/dashboard"],
     ["GET", "/api/reports/overview"],
     ["GET", "/api/reports/recent-activity"],
+    ["GET", "/api/insights"],
+    ["GET", "/api/insights/year"],
+    // Builds its own response because the body is a file, so `json()` never sees it and
+    // the 401 is hand-written. The one route in the app where forgetting auth would be
+    // silent, which is why it is asserted rather than assumed.
+    ["GET", "/api/insights/export"],
     ["GET", "/api/notifications"],
     ["PATCH", `/api/notifications/${GHOST}/read`],
     ["PATCH", "/api/notifications/read-all"],
@@ -218,6 +224,8 @@ try {
     ["POST", "/api/sessions"],
     ["GET", "/api/push/test"],
     ["POST", "/api/admin/overview"],
+    ["POST", "/api/insights"],
+    ["POST", "/api/insights/export"],
   ];
   for (const [method, path] of NOT_ALLOWED) {
     check(`${method} ${path} not allowed`, (await anon(method, path)).status, 405);
@@ -1182,6 +1190,7 @@ try {
     "/reminders",
     "/calendar",
     "/categories",
+    "/insights",
     "/notifications",
     "/settings",
     "/admin",

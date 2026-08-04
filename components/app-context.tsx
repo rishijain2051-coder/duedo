@@ -33,6 +33,8 @@ import type {
 type BootstrapPayload = Awaited<ReturnType<typeof api.bootstrap>>;
 
 const BOOT_CACHE_KEY = "bootstrap";
+/** Goes through lib/cache so it is wiped on account switch and on sign-out. */
+const SCOPE_CACHE_KEY = "scope";
 /**
  * How stale a cached shell may be before it is ignored rather than painted.
  *
@@ -54,6 +56,17 @@ interface AppContextValue {
   isFamilyAccount: boolean;
   /** The user's own zone, used for every date the UI renders. */
   timeZone: string | undefined;
+  /**
+   * Which list the user is looking at: `"mine"` or a family id.
+   *
+   * Shared rather than per-page. It started as a useState on the reminders page, which
+   * meant picking a family and then opening the dashboard silently put you back on your
+   * personal list — the app appeared to forget, and two pages disagreed about what you
+   * were looking at. Persisted under the cache-owner key, so it clears with everything
+   * else when a different account signs in.
+   */
+  scope: string;
+  setScope: (scope: string) => void;
   /**
    * Unread notifications, from the same bootstrap payload the shell already fetched.
    * The header renders one digit from it and used to fetch up to 100 rows to do so.
@@ -92,6 +105,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [themeMode, setThemeModeState] = useState<ThemeMode>(DEFAULT_MODE);
   const [accent, setAccentState] = useState<AccentId>(DEFAULT_ACCENT);
+  const [scope, setScopeState] = useState<string>("mine");
+
+  const setScope = useCallback((next: string) => {
+    setScopeState(next);
+    writeCache(SCOPE_CACHE_KEY, next);
+  }, []);
 
   const refreshSettings = useCallback(async () => {
     try {
@@ -175,6 +194,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
    * visit still waits rather than flashing an empty app.
    */
   useLayoutEffect(() => {
+    // Read before paint too, so the list you were last looking at is the list that
+    // appears — restoring it a frame later would show your personal reminders and then
+    // replace them, which reads as a glitch.
+    const savedScope = readCache<string>(SCOPE_CACHE_KEY);
+    if (savedScope) setScopeState(savedScope);
+
     const cached = readCache<BootstrapPayload>(BOOT_CACHE_KEY, BOOT_CACHE_MAX_AGE_MS);
     if (!cached) return;
     setUser(cached.user);
@@ -200,6 +225,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         setFamilies(boot.families);
         setUnread(boot.badge.unreadNotifications);
         setDeployedBuildId(boot.buildId);
+        // A saved scope can outlive the membership it names — someone was removed from
+        // a family, or left it. Left alone, every scoped page would ask about a family
+        // the API now 404s, so the whole app would look broken until the user thought
+        // to press "Mine".
+        setScopeState((current) =>
+          current !== "mine" && !boot.families.some((f) => f.id === current)
+            ? "mine"
+            : current,
+        );
         void setBadge(boot.badge.outstanding);
         // Registers the worker AND re-hands this device's subscription to the
         // server on every authenticated load, so a pruned or rotated
@@ -289,6 +323,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         isFamilyAccount:
           (settings?.accountType ?? user?.accountType) === "family",
         timeZone: settings?.timezone,
+        scope,
+        setScope,
         unreadNotifications,
         deployedBuildId,
         loading,

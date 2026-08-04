@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { dispatchDueReminders, recordFailedRun } from "@/lib/dispatch";
 import { rotateAuditLogIfDue } from "@/lib/audit-rotate";
+import { runMonthlyMaintenance } from "@/lib/rollup";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -92,6 +93,17 @@ async function handle(req: NextRequest) {
       );
     }
 
+    // Also dev-only. Month close and history pruning normally run on one tick in 360,
+    // which a test can't wait for — and pruning is destructive, so it must not be
+    // forceable in production.
+    const forceRollup = req.nextUrl.searchParams.get("rollup") === "1";
+    if (forceRollup && isServerless) {
+      return NextResponse.json(
+        { message: "The rollup override is not available in production." },
+        { status: 400 },
+      );
+    }
+
     let audit:
       | Awaited<ReturnType<typeof rotateAuditLogIfDue>>
       | { error: string }
@@ -120,7 +132,23 @@ async function handle(req: NextRequest) {
       }
     }
 
-    return NextResponse.json({ ...summary, audit });
+    // Same reasoning as the audit rotation above: it rides this tick because this tick
+    // is the one thing guaranteed to run, it decides for itself whether a month has
+    // turned, and it must never take dispatch down with it. Skipped under `?now=` for
+    // the same reason the rotation is — closing a month and deleting the detail behind
+    // it are one-way doors, and time travel exists to test the *engine*.
+    let rollup: Awaited<ReturnType<typeof runMonthlyMaintenance>> | { error: string } | null =
+      null;
+    if (!nowParam) {
+      try {
+        rollup = await runMonthlyMaintenance(now, forceRollup);
+      } catch (e) {
+        console.error("[cron] monthly maintenance failed:", e);
+        rollup = { error: (e as Error).message };
+      }
+    }
+
+    return NextResponse.json({ ...summary, audit, rollup });
   } catch (e) {
     console.error("[cron] dispatch failed:", e);
     // Recorded, not just logged: a dispatcher that has been throwing for a day

@@ -88,6 +88,48 @@ export interface RegisterResult {
   verificationSent?: boolean;
 }
 
+export interface CategorySpend {
+  categoryId: string | null;
+  name: string;
+  spent: number;
+  completions: number;
+  /** Percent against this category's own trailing mean. Null when there isn't enough. */
+  trend: number | null;
+  baselineMonths: number;
+}
+
+export interface MonthInsights {
+  scope: string;
+  month: string;
+  spent: number;
+  completions: number;
+  categories: CategorySpend[];
+  /** Null when nothing this month recorded the cycle it settled. */
+  onTime: { of: number; met: number } | null;
+  forecast: {
+    days: number;
+    total: number;
+    items: {
+      id: string;
+      title: string;
+      dueAt: string;
+      hasTime: boolean;
+      amount: number;
+    }[];
+  };
+}
+
+export interface YearInsights {
+  scope: string;
+  from: string;
+  to: string;
+  total: number;
+  months: { month: string; spent: number; completions: number }[];
+  categories: { categoryId: string | null; name: string; spent: number }[];
+  /** Before this, months are summaries — the payments behind them have been pruned. */
+  detailFrom: string;
+}
+
 export interface PasskeySummary {
   id: string;
   label: string | null;
@@ -405,6 +447,15 @@ export const api = {
     /** Just the counters — used by the badge sync, which needs nothing else. */
     dashboard: () => request<DashboardStats>("/reports/dashboard"),
     recentActivity: () => request<Activity[]>("/reports/recent-activity"),
+  },
+  insights: {
+    month: (scope: string) =>
+      request<MonthInsights>(`/insights?scope=${encodeURIComponent(scope)}`),
+    year: (scope: string) =>
+      request<YearInsights>(`/insights/year?scope=${encodeURIComponent(scope)}`),
+    /** A file, so it is a link rather than a fetch — the browser saves it for us. */
+    exportUrl: (scope: string) =>
+      `/api/insights/export?scope=${encodeURIComponent(scope)}`,
   },
   notifications: {
     list: () => request<AppNotification[]>("/notifications"),

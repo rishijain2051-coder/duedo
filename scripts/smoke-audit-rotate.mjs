@@ -18,6 +18,12 @@
 //
 // The third is the one that would have saved those 188 rows. A guard you can override
 // is a guard that will be overridden.
+//
+// One known flake, and only under SMOKE_FORCE=1 against the live database: rotation
+// happens once a day, and production's own cron tick shares this database. If a real tick
+// lands between this suite's cleanup and section 4, it writes the day's marker first and
+// section 4 correctly reports "already rotated today". Re-run it. Pointing DATABASE_URL at
+// a scratch database — which is what the guard is asking for — removes the race entirely.
 
 import { Prisma, PrismaClient } from "@prisma/client";
 import { readFileSync } from "node:fs";
