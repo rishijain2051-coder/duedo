@@ -32,6 +32,12 @@ export interface ManagedUser {
   status: UserStatus;
   accountType: AccountType;
   approvedAt?: string | null;
+  /**
+   * When the address was proved by following the link. Null on an account an admin
+   * activated by hand — worth distinguishing, since only one of the two is evidence
+   * that somebody can actually read the address.
+   */
+  emailVerifiedAt?: string | null;
   createdAt: string;
   /** True for the admin viewing the list — the UI stops them locking themselves out. */
   self?: boolean;

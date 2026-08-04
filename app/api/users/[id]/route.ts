@@ -16,6 +16,7 @@ const SELECT = {
   status: true,
   accountType: true,
   approvedAt: true,
+  emailVerifiedAt: true,
   createdAt: true,
 } as const;
 

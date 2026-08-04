@@ -181,6 +181,23 @@ export default function AdminAccountsPage() {
                     >
                       {u.status}
                     </span>
+                    {/* Whether the address was actually proved. A pending account
+                        that has verified is waiting on nothing — mail was probably
+                        broken — whereas one that hasn't just needs to click a link,
+                        and only the first is worth an admin's attention. */}
+                    {u.status === "pending" && (
+                      <span
+                        className={
+                          u.emailVerifiedAt
+                            ? "text-green-600 dark:text-green-400"
+                            : "text-muted-foreground"
+                        }
+                      >
+                        {u.emailVerifiedAt
+                          ? " · email confirmed"
+                          : " · email not confirmed yet"}
+                      </span>
+                    )}
                     {u.counts && (
                       <span className="text-muted-foreground">
                         {" · "}

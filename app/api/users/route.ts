@@ -38,6 +38,7 @@ export async function GET(req: NextRequest) {
         status: true,
         accountType: true,
         approvedAt: true,
+        emailVerifiedAt: true,
         createdAt: true,
         _count: {
           select: { reminders: true, families: true, pushDevices: true },
@@ -62,6 +63,7 @@ export async function GET(req: NextRequest) {
       status: u.status,
       accountType: u.accountType,
       approvedAt: u.approvedAt,
+      emailVerifiedAt: u.emailVerifiedAt,
       createdAt: u.createdAt,
       self: u.id === admin.id,
       counts: {

@@ -88,8 +88,11 @@ the first account**, and that account is **auto-approved as the admin**.
 This is a real window: until you register, anyone who reaches the URL could claim
 the admin account. Do it immediately after the deploy finishes.
 
-Everyone else signs up the same way afterwards, lands as `pending`, and you approve
-them under **Settings → Accounts**.
+Everyone else signs up the same way afterwards and activates their own account by
+clicking the link in the confirmation email — no approval needed from you. That
+depends on SMTP working, which is why step 3 matters; if mail is unavailable the
+signup response says so and you can activate the account by hand under
+**/admin → Accounts**.
 
 ## 7. Schedule the dispatcher (every minute)
 
@@ -145,8 +148,11 @@ Use **Send test push** and **Send test email** in Settings to confirm both ends.
 builds, or the browser is blocking the cookie. The cookie is `httpOnly`,
 `SameSite=Lax` and `Secure` in production — so it needs HTTPS.
 
-**Login says the account is waiting for approval.** Working as intended: an admin
-approves it under Settings → Accounts. On a fresh install with no accounts at all,
+**Login says to confirm the email address.** Working as intended — the link in the
+confirmation email is what activates the account, and the login screen offers to
+send another. If it never arrives, check that SMTP is configured (**/admin → Health**
+says), then activate the account by hand under **/admin → Accounts**. On a fresh
+install with no accounts at all,
 the login page offers signup instead.
 
 **No push on iPhone.** Almost always a Safari tab rather than an installed app. Check

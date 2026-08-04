@@ -25,10 +25,27 @@ model User {
 
   /// pending | active | rejected.
   ///
-  /// Anyone can self-register, but an admin has to approve the account before it
-  /// can sign in. The first account on a fresh install is auto-approved as an
-  /// admin — otherwise there would be nobody to approve anybody.
+  /// Anyone can self-register. Clicking the link in the verification email is what
+  /// activates the account — no admin involved, because proving you can read the
+  /// address is the thing worth checking, and an admin approving a name they don't
+  /// recognise was never really a check at all.
+  ///
+  /// An admin can still activate or reject an account by hand, which is the fallback
+  /// when mail is misconfigured or a link never arrives. The first account on a fresh
+  /// install is active immediately — otherwise a broken SMTP setup would leave the
+  /// install with no way in at all.
   status String @default("pending")
+
+  /// When the address was proved. Separate from `status` on purpose: an admin can
+  /// activate an account without the address ever being verified, and that difference
+  /// is worth being able to see.
+  emailVerifiedAt DateTime?
+
+  /// HMAC of the outstanding verification token, never the token itself — it is a
+  /// bearer credential that activates an account, so a database leak must not hand
+  /// out working links. One at a time: requesting a new one invalidates the old.
+  verifyTokenHash String?
+  verifyTokenSentAt DateTime?
 
   /// Declared intent: `solo` hides every family surface in the UI. Actual
   /// membership lives in FamilyMember, so this only controls what is offered —

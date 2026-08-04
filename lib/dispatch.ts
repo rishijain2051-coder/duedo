@@ -30,7 +30,11 @@ const MS_PER_MIN = 60_000;
 const EMAIL_OVERDUE_MIN_GAP_MINS = 12 * 60;
 
 /** How many DispatchRun rows to keep. Enough to see a pattern, not unbounded. */
-const RUN_HISTORY = 500;
+/**
+ * How many *successful* dispatch runs to keep. Failures are all kept — see the prune
+ * in recordRun for why the two are treated differently.
+ */
+const SUCCESSFUL_RUN_HISTORY = 10;
 
 /**
  * How long an overdue reminder keeps nagging. The reminder stays overdue and visible
@@ -494,19 +498,28 @@ async function recordRun(s: DispatchSummary, error?: string): Promise<void> {
 
     // Prune here rather than on a schedule — this is the only writer, so it is
     // the only place that knows the table grew.
-    const total = await prisma.dispatchRun.count();
-    if (total > RUN_HISTORY * 1.2) {
-      const cutoff = await prisma.dispatchRun.findMany({
-        orderBy: { ranAt: "desc" },
-        skip: RUN_HISTORY,
-        take: 1,
-        select: { ranAt: true },
+    //
+    // Successful runs and failed ones are not worth the same. A successful tick is
+    // interchangeable with every other successful tick: the newest few prove the
+    // dispatcher is alive, and the 1,440th copy of "ran, sent nothing" says no more
+    // than the first. A failure is evidence — and the *oldest* failure is usually the
+    // most useful one, because it is when the problem started. So successes are
+    // capped and failures are kept.
+    //
+    // Nothing bounds the failures, which is deliberate but worth knowing: a
+    // dispatcher that has been broken for a month will have ~43,000 rows here. At the
+    // measured 627 bytes a row that is 27 MB, and the admin page will have been
+    // showing it as red the whole time.
+    const stale = await prisma.dispatchRun.findMany({
+      where: { error: null },
+      orderBy: { ranAt: "desc" },
+      skip: SUCCESSFUL_RUN_HISTORY,
+      select: { id: true },
+    });
+    if (stale.length > 0) {
+      await prisma.dispatchRun.deleteMany({
+        where: { id: { in: stale.map((r) => r.id) } },
       });
-      if (cutoff[0]) {
-        await prisma.dispatchRun.deleteMany({
-          where: { ranAt: { lt: cutoff[0].ranAt } },
-        });
-      }
     }
   } catch (err) {
     console.error("[dispatch] could not record run:", (err as Error).message);

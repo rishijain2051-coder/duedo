@@ -36,8 +36,19 @@ export default function LoginPage() {
 
   const [busy, setBusy] = useState<"pin" | "passkey" | "register" | null>(null);
   const [error, setError] = useState<string | null>(null);
-  /** Set once a signup lands in the approval queue — there's nothing else to do. */
-  const [awaitingApproval, setAwaitingApproval] = useState(false);
+  /**
+   * Set once a signup completes. Carries whether the confirmation link went out,
+   * because the two outcomes need different instructions: one is "go and click it",
+   * the other is "an admin has to do this by hand".
+   */
+  const [signedUp, setSignedUp] = useState<
+    { verificationSent: boolean; message: string } | null
+  >(null);
+  /** Outcome of following a link, read out of the query string on arrival. */
+  const [verifyNotice, setVerifyNotice] = useState<string | null>(null);
+  const [resent, setResent] = useState(false);
+  /** Set when a correct PIN was refused only because the address isn't confirmed. */
+  const [needsVerification, setNeedsVerification] = useState(false);
 
   const goToApp = useCallback(() => {
     router.replace("/");
@@ -103,6 +114,29 @@ export default function LoginPage() {
     };
   }, [goToApp]);
 
+  /**
+   * The verify route redirects here with ?verified=… rather than rendering its own
+   * page: the person is in a mail client's browser, and a login screen that says what
+   * happened is more use than a bare confirmation they then have to navigate away
+   * from. The parameter is removed afterwards so a refresh doesn't repeat it.
+   */
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const outcome = params.get("verified");
+    if (!outcome) return;
+    const prefill = params.get("email");
+    if (prefill) setEmail(prefill);
+    setVerifyNotice(
+      outcome === "ok"
+        ? "Email confirmed — your account is active. Sign in with your PIN."
+        : outcome === "expired"
+          ? "That link has expired. Sign in to send yourself a fresh one."
+          : "That link isn't valid any more. It may already have been used.",
+    );
+    if (outcome !== "ok") setNeedsVerification(true);
+    window.history.replaceState({}, "", window.location.pathname);
+  }, []);
+
   const submitSignIn = useCallback(async () => {
     setBusy("pin");
     setError(null);
@@ -112,6 +146,11 @@ export default function LoginPage() {
       goToApp();
     } catch (e) {
       setError((e as Error).message);
+      // The API flags this case explicitly. Reached only after the PIN was accepted,
+      // so offering the resend here tells an outsider nothing.
+      setNeedsVerification(
+        (e as { needsVerification?: boolean }).needsVerification === true,
+      );
       setBusy(null);
     }
   }, [email, pin, goToApp]);
@@ -160,7 +199,10 @@ export default function LoginPage() {
         goToApp();
         return;
       }
-      setAwaitingApproval(true);
+      setSignedUp({
+        verificationSent: res.verificationSent === true,
+        message: res.message,
+      });
       setBusy(null);
     } catch (e) {
       setError((e as Error).message);
@@ -188,7 +230,7 @@ export default function LoginPage() {
           <p className="text-sm text-muted-foreground">
             {loading
               ? "…"
-              : awaitingApproval
+              : signedUp
                 ? "Almost there"
                 : setupNeeded
                   ? "Set up the first account"
@@ -205,25 +247,68 @@ export default function LoginPage() {
             </div>
           )}
 
+          {verifyNotice && (
+            <div className="mb-4 rounded-md border border-primary/40 bg-primary/10 px-4 py-2 text-sm">
+              {verifyNotice}
+            </div>
+          )}
+
+          {/* Only after a correct PIN was refused for want of a confirmed address, so
+              this button appearing tells an onlooker nothing they didn't supply. */}
+          {needsVerification && !signedUp && (
+            <div className="mb-4 rounded-md border border-border bg-muted/30 px-4 py-3 text-sm">
+              <p className="text-xs text-muted-foreground">
+                The link is what activates the account. If it never arrived, check
+                spam or send another.
+              </p>
+              <Button
+                variant="outline"
+                size="sm"
+                className="mt-2 w-full"
+                disabled={resent || !email.trim()}
+                onClick={async () => {
+                  setResent(true);
+                  await api.auth.resendVerification(email.trim()).catch(() => {});
+                }}
+              >
+                {resent ? "Link sent — check your inbox" : "Send the link again"}
+              </Button>
+            </div>
+          )}
+
           {loading ? (
             <div className="flex items-center justify-center py-10 text-muted-foreground">
               <Loader2 className="mr-2 h-5 w-5 animate-spin" /> Loading…
             </div>
-          ) : awaitingApproval ? (
+          ) : signedUp ? (
             <div className="space-y-4 text-center">
               <MailCheck className="mx-auto h-10 w-10 text-primary" />
-              <p className="text-sm">
-                Your account has been created and is waiting for an admin to
-                approve it.
-              </p>
-              <p className="text-xs text-muted-foreground">
-                Once it&apos;s approved, sign in with your email and PIN.
-              </p>
+              <p className="text-sm">{signedUp.message}</p>
+              {signedUp.verificationSent && (
+                <>
+                  <p className="text-xs text-muted-foreground">
+                    Nothing to wait for beyond that — the link activates the account
+                    and then you sign in with your email and PIN.
+                  </p>
+                  <Button
+                    variant="outline"
+                    className="w-full"
+                    disabled={resent}
+                    onClick={async () => {
+                      setResent(true);
+                      await api.auth.resendVerification(email).catch(() => {});
+                    }}
+                  >
+                    {resent ? "Link sent again" : "Didn't arrive? Send it again"}
+                  </Button>
+                </>
+              )}
               <Button
-                variant="outline"
+                variant="ghost"
                 className="w-full"
                 onClick={() => {
-                  setAwaitingApproval(false);
+                  setSignedUp(null);
+                  setResent(false);
                   switchMode("signin");
                 }}
               >
@@ -235,8 +320,9 @@ export default function LoginPage() {
               {setupNeeded && (
                 <p className="rounded-md border border-primary/40 bg-primary/10 px-3 py-2 text-xs">
                   Nobody has an account yet, so this first one becomes the{" "}
-                  <strong>admin</strong> — you&apos;ll approve everyone who signs
-                  up after you.
+                  <strong>admin</strong> and is active straight away — no
+                  confirmation email needed, because there is nobody to send it to
+                  you yet.
                 </p>
               )}
 
@@ -416,7 +502,8 @@ export default function LoginPage() {
                 Create an account
               </button>
               <p className="text-center text-xs text-muted-foreground">
-                New accounts need an admin&apos;s approval before they can sign in.
+                You&apos;ll get an email to confirm your address — clicking the link
+                is what activates the account.
               </p>
             </div>
           )}

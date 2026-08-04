@@ -10,6 +10,7 @@ import { prisma } from "./db";
 export type AuditAction =
   // account lifecycle
   | "user.register"
+  | "user.verify.email"
   | "user.login"
   | "user.login.failed"
   | "user.approve"

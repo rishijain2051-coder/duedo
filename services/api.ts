@@ -33,11 +33,16 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 
   if (!res.ok) {
     let message = `${res.status} ${res.statusText}`;
+    // Kept alongside the message: a few callers need to act on *why*, not just show
+    // the text. The login screen offers a resend when a refused sign-in was only
+    // blocked on an unconfirmed address.
+    let needsVerification = false;
     try {
       const body = await res.json();
       if (body?.message) {
         message = Array.isArray(body.message) ? body.message.join(", ") : body.message;
       }
+      needsVerification = body?.needsVerification === true;
     } catch {
       /* ignore non-JSON error bodies */
     }
@@ -54,8 +59,12 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
       window.location.replace("/login");
     }
 
-    const err = new Error(message) as Error & { status?: number };
+    const err = new Error(message) as Error & {
+      status?: number;
+      needsVerification?: boolean;
+    };
     err.status = res.status;
+    err.needsVerification = needsVerification;
     throw err;
   }
 
@@ -71,6 +80,12 @@ export interface AuthStatus {
 export interface RegisterResult {
   status: "pending" | "active";
   message: string;
+  /**
+   * Whether the confirmation link actually went out. Absent for the first account on
+   * an install, which is active without one. False means mail is unavailable and the
+   * account needs an admin instead — a different instruction for the person waiting.
+   */
+  verificationSent?: boolean;
 }
 
 export interface PasskeySummary {
@@ -198,6 +213,16 @@ export const api = {
       request<CurrentUser>("/auth/login", {
         method: "POST",
         body: JSON.stringify({ email, pin }),
+      }),
+    /**
+     * Asks for the confirmation link again. Always resolves — the endpoint answers
+     * the same thing for every address so it can't be used to discover which ones
+     * exist, so there is nothing here for the caller to branch on.
+     */
+    resendVerification: (email: string) =>
+      request<{ message: string }>("/auth/resend-verification", {
+        method: "POST",
+        body: JSON.stringify({ email }),
       }),
     logout: () => request<{ ok: boolean }>("/auth/logout", { method: "POST" }),
     me: () => request<CurrentUser>("/auth/me"),

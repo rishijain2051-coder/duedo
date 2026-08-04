@@ -32,8 +32,9 @@ own email, PIN, devices and preferences.
 ### Families
 
 The person who creates a family is its **head**. They get a short **join code** to
-hand out; entering it raises a request the head approves — knowing the code alone
-never puts anyone on a shared list.
+hand out; entering a valid code joins that family immediately. The code *is* the
+permission, so the head's controls are handing it out directly, rotating it, and
+removing a member.
 
 Reminders live in one of two places, chosen when you create them: **Mine**
 (private) or a family's shared list. Each family reminder can be **assigned** to a
@@ -49,13 +50,13 @@ Any member can **complete or snooze** something on the shared list — that's wh
 makes it shared. Editing, reassigning and changing the audience stay with the
 creator and the head, because those change the thing for everyone.
 
-The head can rename the family, rotate the join code, approve or remove members,
-hand over headship, and dissolve it. **Dissolving is refused while any reminder is
+The head can rename the family, rotate the join code, remove members, hand over
+headship, and dissolve it. **Dissolving is refused while any reminder is
 still on the shared list** — clear them first, so it can never destroy work as a
 side effect. A head must hand over before leaving, so a family is never left with
 nobody able to administer it.
 
-## Accounts: approval and privacy
+## Accounts: verification and privacy
 
 Everyone gets their own account, and your personal reminders are **not visible to
 other users**.
@@ -66,22 +67,35 @@ privacy for debuggability — worth knowing, since the app says so in Settings r
 than promising something it doesn't deliver.
 
 - **Signing up** is self-service: name, email, and a 4-digit PIN.
-- **An admin must approve** a new account before it can sign in. Until then it sits
-  as `pending`.
-- The **first account on a fresh install** is auto-approved and becomes the admin —
-  otherwise there would be nobody to approve anyone. So register right after your
-  first deploy.
+- **Clicking the link in the confirmation email** is what activates the account. No
+  admin is involved — approval asked one to judge a name and an address they had
+  never seen, which was not a real check, while the person who signed up waited on
+  someone they had no way to contact. Proving you can read the address is both a
+  real check and one you can complete yourself.
+- The link is single-use and lasts **24 hours**. A blocked sign-in offers to send
+  another; so does the signup screen.
+- An admin can still **activate or reject an account by hand**. That is the fallback
+  when mail is misconfigured, and the accounts list distinguishes "email confirmed"
+  from "not confirmed yet" so it is clear which is which.
+- The **first account on a fresh install** is active immediately and becomes the
+  admin — a broken SMTP setup would otherwise leave the install with no way in at
+  all. So register right after your first deploy.
+- Mail to reserved domains (`.invalid`, `.test`, `example.com`, …) is **refused
+  outright** rather than attempted. Those are accepted at submission and bounce
+  minutes later, which makes a send look successful when it was not.
 - Admins work in the **`/admin` panel**, not Settings:
-  - **Accounts** — the approval queue, search, roles, PIN resets for people locked
-    out, and a reminder viewer.
+  - **Accounts** — every account with its verification state, search, roles, PIN
+    resets for people locked out, and a reminder viewer.
   - **Families** — every household on the install; rename, appoint a head, remove
     members, dissolve.
   - **Health** — whether SMTP, VAPID and `CRON_SECRET` are actually set, the last
     few dispatch runs with counts, and devices failing to receive. A broken
     dispatcher and an idle one both send nothing; the run history is what tells
     them apart.
-  - **Audit log** — approvals, role changes, deletions, family membership changes,
-    and every admin read of someone else's reminders.
+  - **Audit log** — verifications, role changes, deletions, family membership
+    changes, and every admin read of someone else's reminders. It is **emailed to
+    the main admin as a CSV and cleared once a day**, so the live log stays short
+    enough to scan; nothing is deleted unless the mail was accepted.
 - An admin can't act on their own row, which is what stops the last admin locking
   everybody out — and is why no "is this the last admin?" counting exists anywhere.
 
@@ -165,7 +179,7 @@ node scripts/generate-icons.mjs
 
 ### Smoke suites
 
-With the dev server running, these check the three things that break quietly.
+With the dev server running, these check the things that break quietly.
 
 The reminder engine — lead/due/overdue ordering, the nag interval, no back-fill,
 snooze, dedupe against a repeated cron tick, and recurrence re-arming. It uses the
@@ -184,6 +198,21 @@ immediately:
 
 ```bash
 node --env-file=.env scripts/smoke-security.mjs
+```
+
+Email verification — what activates an account now, which makes the token a bearer
+credential: whoever holds it turns a stranger's signup into a usable login. So the
+assertions that matter are the negative ones — a wrong token, a spent one, an expired
+one, and one for an account an admin already rejected:
+
+```bash
+node --env-file=.env scripts/smoke-verify-email.mjs
+```
+
+Run history — keep the newest 10 successful dispatch runs, keep every failed one:
+
+```bash
+node --env-file=.env scripts/smoke-run-history.mjs
 ```
 
 Audit rotation — the daily dump. The property it rests on is that **nothing is
@@ -205,7 +234,7 @@ here — it means a bad request reached code that assumed a good one:
 node --env-file=.env scripts/smoke-routes.mjs
 ```
 
-All three seed throwaway accounts with **both channels switched off** and delete them
+They all seed throwaway accounts with **both channels switched off** and delete them
 afterwards, so none of them ever emails or pushes anywhere. `smoke-dispatch`
 additionally refuses to run while any device is subscribed to push, and all three
 refuse to run against a database holding real accounts (override either with

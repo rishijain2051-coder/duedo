@@ -45,8 +45,16 @@ export async function POST(req: NextRequest) {
     }
 
     if (user.status === "pending") {
+      // `needsVerification` lets the login screen offer a resend instead of leaving
+      // them to work out what to do. Only shown once the PIN has been accepted, so it
+      // reveals nothing to someone guessing at addresses.
       return NextResponse.json(
-        { message: "This account is still waiting for an admin to approve it." },
+        {
+          message: user.emailVerifiedAt
+            ? "This account is waiting for an admin to activate it."
+            : "Confirm your email address first — check your inbox for the link we sent.",
+          needsVerification: !user.emailVerifiedAt,
+        },
         { status: 403 },
       );
     }

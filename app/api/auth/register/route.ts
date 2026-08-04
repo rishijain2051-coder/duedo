@@ -4,6 +4,7 @@ import { hashPin, isValidPin, PIN_LENGTH } from "@/lib/pin";
 import { createSession } from "@/lib/auth";
 import { audit } from "@/lib/audit";
 import { SESSION_COOKIE, sessionCookieOptions } from "@/lib/session";
+import { sendVerificationEmail } from "@/lib/verify-email";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -11,14 +12,19 @@ export const dynamic = "force-dynamic";
 /**
  * PUBLIC — self-registration.
  *
- * Anyone can create an account, but it lands as `pending` and cannot sign in
- * until an admin approves it. The one exception is a completely empty install:
- * the first account is auto-approved as an admin, because otherwise there would
- * be nobody with the authority to approve anybody.
+ * The account lands `pending` and is activated by clicking the link in the
+ * verification email. No admin is involved: approval asked one to judge a name and
+ * an address they had never seen, which was not a real check, while the person who
+ * signed up waited on someone they had no way to contact.
  *
- * That first-account grant is a real (if brief) window — whoever reaches a fresh
- * deployment first becomes the admin — so DEPLOY.md tells you to register
- * immediately after the first deploy.
+ * Two accounts are still activated without a link, and both are deliberate:
+ *
+ *   * the first account on an empty install, because a misconfigured SMTP setup
+ *     would otherwise leave the install with no way in at all — that grant is a real
+ *     if brief window, which is why DEPLOY.md says to register immediately after the
+ *     first deploy
+ *   * any signup when mail is not configured, since there would be no link to send;
+ *     these fall back to admin approval, and the response says so
  */
 export async function POST(req: NextRequest) {
   try {
@@ -69,6 +75,9 @@ export async function POST(req: NextRequest) {
         status: isFirstAccount ? "active" : "pending",
         accountType,
         approvedAt: isFirstAccount ? new Date() : null,
+        // The install owner's address is not verified by a link — nobody could have
+        // sent them one yet — so it is left unverified rather than claimed.
+        emailVerifiedAt: null,
       },
     });
 
@@ -81,10 +90,15 @@ export async function POST(req: NextRequest) {
     });
 
     if (!isFirstAccount) {
+      const { sent, reason } = await sendVerificationEmail(user);
       return NextResponse.json({
         status: "pending",
-        message:
-          "Account created. An admin has to approve it before you can sign in.",
+        verificationSent: sent,
+        message: sent
+          ? `Account created. Check ${email} for a link to confirm the address — that's what activates it.`
+          : // No link means no self-service route in, so say what actually happens
+            // next rather than leaving them waiting for an email that isn't coming.
+            `Account created, but the confirmation email could not be sent (${reason}). An admin will need to activate it.`,
       });
     }
 
