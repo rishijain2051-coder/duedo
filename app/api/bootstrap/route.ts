@@ -30,7 +30,6 @@ export async function GET() {
       row,
       passkeyCount,
       pushSubscriptions,
-      pendingApprovals,
       unreadNotifications,
       outstanding,
       memberships,
@@ -53,9 +52,6 @@ export async function GET() {
       }),
       prisma.passkey.count({ where: { userId: user.id } }),
       prisma.pushSubscription.count({ where: { userId: user.id, blockedAt: null } }),
-      user.role === "admin"
-        ? prisma.user.count({ where: { status: "pending" } })
-        : Promise.resolve(undefined),
       prisma.notification.count({ where: { userId: user.id, read: false } }),
       countOutstandingFor(user.id, familyIds, new Date()),
       // Only fetched for an account that is actually in a family — a solo account
@@ -104,7 +100,6 @@ export async function GET() {
           process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS,
         ),
         pushSubscriptions,
-        ...(pendingApprovals !== undefined ? { pendingApprovals } : {}),
       },
       families: memberships.map(({ role, family }) => ({
         id: family.id,

@@ -19,6 +19,8 @@ export type AuditAction =
   | "user.delete"
   | "user.pin.reset"
   | "user.pin.change"
+  /** The install changed hands. Rare, and the most consequential entry here. */
+  | "user.root.transfer"
   // families
   | "family.create"
   | "family.rename"
@@ -31,9 +33,9 @@ export type AuditAction =
   // admin reaching into another account
   | "admin.read.reminders"
   | "admin.read.family"
-  // Housekeeping. Written straight after the daily dump is mailed and the old
-  // entries deleted, so an emptied log still opens with a line saying where the
-  // previous day's history went — and doubles as the "already done today" marker.
+  // Housekeeping. Written straight after the daily dump is mailed and the surplus
+  // entries trimmed, so the log carries a line saying where the older history went —
+  // and doubles as the "already done today" marker.
   | "audit.rotate";
 
 interface RecordArgs {

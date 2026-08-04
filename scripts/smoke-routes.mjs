@@ -545,11 +545,15 @@ try {
   check("settings echoes the timezone", settings.data?.timezone, "Asia/Kolkata");
   check("settings echoes the default time", settings.data?.defaultTime, "08:30");
   check("settings reports pinSet", settings.data?.pinSet, true);
-  check("settings hides pendingApprovals from members", settings.data?.pendingApprovals, undefined);
+  // Gone on purpose. It existed to badge "signups are waiting for you", which stopped
+  // being true when verification replaced approval — a pending account is waiting on
+  // its own inbox. Asserted absent rather than deleted, so re-adding the count without
+  // re-adding a reason for it trips here.
+  check("settings carries no approval queue count", settings.data?.pendingApprovals, undefined);
   check(
-    "settings shows pendingApprovals to admins",
-    typeof (await admin("GET", "/api/settings")).data?.pendingApprovals,
-    "number",
+    "not even for an admin",
+    (await admin("GET", "/api/settings")).data?.pendingApprovals,
+    undefined,
   );
   check(
     "settings never returns the PIN hash",

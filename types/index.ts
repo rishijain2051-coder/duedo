@@ -31,7 +31,6 @@ export interface ManagedUser {
   role: string;
   status: UserStatus;
   accountType: AccountType;
-  approvedAt?: string | null;
   /**
    * When the address was proved by following the link. Null on an account an admin
    * activated by hand — worth distinguishing, since only one of the two is evidence
@@ -41,7 +40,11 @@ export interface ManagedUser {
   createdAt: string;
   /** True for the admin viewing the list — the UI stops them locking themselves out. */
   self?: boolean;
-  counts?: { reminders: number; families: number; devices: number };
+  /** The install's owner. No admin action is offered on this row. */
+  isRoot?: boolean;
+  /** Whether the viewer may hand ownership to this account. */
+  canTransferRoot?: boolean;
+  reminders?: number;
 }
 
 /**
@@ -67,8 +70,6 @@ export interface Settings {
   pushConfigured: boolean;
   mailConfigured: boolean;
   pushSubscriptions: number;
-  /** Only set for admins: how many accounts are waiting for approval. */
-  pendingApprovals?: number;
 }
 
 // ------------------------------------------------------------------ families

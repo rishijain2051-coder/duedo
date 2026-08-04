@@ -23,6 +23,17 @@ model User {
   password_hash String? // bcrypt hash of the login PIN; null until first sign-in
   role          String  @default("member") // 'admin' or 'member'
 
+  /// The install's owner. Exactly one account holds it, and it is the one thing no
+  /// other admin can touch: the root row cannot be demoted, rejected, deleted, or
+  /// have its PIN reset by anyone else. That is what makes it safe for there to be
+  /// no "first account becomes admin" special case — the install can't be captured
+  /// by whoever registers first, and it can't be locked out by an admin it promoted.
+  ///
+  /// Held as a flag rather than derived from "earliest admin" so it can be handed
+  /// over deliberately (see makeRoot in app/api/users/[id]/route.ts) instead of
+  /// being an accident of row order.
+  isRootAdmin Boolean @default(false)
+
   /// pending | active | rejected.
   ///
   /// Anyone can self-register. Clicking the link in the verification email is what
@@ -31,21 +42,22 @@ model User {
   /// recognise was never really a check at all.
   ///
   /// An admin can still activate or reject an account by hand, which is the fallback
-  /// when mail is misconfigured or a link never arrives. The first account on a fresh
-  /// install is active immediately — otherwise a broken SMTP setup would leave the
-  /// install with no way in at all.
+  /// when mail is misconfigured or a link never arrives. Nothing is auto-activated:
+  /// a fresh install's first admin is promoted by hand once (see DEPLOY.md), because
+  /// the alternative — granting admin to whoever registers first — is a real capture
+  /// window in exchange for saving one SQL statement.
   status String @default("pending")
 
   /// When the address was proved. Separate from `status` on purpose: an admin can
   /// activate an account without the address ever being verified, and that difference
   /// is worth being able to see.
-  emailVerifiedAt DateTime?
+  emailVerifiedAt DateTime? @db.Timestamptz
 
   /// HMAC of the outstanding verification token, never the token itself — it is a
   /// bearer credential that activates an account, so a database leak must not hand
   /// out working links. One at a time: requesting a new one invalidates the old.
-  verifyTokenHash String?
-  verifyTokenSentAt DateTime?
+  verifyTokenHash   String?
+  verifyTokenSentAt DateTime? @db.Timestamptz
 
   /// Declared intent: `solo` hides every family surface in the UI. Actual
   /// membership lives in FamilyMember, so this only controls what is offered —
@@ -56,25 +68,25 @@ model User {
 
   // ---------------------------------------------------------- preferences
   /// Every instant is stored UTC and rendered in this zone.
-  timezone String @default("Asia/Kolkata")
+  timezone          String @default("Asia/Kolkata")
   /// HH:mm local, applied when a reminder carries no explicit time.
-  defaultTime String @default("05:30")
+  defaultTime       String @default("05:30")
   /// While overdue, re-notify this often until completed or snoozed.
-  overdueRepeatMins Int @default(60)
+  overdueRepeatMins Int    @default(60)
   /// Sign out after this many minutes without a request. 0 disables it.
-  idleTimeoutMins Int @default(0)
+  idleTimeoutMins   Int    @default(0)
 
   /// Delivery channels — each user chooses how they want to be reminded.
   /// Both can be on; both can be off (in-app feed still records everything).
   emailOptIn Boolean @default(true)
   pushOptIn  Boolean @default(true)
 
-  approvedAt DateTime?
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
+  approvedAt DateTime? @db.Timestamptz
+  createdAt  DateTime  @default(now()) @db.Timestamptz
+  updatedAt  DateTime  @updatedAt @db.Timestamptz
 
   reminders         Reminder[]
-  assignedReminders Reminder[]          @relation("AssignedReminders")
+  assignedReminders Reminder[]         @relation("AssignedReminders")
   categories        Category[]
   notifications     Notification[]
   activities        ActivityLog[]
@@ -83,7 +95,7 @@ model User {
   pushDevices       PushSubscription[]
   families          FamilyMember[]
   dispatches        ReminderDispatch[]
-  completedHistory  ReminderHistory[]   @relation("CompletedReminders")
+  completedHistory  ReminderHistory[]  @relation("CompletedReminders")
 
   @@index([status])
 }
@@ -101,12 +113,12 @@ model Family {
   /// that has leaked can be retired without dissolving the family.
   joinCode String @unique
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now()) @db.Timestamptz
+  updatedAt DateTime @updatedAt @db.Timestamptz
 
-  members      FamilyMember[]
-  reminders    Reminder[]
-  categories   Category[]
+  members    FamilyMember[]
+  reminders  Reminder[]
+  categories Category[]
 }
 
 /// Membership is many-to-many: a person can belong to several families at once
@@ -121,7 +133,7 @@ model FamilyMember {
   userId   String
   user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   role     String   @default("member") // head | member
-  joinedAt DateTime @default(now())
+  joinedAt DateTime @default(now()) @db.Timestamptz
 
   @@unique([familyId, userId])
   @@index([userId])
@@ -147,11 +159,11 @@ model Session {
 
   label      String? // "iPhone · Safari"
   userAgent  String?
-  createdAt  DateTime @default(now())
+  createdAt  DateTime @default(now()) @db.Timestamptz
   /// Bumped (at most once a minute) on each authenticated request; drives the
   /// inactivity timeout.
-  lastSeenAt DateTime @default(now())
-  expiresAt  DateTime
+  lastSeenAt DateTime @default(now()) @db.Timestamptz
+  expiresAt  DateTime @db.Timestamptz
 
   @@index([userId])
   @@index([expiresAt])
@@ -170,8 +182,8 @@ model Passkey {
   backedUp   Boolean   @default(false)
   transports String? // comma-separated
   label      String?
-  createdAt  DateTime  @default(now())
-  lastUsedAt DateTime?
+  createdAt  DateTime  @default(now()) @db.Timestamptz
+  lastUsedAt DateTime? @db.Timestamptz
 
   @@index([userId])
 }
@@ -192,15 +204,15 @@ model PushSubscription {
   p256dh    String
   auth      String
   label     String?
-  createdAt DateTime  @default(now())
-  lastOkAt  DateTime?
+  createdAt DateTime  @default(now()) @db.Timestamptz
+  lastOkAt  DateTime? @db.Timestamptz
   failures  Int       @default(0) // consecutive send failures; pruned once the endpoint is gone
 
   /// Set when this device is revoked from the Settings page. The row is kept
   /// rather than deleted so the block survives: the app re-registers itself on
   /// every load, and a deleted row would simply come back. Only an explicit
   /// "enable notifications" on the device itself clears this.
-  blockedAt DateTime?
+  blockedAt DateTime? @db.Timestamptz
 
   @@index([userId])
 }
@@ -224,8 +236,8 @@ model Category {
   name      String
   icon      String?
   color     String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now()) @db.Timestamptz
+  updatedAt DateTime @updatedAt @db.Timestamptz
 
   reminders Reminder[]
 
@@ -268,7 +280,7 @@ model Reminder {
 
   /// Absolute instant the reminder is due. Always concrete — when the user omits
   /// a time we apply their defaultTime in their timezone before saving.
-  dueAt   DateTime
+  dueAt   DateTime @db.Timestamptz
   /// False when the user never picked a time (we filled in the default). Display-only.
   hasTime Boolean  @default(true)
 
@@ -280,15 +292,15 @@ model Reminder {
   amount         Float?  @default(0)
 
   /// Suppresses all alerts until this instant (set by the Snooze action).
-  snoozedUntil DateTime?
+  snoozedUntil DateTime? @db.Timestamptz
   /// Last overdue nag. A fact about the reminder's cycle, not about any one
   /// recipient, so it stays here; per-person email throttling lives on
   /// ReminderDispatch.emailedAt instead.
-  lastNaggedAt DateTime?
-  completedAt  DateTime?
+  lastNaggedAt DateTime? @db.Timestamptz
+  completedAt  DateTime? @db.Timestamptz
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now()) @db.Timestamptz
+  updatedAt DateTime @updatedAt @db.Timestamptz
 
   history    ReminderHistory[]
   dispatches ReminderDispatch[]
@@ -309,7 +321,7 @@ model ReminderHistory {
   completedById String?
   completedBy   User?   @relation("CompletedReminders", fields: [completedById], references: [id], onDelete: SetNull)
 
-  completedOn DateTime @default(now())
+  completedOn DateTime @default(now()) @db.Timestamptz
   amount      Float?
   status      String
   remarks     String?
@@ -329,20 +341,20 @@ model ReminderDispatch {
   reminderId String
   reminder   Reminder @relation(fields: [reminderId], references: [id], onDelete: Cascade)
   /// The recipient this row is about.
-  userId String
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  cycleDueAt DateTime // the dueAt this fire belongs to
+  cycleDueAt DateTime  @db.Timestamptz // the dueAt this fire belongs to
   kind       String // lead | due | overdue
   /// lead: the offset in minutes. due: 0. overdue: whole minutes since cycleDueAt,
   /// which is unique per minute and so dedupes naturally against a per-minute cron.
-  offsetMin Int
-  firedAt   DateTime @default(now())
-  ok        Boolean  @default(true)
+  offsetMin  Int
+  firedAt    DateTime  @default(now()) @db.Timestamptz
+  ok         Boolean   @default(true)
   /// Set when this recipient was emailed. The 12h overdue-email throttle reads the
   /// newest of these per (reminderId, userId), which makes the throttle per person
   /// rather than per household.
-  emailedAt DateTime?
+  emailedAt  DateTime? @db.Timestamptz
 
   @@unique([reminderId, userId, cycleDueAt, kind, offsetMin])
   @@index([reminderId])
@@ -361,7 +373,7 @@ model Notification {
   body       String
   kind       String   @default("due") // lead | due | overdue
   read       Boolean  @default(false)
-  createdAt  DateTime @default(now())
+  createdAt  DateTime @default(now()) @db.Timestamptz
 
   @@index([userId, read, createdAt])
   @@index([reminderId])
@@ -373,7 +385,7 @@ model Notification {
 /// dispatcher itself.
 model DispatchRun {
   id           String   @id @default(uuid())
-  ranAt        DateTime @default(now())
+  ranAt        DateTime @default(now()) @db.Timestamptz
   durationMs   Int
   considered   Int
   recipients   Int
@@ -391,7 +403,7 @@ model DispatchRun {
 /// Audit trail. Written by lib/audit.ts on approvals, role changes, deletions,
 /// family membership changes, and every admin read of another account's data.
 model ActivityLog {
-  id      String @id @default(uuid())
+  id      String  @id @default(uuid())
   /// Who did it. Null for system actions (the dispatcher, say).
   actorId String?
   actor   User?   @relation(fields: [actorId], references: [id], onDelete: SetNull)
@@ -400,7 +412,7 @@ model ActivityLog {
   entity    String // user | family | reminder | session
   entityId  String?
   detail    Json?
-  timestamp DateTime @default(now())
+  timestamp DateTime @default(now()) @db.Timestamptz
 
   @@index([actorId])
   @@index([timestamp])

@@ -4,12 +4,9 @@ import { useCallback, useEffect, useState } from "react";
 import { Loader2, Trash2 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { useApp } from "@/components/app-context";
 import { api, type AdminFamily } from "@/services/api";
-import { formatDateTime } from "@/lib/format";
 
 export default function AdminFamiliesPage() {
-  const { timeZone } = useApp();
   const [families, setFamilies] = useState<AdminFamily[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
@@ -58,12 +55,6 @@ export default function AdminFamiliesPage() {
         </div>
       )}
 
-      <p className="text-xs text-muted-foreground">
-        You can administer a family you aren&apos;t in — that&apos;s the point of this
-        page. Dissolving is refused while any reminder is still on the shared list, so
-        it can never destroy someone&apos;s work as a side effect.
-      </p>
-
       {loading ? (
         <div className="flex items-center py-12 text-muted-foreground">
           <Loader2 className="mr-2 h-5 w-5 animate-spin" /> Loading…
@@ -82,10 +73,9 @@ export default function AdminFamiliesPage() {
                 <div className="min-w-0">
                   <p className="truncate font-medium">{f.name}</p>
                   <p className="text-xs text-muted-foreground">
-                    code <span className="font-mono">{f.joinCode}</span> ·{" "}
+                    <span className="font-mono">{f.joinCode}</span> ·{" "}
                     {f.members.length} member{f.members.length === 1 ? "" : "s"} ·{" "}
-                    {f.reminderCount} reminder{f.reminderCount === 1 ? "" : "s"} · since{" "}
-                    {formatDateTime(f.createdAt, false, timeZone)}
+                    {f.reminderCount} reminder{f.reminderCount === 1 ? "" : "s"}
                   </p>
                 </div>
                 <div className="flex shrink-0 gap-1">

@@ -52,7 +52,7 @@ export default function DashboardPage() {
       tone: "text-red-500",
     },
     {
-      label: "Completed (month)",
+      label: "Done this month",
       value: stats?.completedThisMonth ?? 0,
       icon: CheckCircle2,
       tone: "text-green-500",
@@ -90,8 +90,10 @@ export default function DashboardPage() {
       )}
 
       {/* Two-up on phones: four full-width cards meant scrolling ~450px to read
-          four numbers. */}
-      <div className="grid grid-cols-2 gap-2 md:gap-4 lg:grid-cols-4">
+          four numbers. Spend joins them rather than sitting in a full-width card of
+          its own below — it is one more number, and it was breaking the rhythm to
+          say so. */}
+      <div className="grid grid-cols-2 gap-2 md:gap-4 lg:grid-cols-5">
         {kpis.map((k) => (
           <Card key={k.label} className="min-w-0">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 p-3 pb-1 md:p-6 md:pb-2">
@@ -107,24 +109,20 @@ export default function DashboardPage() {
             </CardContent>
           </Card>
         ))}
+        <Card className="col-span-2 min-w-0 lg:col-span-1">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 p-3 pb-1 md:p-6 md:pb-2">
+            <CardTitle className="truncate text-xs font-medium md:text-sm">
+              Spent this month
+            </CardTitle>
+            <Wallet className="h-4 w-4 shrink-0 text-muted-foreground" />
+          </CardHeader>
+          <CardContent className="p-3 pt-0 md:p-6 md:pt-0">
+            <div className="text-xl font-bold md:text-2xl">
+              {loading ? "—" : formatCurrency(stats?.monthlySpend)}
+            </div>
+          </CardContent>
+        </Card>
       </div>
-
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-          <CardTitle className="text-sm font-medium">
-            Estimated spend this month
-          </CardTitle>
-          <Wallet className="h-4 w-4 text-muted-foreground" />
-        </CardHeader>
-        <CardContent>
-          <div className="text-2xl font-bold">
-            {loading ? "—" : formatCurrency(stats?.monthlySpend)}
-          </div>
-          <p className="text-xs text-muted-foreground">
-            From reminders marked complete this month
-          </p>
-        </CardContent>
-      </Card>
 
       {/* min-w-0 on the grid items is load-bearing: grid tracks size to min-content,
           so without it a long title can push a track past the viewport and body's
@@ -133,7 +131,7 @@ export default function DashboardPage() {
       <div className="grid gap-3 md:gap-4 lg:grid-cols-7">
         <Card className="min-w-0 lg:col-span-4">
           <CardHeader>
-            <CardTitle>Upcoming Reminders</CardTitle>
+            <CardTitle>Upcoming</CardTitle>
           </CardHeader>
           <CardContent>
             {loading ? (
@@ -142,7 +140,7 @@ export default function DashboardPage() {
               </div>
             ) : upcoming.length === 0 ? (
               <p className="py-8 text-center text-muted-foreground">
-                Nothing upcoming. 🎉
+                Nothing upcoming.
               </p>
             ) : (
               <div className="space-y-3">
@@ -185,7 +183,7 @@ export default function DashboardPage() {
 
         <Card className="min-w-0 lg:col-span-3">
           <CardHeader>
-            <CardTitle>Recent Activity</CardTitle>
+            <CardTitle>Recently completed</CardTitle>
           </CardHeader>
           <CardContent>
             {loading ? (

@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { AlertTriangle, CheckCircle2, Loader2 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useCached } from "@/lib/cache";
@@ -39,16 +38,15 @@ export default function AdminOverviewPage() {
     problems.push(`The dispatcher last ran ${h.lastRunMinutesAgo} minutes ago — it should run every minute.`);
   if (h.failuresLast24h > 0)
     problems.push(`${h.failuresLast24h} dispatch run(s) failed in the last 24 hours.`);
-  if (data.users.pending > 0)
-    problems.push(`${data.users.pending} account(s) waiting for approval.`);
 
+  // Deliberately not a problem any more. Pending accounts are waiting on their own
+  // inbox, not on an admin — listing them under "needs attention" asked someone to
+  // act on something they can't do anything about.
   const tiles = [
-    { label: "Accounts", value: data.users.total, hint: `${data.users.active} active` },
-    { label: "Waiting", value: data.users.pending, hint: "need approval" },
+    { label: "Accounts", value: data.users.active, hint: `${data.users.pending} unconfirmed` },
     { label: "Families", value: data.families, hint: "" },
     { label: "Reminders", value: data.reminders.active, hint: `${data.reminders.overdue} overdue` },
-    { label: "Devices", value: data.devices.total, hint: `${data.devices.blocked} revoked` },
-    { label: "Admins", value: data.users.admins, hint: "" },
+    { label: "Devices", value: data.devices.total, hint: "" },
   ];
 
   return (
@@ -74,7 +72,7 @@ export default function AdminOverviewPage() {
         </div>
       )}
 
-      <div className="grid grid-cols-2 gap-2 md:gap-4 lg:grid-cols-3">
+      <div className="grid grid-cols-2 gap-2 md:gap-4 lg:grid-cols-4">
         {tiles.map((t) => (
           <Card key={t.label} className="min-w-0">
             <CardHeader className="p-3 pb-1 md:p-6 md:pb-2">
@@ -91,14 +89,6 @@ export default function AdminOverviewPage() {
           </Card>
         ))}
       </div>
-
-      <p className="text-xs text-muted-foreground">
-        Delivery detail is on the{" "}
-        <Link href="/admin/health" className="text-primary underline">
-          Health
-        </Link>{" "}
-        tab.
-      </p>
     </div>
   );
 }

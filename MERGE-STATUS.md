@@ -15,7 +15,7 @@ taking PRO-SYS the opposite way — into a **multi-user** app.
 | --- | --- |
 | User model | **Multi-user personal**, not family. Everything is scoped by `userId`. |
 | Visibility | **Private per user.** Reverses PRO-SYS's old "everyone sees all reminders". |
-| Accounts | **Self-registration + admin approval.** Signups land `status: "pending"`. The first account on an empty install is auto-approved as admin. |
+| Accounts | **Self-registration + admin approval.** Signups land `status: "pending"`. *Superseded:* activation is now email verification, and there is no first-account bootstrap — the owner is promoted by hand and holds `isRootAdmin`. See the README. |
 | Delivery | **Email *and* push**, chosen per account (`emailOptIn`, `pushOptIn`). |
 | Dropped | The Family page and "Notify family" — meaningless once reminders are private. Also `/api/auth/members`, which listed every account to anyone loading the login page. |
 | Database | Reset via `prisma db push --force-reset`. No migration history. |
@@ -52,14 +52,13 @@ taking PRO-SYS the opposite way — into a **multi-user** app.
    shared laptop would paint the previous person's reminders before the fetch
    replaced them.
 
-An admin also cannot approve, reject, demote or delete **their own** row. That single
-rule is why no "is this the last admin?" counting is needed anywhere.
+An admin also cannot approve, reject, demote or delete **their own** row, nor the
+owner's. Between those two rules, no "is this the last admin?" counting is needed
+anywhere.
 
 ## Verified
 
 `npm run lint` and `npm run build` clean. Live run against the Supabase database:
-first-account admin bootstrap, signup → pending → approval → login, reminder CRUD
-with lead offsets, date-only reminders taking the account's default time, the
-dashboard, the Settings page including the admin queue, and cascade deletes.
-
-Both smoke suites pass (67 assertions) — see the README for how to run them.
+signup → verification → login, reminder CRUD with lead offsets, date-only reminders
+taking the account's default time, the dashboard, the Settings page, and cascade
+deletes. The smoke suites pass — see the README for how to run them.

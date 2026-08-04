@@ -65,15 +65,29 @@ async function handle(req: NextRequest) {
     // whether the day has turned, so all but one call a day is a single indexed
     // lookup. It never throws — a rotation problem must not take dispatch down with
     // it, because reminders matter more than log housekeeping.
-    // Dev-only, same rules as `now` above: forces the dump's send to fail so the
-    // "nothing is deleted unless the mail was accepted" guarantee can be tested for
-    // real. Provoking a genuine SMTP rejection isn't dependable — an address at a
-    // reserved .invalid domain is *accepted* at submission and bounces later, which
-    // makes a test built on it delete the log while looking like proof it wouldn't.
+    // Dev-only, same rules as `now` above. Both sides of the send are forceable,
+    // because neither can be provoked for real:
+    //
+    //   failAuditMail=1 — the send reports failure, which is the only way to test
+    //     "nothing is deleted unless the mail was accepted". A genuine SMTP rejection
+    //     isn't dependable: an address at a reserved .invalid domain is *accepted* at
+    //     submission and bounces later, so a test built on it deletes the log while
+    //     looking like proof it wouldn't.
+    //   fakeAuditMail=1 — the send reports success without sending, which is the only
+    //     way to reach the *delete* path at all. A test admin necessarily has a
+    //     reserved-domain address, and lib/mail.ts now refuses those outright, so the
+    //     real sender can never succeed for one.
     const failSend = req.nextUrl.searchParams.get("failAuditMail") === "1";
-    if (failSend && isServerless) {
+    const fakeSend = req.nextUrl.searchParams.get("fakeAuditMail") === "1";
+    if ((failSend || fakeSend) && isServerless) {
       return NextResponse.json(
-        { message: "failAuditMail is not available in production." },
+        { message: "The audit mail overrides are not available in production." },
+        { status: 400 },
+      );
+    }
+    if (failSend && fakeSend) {
+      return NextResponse.json(
+        { message: "Pick one of failAuditMail or fakeAuditMail." },
         { status: 400 },
       );
     }
@@ -94,10 +108,12 @@ async function handle(req: NextRequest) {
       audit = { ran: false, reason: "skipped: the clock is overridden" };
     } else {
       try {
-        audit = await rotateAuditLogIfDue(
-          now,
-          failSend ? async () => false : undefined,
-        );
+        const override = failSend
+          ? async () => false
+          : fakeSend
+            ? async () => true
+            : undefined;
+        audit = await rotateAuditLogIfDue(now, override);
       } catch (e) {
         console.error("[cron] audit rotation failed:", e);
         audit = { error: (e as Error).message };

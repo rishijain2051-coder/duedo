@@ -4,7 +4,7 @@ import { zonedDayBounds } from "./time";
 import { toDateKey } from "./format";
 
 // Daily rotation of the audit log: mail the day's entries to the owning admin, then
-// clear them.
+// trim the live log back to a short tail.
 //
 // The log is a running record of who did what to whom, and it only grows — 188 rows
 // appeared in this install's first day of testing alone. Left alone it becomes both
@@ -20,27 +20,39 @@ import { toDateKey } from "./format";
 /** One dump is capped so a runaway log can't build a mail nobody can receive. */
 const MAX_ROWS_PER_DUMP = 20_000;
 
+/**
+ * How many of the newest entries survive the trim.
+ *
+ * Clearing to nothing was the first version, and it left the audit page blank for
+ * most of the day — which reads as "nothing is being recorded" rather than "it was
+ * filed this morning". A tail keeps the page answering the question people actually
+ * open it with, *what just happened*, at a cost of a few kB; the archive in the
+ * mailbox is still the complete record either way.
+ */
+export const AUDIT_TAIL_KEEP = 50;
+
 export interface RotationResult {
   ran: boolean;
   reason?: string;
   rowsMailed?: number;
   rowsDeleted?: number;
+  /** Entries left in the live log. `rowsMailed - rowsDeleted`, stated rather than implied. */
+  keptTail?: number;
   truncated?: boolean;
   mailedTo?: string;
 }
 
 /**
- * The account the dump goes to: the earliest-created active admin.
- *
- * "Main admin" needs to mean something specific and stable. The first admin is the
- * one who set the install up — the person whose install it is — and since an admin
- * cannot demote or delete themselves, that account can't quietly stop being an
- * admin. Falls back to any active admin if the original is gone.
+ * The account the dump goes to: the install's owner, the account holding
+ * `isRootAdmin`. That is the one admin no other admin can demote or delete, so it is
+ * the only stable answer to "whose install is this?". Falls back to the
+ * earliest-created active admin, which is all there is to go on if the flag was never
+ * set — a fresh install someone forgot to mark.
  */
 async function mainAdmin() {
   return prisma.user.findFirst({
     where: { role: "admin", status: "active" },
-    orderBy: { createdAt: "asc" },
+    orderBy: [{ isRootAdmin: "desc" }, { createdAt: "asc" }],
     select: { id: true, name: true, email: true, timezone: true },
   });
 }
@@ -55,11 +67,11 @@ function csvCell(value: unknown): string {
 /**
  * Rotates the log if it hasn't been rotated yet today, in the admin's own timezone.
  *
- * The "already done today" marker is an `audit.rotate` row written after the delete,
- * so the freshly emptied log opens with a line saying what happened to the previous
- * day's entries and where they went. That avoids a separate table purely to hold one
- * timestamp, and it means the evidence of the rotation lives in the thing being
- * rotated rather than somewhere an admin would have to know to look.
+ * The "already done today" marker is an `audit.rotate` row written after the trim, so
+ * the log carries a line saying what happened to the older entries and where they
+ * went. That avoids a separate table purely to hold one timestamp, and it means the
+ * evidence of the rotation lives in the thing being rotated rather than somewhere an
+ * admin would have to know to look.
  */
 export async function rotateAuditLogIfDue(
   now = new Date(),
@@ -140,8 +152,8 @@ export async function rotateAuditLogIfDue(
       <p>Attached is the ${appName} audit log, ${rows.length} entr${rows.length === 1 ? "y" : "ies"}
       up to ${cutoff.toISOString()}.</p>
       ${truncated ? `<p><strong>Capped at ${MAX_ROWS_PER_DUMP} rows.</strong> The rest stay in the log and will come in the next dump.</p>` : ""}
-      <p>These entries have been cleared from the live log, so this file is the only
-      copy — keep it if you need the history.</p>
+      <p>The live log has been trimmed to its most recent ${AUDIT_TAIL_KEEP} entries, so
+      this file is the only complete copy — keep it if you need the history.</p>
     `,
     attachments: [
       {
@@ -162,8 +174,16 @@ export async function rotateAuditLogIfDue(
     };
   }
 
-  const ids = rows.map((r) => r.id);
-  const deleted = await prisma.activityLog.deleteMany({ where: { id: { in: ids } } });
+  // Everything was mailed; only the older part is removed. `rows` is ascending, so
+  // the tail to keep is its end. When the dump hit the cap, delete all of it — the
+  // newest 50 of the oldest 20,000 are not the newest 50 of the log, and the entries
+  // left outside the cap will supply the tail on their own.
+  const trimTo = truncated ? rows.length : Math.max(0, rows.length - AUDIT_TAIL_KEEP);
+  const ids = rows.slice(0, trimTo).map((r) => r.id);
+  const deleted =
+    ids.length > 0
+      ? await prisma.activityLog.deleteMany({ where: { id: { in: ids } } })
+      : { count: 0 };
 
   await prisma.activityLog.create({
     data: {
@@ -172,6 +192,7 @@ export async function rotateAuditLogIfDue(
       detail: {
         rowsMailed: rows.length,
         rowsDeleted: deleted.count,
+        keptTail: rows.length - deleted.count,
         mailedTo: admin.email,
         upTo: cutoff.toISOString(),
         ...(truncated ? { truncated: true } : {}),
@@ -183,6 +204,7 @@ export async function rotateAuditLogIfDue(
     ran: true,
     rowsMailed: rows.length,
     rowsDeleted: deleted.count,
+    keptTail: rows.length - deleted.count,
     truncated,
     mailedTo: admin.email,
   };

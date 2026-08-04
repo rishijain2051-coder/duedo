@@ -72,9 +72,8 @@ export function FamilySettings({
       </CardHeader>
       <CardContent className="space-y-5">
         <p className="text-sm text-muted-foreground">
-          A family has its own shared reminder list that every member can see. Your
-          personal reminders stay private and are never part of it. You can belong
-          to more than one.
+          Each family has a shared list every member can see. Your personal reminders
+          are never part of it.
         </p>
 
         {families.map((family) => (
@@ -148,10 +147,11 @@ export function FamilySettings({
               </Button>
             </div>
           </div>
+          {/* Kept: the code *is* the permission, and nothing else on screen says so.
+              Someone who assumes the head approves joins will treat it casually. */}
           <p className="text-xs text-muted-foreground">
-            A valid code puts you straight in. That makes the code worth guarding —
-            anyone who has it can join, so the head should share it directly and
-            press <strong>New code</strong> if it gets passed around.
+            A valid code puts you straight in, so anyone holding it can join. Share it
+            directly, and press <strong>New code</strong> if it gets passed around.
           </p>
         </div>
 
@@ -171,7 +171,7 @@ export function FamilySettings({
               Switch back to just me
             </Button>
             <p className="mt-1.5 text-xs text-muted-foreground">
-              Hides the family features again. Your reminders are untouched.
+              Your reminders are untouched.
             </p>
           </div>
         )}

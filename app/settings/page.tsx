@@ -5,7 +5,6 @@ import Link from "next/link";
 import {
   Bell,
   BellRing,
-
   Clock,
   Loader2,
   Mail,
@@ -21,7 +20,6 @@ import {
   Trash2,
   UserCog,
   Users,
-
 } from "lucide-react";
 import { startRegistration } from "@simplewebauthn/browser";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -40,9 +38,7 @@ import {
   disablePush,
   enablePush,
   hasLocalSubscription,
-  isIos,
   isPushSupported,
-  isStandalone,
   needsInstallFirst,
   permission,
 } from "@/lib/push-client";
@@ -447,20 +443,15 @@ export default function SettingsPage() {
               <Input value={settings?.email ?? ""} readOnly disabled />
             </Field>
           </div>
-          {/* Says what is actually true. Other *users* can't see your personal
-              reminders, but an admin of this install can — pretending otherwise
-              would be a privacy promise the app doesn't keep. */}
+          {/* Kept, shortened. Other *users* can't see your personal reminders, but an
+              admin of this install can — dropping this to tidy the page would turn an
+              honest disclosure into a privacy promise the app doesn't keep. */}
           <p className="text-xs text-muted-foreground">
-            Your personal reminders aren&apos;t visible to other users. An
-            administrator of this install can view them for support, and every time
-            they do it is recorded in the audit log.
+            Private to you, except an admin of this install, who can view them for
+            support — logged every time.
+            {settings?.accountType === "family" &&
+              " Anything on a family list is visible to that family."}
           </p>
-          {settings?.accountType === "family" && (
-            <p className="text-xs text-muted-foreground">
-              Reminders you put on a family list are visible to everyone in that
-              family.
-            </p>
-          )}
           <Button
             onClick={() => save("name", { name }, "Name updated.")}
             disabled={busy !== null || name === settings?.name || name.trim().length < 2}
@@ -483,9 +474,8 @@ export default function SettingsPage() {
           </CardHeader>
           <CardContent className="space-y-3">
             <p className="text-sm text-muted-foreground">
-              This is a single-person account. Turn on family sharing to create or
-              join a household with a shared reminder list — your existing
-              reminders stay personal and private either way.
+              Create or join a household with a shared list. Your existing reminders
+              stay personal either way.
             </p>
             <Button
               variant="outline"
@@ -556,10 +546,6 @@ export default function SettingsPage() {
                 </button>
               ))}
             </div>
-            <p className="mt-1.5 text-xs text-muted-foreground">
-              Saved on this device, so it applies instantly with no flash of the
-              wrong colours on load.
-            </p>
           </div>
         </CardContent>
       </Card>
@@ -572,14 +558,9 @@ export default function SettingsPage() {
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-5">
-          <p className="text-sm text-muted-foreground">
-            Pick the channels you want. Whatever you choose, every alert is also
-            recorded in the in-app Notifications list.
-          </p>
-
           <Toggle
             label="Push notifications"
-            hint="Straight to your lock screen, with Complete and Snooze buttons. Keeps nagging while something is overdue."
+            hint="Lock-screen alerts with Complete and Snooze buttons."
             checked={settings?.pushOptIn ?? false}
             disabled={busy !== null || !settings}
             onChange={(next) =>
@@ -593,7 +574,7 @@ export default function SettingsPage() {
 
           <Toggle
             label="Email reminders"
-            hint="Sent to the address on your account. Overdue repeats are limited to once every 12 hours, so an unpaid bill can't flood your inbox."
+            hint="Sent to the address on your account. Overdue repeats capped at one every 12 hours."
             checked={settings?.emailOptIn ?? false}
             disabled={busy !== null || !settings}
             onChange={(next) =>
@@ -643,22 +624,25 @@ export default function SettingsPage() {
               </p>
             )}
 
-            <dl className="grid gap-2 text-sm sm:grid-cols-3">
-              <div>
-                <dt className="text-muted-foreground">This device</dt>
-                <dd className="font-medium">
-                  {subscribedHere ? "Subscribed" : "Not subscribed"}
-                </dd>
-              </div>
-              <div>
-                <dt className="text-muted-foreground">Permission</dt>
-                <dd className="font-medium capitalize">{perm}</dd>
-              </div>
-              <div>
-                <dt className="text-muted-foreground">Your devices receiving</dt>
-                <dd className="font-medium">{settings?.pushSubscriptions ?? "—"}</dd>
-              </div>
-            </dl>
+            {/* One line rather than three definition pairs. "Permission" only earns
+                its place when the browser has blocked us — that is the state that
+                explains why the button below does nothing. */}
+            <p className="text-sm">
+              This device:{" "}
+              <span className="font-medium">
+                {subscribedHere ? "subscribed" : "not subscribed"}
+              </span>
+              {perm === "denied" && (
+                <span className="text-amber-700 dark:text-amber-400">
+                  {" "}
+                  · blocked in this browser
+                </span>
+              )}
+              <span className="text-muted-foreground">
+                {" · "}
+                {settings?.pushSubscriptions ?? 0} of your devices receiving
+              </span>
+            </p>
 
             <div className="mt-3 flex flex-wrap gap-2">
               <Button
@@ -695,12 +679,6 @@ export default function SettingsPage() {
               </Button>
             </div>
 
-            <p className="mt-3 text-xs text-muted-foreground">
-              Push notifications play your phone&apos;s standard notification
-              sound. iOS doesn&apos;t let a web app choose its own tone — to change
-              it, use Settings → Notifications → PRO-SYS on your phone.
-              {isIos() && isStandalone() && " Running as an installed app."}
-            </p>
           </div>
         </CardContent>
       </Card>
@@ -715,7 +693,7 @@ export default function SettingsPage() {
         <CardContent className="space-y-3">
           {devices.length === 0 ? (
             <p className="text-sm text-muted-foreground">
-              No device of yours has been enrolled for notifications yet.
+              No devices enrolled yet.
             </p>
           ) : (
             <ul className="divide-y divide-border rounded-md border">
@@ -734,13 +712,9 @@ export default function SettingsPage() {
                       )}
                     </p>
                     <p className="text-xs text-muted-foreground">
-                      {d.service} · …{d.fingerprint} · added{" "}
-                      {formatDateTime(d.createdAt, true, timeZone)}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
                       {d.lastOkAt
-                        ? `last delivered ${formatDateTime(d.lastOkAt, true, timeZone)}`
-                        : "never delivered"}
+                        ? `Last delivered ${formatDateTime(d.lastOkAt, true, timeZone)}`
+                        : `Added ${formatDateTime(d.createdAt, true, timeZone)}, never delivered`}
                       {d.failures > 0 && ` · ${d.failures} recent failure(s)`}
                     </p>
                   </div>
@@ -766,12 +740,15 @@ export default function SettingsPage() {
               ))}
             </ul>
           )}
-          <p className="text-xs text-muted-foreground">
-            Revoking keeps the device on this list as <em>revoked</em> rather than
-            deleting it. The app re-registers each device whenever it&apos;s opened,
-            so a deleted entry would simply come back — only turning notifications
-            on from that device lifts the block.
-          </p>
+          {/* Kept: this one is not documentation, it is the answer to "why is it still
+              in the list, and why can't I delete it from here?" — which the buttons
+              alone would leave someone guessing at. */}
+          {devices.length > 0 && (
+            <p className="text-xs text-muted-foreground">
+              A revoked device stays listed. The app re-registers on open, so only
+              turning notifications on from that device lifts the block.
+            </p>
+          )}
           {devices.some((d) => !d.blocked) && (
             <Button
               variant="outline"
@@ -817,7 +794,7 @@ export default function SettingsPage() {
                 onChange={(e) => setDefaultTime(e.target.value)}
               />
             </Field>
-            <Field label="While overdue, remind me">
+            <Field label="While overdue, remind me (push only)">
               <Select
                 value={String(overdueRepeatMins)}
                 onChange={(e) => setOverdueRepeatMins(Number(e.target.value))}
@@ -830,11 +807,6 @@ export default function SettingsPage() {
               </Select>
             </Field>
           </div>
-          <p className="text-xs text-muted-foreground">
-            Overdue reminders keep nagging at this interval until you tap Complete
-            or Snooze. This interval applies to push; overdue emails are capped at
-            one every 12 hours regardless.
-          </p>
           <Button
             onClick={() =>
               save(
@@ -882,10 +854,6 @@ export default function SettingsPage() {
               ))}
             </Select>
           </Field>
-          <p className="-mt-4 text-xs text-muted-foreground">
-            Enforced on the server, not just in the browser — an idle session is
-            dropped, so a stale tab can&apos;t keep using it.
-          </p>
 
           <div className="space-y-3">
             <div className="flex items-center justify-between gap-2">
@@ -1027,9 +995,11 @@ export default function SettingsPage() {
               {busy === "pin" && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Update PIN
             </Button>
+            {/* Kept: the reasonable assumption is the opposite, and acting on it
+                leaves a device signed in that the person believes they just locked. */}
             <p className="text-xs text-muted-foreground">
-              Changing the PIN doesn&apos;t sign out other devices — use{" "}
-              <strong>Sign out others</strong> above for that.
+              This doesn&apos;t sign out other devices — use{" "}
+              <strong>Sign out others</strong> for that.
             </p>
           </form>
         </CardContent>
@@ -1039,29 +1009,18 @@ export default function SettingsPage() {
           to approve the same signup is how one of them ends up stale. */}
       {isAdmin && (
         <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <UserCog className="h-5 w-5" /> Accounts
-              {(settings?.pendingApprovals ?? 0) > 0 && (
-                <span className="rounded-full bg-destructive px-2 py-0.5 text-xs font-bold text-white">
-                  {settings?.pendingApprovals} waiting
-                </span>
-              )}
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <p className="text-sm text-muted-foreground">
-              Approvals, roles, PIN resets, families, delivery health and the audit
-              log are all in the admin panel.
-            </p>
-            <Link href="/admin">
-              <Button variant="outline">Open admin panel</Button>
+          <CardContent className="flex items-center justify-between gap-3 py-4">
+            <p className="text-sm font-medium">Accounts, families, health, audit log</p>
+            <Link href="/admin" className="shrink-0">
+              <Button variant="outline" size="sm">
+                Admin panel
+              </Button>
             </Link>
           </CardContent>
         </Card>
       )}
 
-      {/* ---------------- Updates / About ---------------- */}
+      {/* ---------------- Version ---------------- */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -1069,16 +1028,15 @@ export default function SettingsPage() {
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
-          <dl className="grid gap-2 text-sm sm:grid-cols-2">
-            <div>
-              <dt className="text-muted-foreground">Running</dt>
-              <dd className="font-mono text-xs">{RUNNING_BUILD_ID}</dd>
-            </div>
-            <div>
-              <dt className="text-muted-foreground">Deployed</dt>
-              <dd className="font-mono text-xs">{deployedBuild ?? "—"}</dd>
-            </div>
-          </dl>
+          <p className="text-sm text-muted-foreground">
+            Running <span className="font-mono text-xs">{RUNNING_BUILD_ID}</span>
+            {deployedBuild && (
+              <>
+                {" · deployed "}
+                <span className="font-mono text-xs">{deployedBuild}</span>
+              </>
+            )}
+          </p>
 
           <div className="flex flex-wrap gap-2">
             <Button variant="outline" onClick={doCheckUpdate} disabled={busy !== null}>
@@ -1094,25 +1052,7 @@ export default function SettingsPage() {
             )}
           </div>
 
-          <p className="text-xs text-muted-foreground">
-            An installed app can keep running an old version indefinitely — it has
-            no address bar to reload. Reloading refreshes the service worker and
-            bypasses the cache.
-          </p>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>About</CardTitle>
-        </CardHeader>
-        <CardContent className="text-sm text-muted-foreground">
-          <p>PRO-SYS — multi-user personal reminders, private to each account.</p>
-          <p className="mt-1">
-            Timezone: {settings?.timezone ?? "—"} · Reminders are checked every
-            minute.
-          </p>
-          <Credit className="mt-3" />
+          <Credit />
         </CardContent>
       </Card>
     </div>

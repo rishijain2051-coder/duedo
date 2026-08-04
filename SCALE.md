@@ -65,8 +65,9 @@ sixty and is an indexed range scan.
 Pruning an overdue dedupe row cannot cause a duplicate alert: the `offsetMin` slot it
 guarded only ever moves forward, so it can never come round again.
 
-**The audit log** is separately handled — it is emailed to the main admin and cleared
-daily, so it no longer grows at all (`lib/audit-rotate.ts`).
+**The audit log** is separately handled — it is emailed to the owner daily and then
+trimmed to its 50 most recent entries, so it holds at a fixed few kB rather than
+growing (`lib/audit-rotate.ts`).
 
 ## The dispatcher was writing thousands of ERROR lines a day
 

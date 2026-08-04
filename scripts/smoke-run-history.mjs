@@ -6,8 +6,11 @@
 // a failure is evidence, and the oldest failure is usually the most useful because it
 // is when the problem started.
 //
-// Guarded: it writes and deletes DispatchRun rows, which are the admin health page's
-// only evidence that delivery works.
+// Guarded twice: assertScratchDatabase refuses to run anywhere with real accounts, and
+// the existing rows are copied out first and put back afterwards. DispatchRun is the
+// admin health page's only evidence that delivery works, so a suite that wipes it
+// erases the answer to "is this thing running?" — and the guard it relies on can be
+// switched off with SMOKE_FORCE=1.
 
 import { PrismaClient } from "@prisma/client";
 import { Pool } from "pg";
@@ -48,6 +51,9 @@ const counts = async () => ({
 });
 
 await assertScratchDatabase(prisma);
+
+/** The real run history, put back verbatim in the finally block. */
+const held = await prisma.dispatchRun.findMany({ orderBy: { ranAt: "asc" } });
 
 try {
   await prisma.dispatchRun.deleteMany({});
@@ -127,9 +133,13 @@ try {
     true,
   );
 } finally {
-  // Leave only what an idle install would have: the planted failures would otherwise
-  // show as red on the admin page forever.
-  await prisma.dispatchRun.deleteMany({ where: { error: { not: null } } });
+  // Everything this suite created goes, including the planted failures — they would
+  // otherwise show as red on the admin page forever — and the original history returns
+  // with its own ids and timestamps.
+  await prisma.dispatchRun.deleteMany({});
+  if (held.length > 0) {
+    await prisma.dispatchRun.createMany({ data: held, skipDuplicates: true });
+  }
   await prisma.$disconnect();
   await pool.end();
 }

@@ -35,12 +35,9 @@ const NAV = [
  */
 function NavLinks({ onLogout }: { onLogout?: () => void }) {
   const pathname = usePathname();
-  const { settings, isAdmin } = useApp();
+  const { isAdmin } = useApp();
   const isActive = (href: string) =>
     href === "/" ? pathname === "/" : pathname.startsWith(href);
-
-  // Admins get a count on the Admin link so a waiting signup doesn't sit unnoticed.
-  const pending = settings?.pendingApprovals ?? 0;
 
   return (
     <>
@@ -86,11 +83,6 @@ function NavLinks({ onLogout }: { onLogout?: () => void }) {
             )}
           >
             <ShieldCheck className="h-5 w-5" /> Admin
-            {pending > 0 && (
-              <span className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-destructive px-1.5 text-[10px] font-bold text-white">
-                {pending}
-              </span>
-            )}
           </Link>
         )}
         <Link

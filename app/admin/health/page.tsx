@@ -62,7 +62,7 @@ export default function AdminHealthPage() {
             label="Email (SMTP)"
             hint={
               data.mailConfigured
-                ? "Configured — accounts with email on will be mailed."
+                ? "Configured."
                 : "Set SMTP_HOST, SMTP_USER and SMTP_PASS to enable email."
             }
           />
@@ -71,7 +71,7 @@ export default function AdminHealthPage() {
             label="Push (VAPID)"
             hint={
               data.pushConfigured
-                ? "Configured — enrolled devices can be reached."
+                ? "Configured."
                 : "Set VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY and NEXT_PUBLIC_VAPID_PUBLIC_KEY."
             }
           />
@@ -80,7 +80,7 @@ export default function AdminHealthPage() {
             label="CRON_SECRET"
             hint={
               data.cronSecretSet
-                ? "Set — the dispatcher will accept the scheduler's calls."
+                ? "Set."
                 : "Not set. In production the dispatcher refuses every call, so nothing is ever sent."
             }
           />
@@ -89,8 +89,10 @@ export default function AdminHealthPage() {
             label="Scheduler"
             hint={
               data.lastRunMinutesAgo === null
-                ? "The dispatcher has never run. Is the Supabase pg_cron job scheduled?"
-                : `Last ran ${data.lastRunMinutesAgo} minute${data.lastRunMinutesAgo === 1 ? "" : "s"} ago. It should run every minute.`
+                ? "Never run. Is the Supabase pg_cron job scheduled?"
+                : stale
+                  ? `Last ran ${data.lastRunMinutesAgo} minutes ago — it should run every minute.`
+                  : `Last ran ${data.lastRunMinutesAgo} minute${data.lastRunMinutesAgo === 1 ? "" : "s"} ago.`
             }
           />
           {/* Asked of Postgres, not inferred from the app's own rows. When the
@@ -101,7 +103,7 @@ export default function AdminHealthPage() {
             label="pg_net extension"
             hint={
               data.scheduler.pgNetInstalled
-                ? "Installed — Postgres can make the outbound call."
+                ? "Installed."
                 : // The schema matters: without it the extension lands in `public`,
                   // which Supabase's own linter flags.
                   "Missing. pg_cron will fire and fail on net.http_post, so nothing reaches the app. Run: create extension if not exists pg_net with schema extensions;"
@@ -116,7 +118,7 @@ export default function AdminHealthPage() {
                 : !data.scheduler.jobScheduled
                   ? "No job named prosys-dispatch. Run scripts/pg-cron-setup.sql."
                   : data.scheduler.jobActive
-                    ? `Scheduled and active. Last tick ${data.scheduler.lastTickStatus ?? "unknown"}.`
+                    ? `Active. Last tick ${data.scheduler.lastTickStatus ?? "unknown"}.`
                     : "Scheduled but inactive — it will never fire."
             }
           />
@@ -199,7 +201,7 @@ export default function AdminHealthPage() {
                   <tr>
                     <th className="px-3 py-2 font-medium">When</th>
                     <th className="px-3 py-2 font-medium">Considered</th>
-                    <th className="px-3 py-2 font-medium">Alerts</th>
+                    <th className="px-3 py-2 font-medium">Lead/Due/Overdue</th>
                     <th className="px-3 py-2 font-medium">Push</th>
                     <th className="px-3 py-2 font-medium">Email</th>
                     <th className="px-3 py-2 font-medium">Took</th>
@@ -237,11 +239,6 @@ export default function AdminHealthPage() {
         </CardContent>
       </Card>
 
-      <p className="text-xs text-muted-foreground">
-        Alerts column reads lead/due/overdue. A run with zeros everywhere is the
-        normal idle result — it means the engine ran and had nothing to send.
-      </p>
-
       {data.failingDevices.length > 0 && (
         <Card>
           <CardHeader>
@@ -260,10 +257,6 @@ export default function AdminHealthPage() {
                 </li>
               ))}
             </ul>
-            <p className="mt-2 text-xs text-muted-foreground">
-              Dropped automatically after five in a row, or immediately if the push
-              service says the subscription is gone.
-            </p>
           </CardContent>
         </Card>
       )}

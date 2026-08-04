@@ -3,8 +3,8 @@
 One Vercel project + one Supabase project. Email and push are both optional — set up
 either, both, or neither, and each person picks what they want in Settings.
 
-Order matters in one place only: **register the first account immediately after the
-first deploy** (see step 6).
+Nothing here is time-critical: no account is ever granted admin automatically, so
+there is no window to race. You promote your own account once, by hand (step 6).
 
 ---
 
@@ -80,19 +80,30 @@ variables from [`.env.example`](.env.example):
 
 `npm run build` runs `prisma generate` first, so no extra build step is needed.
 
-## 6. Register the admin — do this first
+## 6. Make yourself the admin
 
-Open the deployed URL. Because the database is empty the login page offers **Set up
-the first account**, and that account is **auto-approved as the admin**.
+Sign up on the deployed URL like anyone else, then confirm the address from the email.
+That gives you an ordinary active account. Promote it once, in the Supabase SQL editor:
 
-This is a real window: until you register, anyone who reaches the URL could claim
-the admin account. Do it immediately after the deploy finishes.
+```sql
+update "User"
+   set role = 'admin', status = 'active', "isRootAdmin" = true
+ where email = 'you@example.com';
+```
 
-Everyone else signs up the same way afterwards and activates their own account by
-clicking the link in the confirmation email — no approval needed from you. That
-depends on SMTP working, which is why step 3 matters; if mail is unavailable the
-signup response says so and you can activate the account by hand under
-**/admin → Accounts**.
+`isRootAdmin` marks the install's owner. It is the one row no other admin can demote,
+reject, delete or reset the PIN of — so an admin you promote later can never lock you
+out, and you can hand ownership over deliberately from **/admin → Accounts** if you
+ever want to.
+
+There is no "first account becomes the admin" shortcut, on purpose. It saved exactly
+this one statement, and the price was that on an empty database whoever POSTed the
+signup route first got admin.
+
+Everyone else signs up the same way and activates their own account by clicking the
+link in the confirmation email — no approval needed from you. That depends on SMTP
+working, which is why step 3 matters; if mail is unavailable the signup response says
+so and you can activate the account by hand under **/admin → Accounts**.
 
 ## 7. Schedule the dispatcher (every minute)
 
@@ -100,9 +111,10 @@ The engine needs minute granularity — lead alerts, the due-time alert and over
 nagging all depend on it. **Vercel's free Hobby plan only allows one cron run per
 day**, which cannot drive this, so scheduling lives entirely in Supabase.
 
-There is deliberately **no `vercel.json`** and no Vercel cron. Don't add one: a daily
-tick would fire due and overdue alerts roughly a day late and miss most lead alerts
-altogether, which is worse than not having it, because it looks like it works.
+`vercel.json` exists only to pin the function region (see [SCALE.md](SCALE.md)) and
+declares **no crons**. Don't add one: a daily tick would fire due and overdue alerts
+roughly a day late and miss most lead alerts altogether, which is worse than not
+having it, because it looks like it works.
 
 Open the Supabase **SQL Editor** and run
 [`scripts/pg-cron-setup.sql`](scripts/pg-cron-setup.sql), replacing the two
@@ -151,9 +163,8 @@ builds, or the browser is blocking the cookie. The cookie is `httpOnly`,
 **Login says to confirm the email address.** Working as intended — the link in the
 confirmation email is what activates the account, and the login screen offers to
 send another. If it never arrives, check that SMTP is configured (**/admin → Health**
-says), then activate the account by hand under **/admin → Accounts**. On a fresh
-install with no accounts at all,
-the login page offers signup instead.
+says), then activate the account by hand under **/admin → Accounts** — or, on a fresh
+install with no admin yet, with the SQL in step 6.
 
 **No push on iPhone.** Almost always a Safari tab rather than an installed app. Check
 Settings → How you're reminded: if it says *Add PRO-SYS to your Home Screen first*,

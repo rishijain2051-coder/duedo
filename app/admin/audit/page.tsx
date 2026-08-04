@@ -16,6 +16,21 @@ const FILTERS = [
   { value: "admin.", label: "Admin access" },
 ];
 
+/**
+ * `detail` as prose rather than raw JSON.
+ *
+ * Braces, quotes and key names were most of the width of every row, so the one thing
+ * worth reading — which account, which family — was the part squeezed out. Ids are
+ * dropped: the row already names the entity, and a uuid tells a person nothing.
+ */
+function summarise(detail: unknown): string {
+  if (!detail || typeof detail !== "object" || Array.isArray(detail)) return "";
+  return Object.entries(detail as Record<string, unknown>)
+    .filter(([k, v]) => v !== null && v !== "" && !/id$/i.test(k))
+    .map(([k, v]) => (typeof v === "boolean" ? (v ? k : `not ${k}`) : String(v)))
+    .join(" · ");
+}
+
 export default function AdminAuditPage() {
   const { timeZone } = useApp();
   const [rows, setRows] = useState<AuditEntry[]>([]);
@@ -46,10 +61,6 @@ export default function AdminAuditPage() {
           {error}
         </div>
       )}
-
-      <p className="text-xs text-muted-foreground">
-        The 3 most recent entries.
-      </p>
 
       <Select
         value={action}
@@ -85,8 +96,7 @@ export default function AdminAuditPage() {
               </div>
               <p className="text-xs text-muted-foreground">
                 {r.actor?.name ?? "system"} · {r.entity}
-                {r.entityId ? ` ${r.entityId.slice(0, 8)}…` : ""}
-                {r.detail ? ` · ${JSON.stringify(r.detail)}` : ""}
+                {summarise(r.detail) && ` · ${summarise(r.detail)}`}
               </p>
             </li>
           ))}

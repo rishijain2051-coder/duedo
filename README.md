@@ -77,9 +77,13 @@ than promising something it doesn't deliver.
 - An admin can still **activate or reject an account by hand**. That is the fallback
   when mail is misconfigured, and the accounts list distinguishes "email confirmed"
   from "not confirmed yet" so it is clear which is which.
-- The **first account on a fresh install** is active immediately and becomes the
-  admin — a broken SMTP setup would otherwise leave the install with no way in at
-  all. So register right after your first deploy.
+- **No account is ever made admin automatically.** One account holds `isRootAdmin` —
+  the install's owner — and it is promoted by hand once at deploy time
+  (see [DEPLOY.md](DEPLOY.md)). It is the one row no other admin can demote, reject,
+  delete or reset the PIN of, so an admin it promoted can never lock it out, and
+  ownership moves only when the owner hands it over. The alternative, granting admin
+  to whoever registers first on an empty database, saved one SQL statement and cost a
+  capture window.
 - Mail to reserved domains (`.invalid`, `.test`, `example.com`, …) is **refused
   outright** rather than attempted. Those are accepted at submission and bounce
   minutes later, which makes a send look successful when it was not.
@@ -93,11 +97,12 @@ than promising something it doesn't deliver.
     dispatcher and an idle one both send nothing; the run history is what tells
     them apart.
   - **Audit log** — verifications, role changes, deletions, family membership
-    changes, and every admin read of someone else's reminders. It is **emailed to
-    the main admin as a CSV and cleared once a day**, so the live log stays short
-    enough to scan; nothing is deleted unless the mail was accepted.
-- An admin can't act on their own row, which is what stops the last admin locking
-  everybody out — and is why no "is this the last admin?" counting exists anywhere.
+    changes, and every admin read of someone else's reminders. It is **emailed to the
+    owner as a CSV once a day** and then trimmed to its **50 most recent entries**, so
+    the live log stays short enough to scan and still answers "what just happened".
+    Nothing is deleted unless the mail was accepted.
+- An admin can't act on their own row, and nobody can act on the owner's. Between
+  them that is why no "is this the last admin?" counting exists anywhere.
 
 ## Login
 
@@ -216,9 +221,10 @@ node --env-file=.env scripts/smoke-run-history.mjs
 ```
 
 Audit rotation — the daily dump. The property it rests on is that **nothing is
-deleted unless the email was accepted**, so a mail outage delays the reset rather than
-destroying the trail. Guarded: it refuses to run against a database holding real
-accounts, because it clears the whole log:
+deleted unless the email was accepted**, so a mail outage delays the trim rather than
+destroying the trail. Both sides of the send are forced through dev-only query
+parameters, because neither can be provoked for real; no mail leaves the machine.
+It also copies the existing log out and puts it back, so a run can't cost you history:
 
 ```bash
 node --env-file=.env scripts/smoke-audit-rotate.mjs
@@ -236,9 +242,11 @@ node --env-file=.env scripts/smoke-routes.mjs
 
 They all seed throwaway accounts with **both channels switched off** and delete them
 afterwards, so none of them ever emails or pushes anywhere. `smoke-dispatch`
-additionally refuses to run while any device is subscribed to push, and all three
-refuse to run against a database holding real accounts (override either with
-`SMOKE_FORCE=1`).
+additionally refuses to run while any device is subscribed to push, and every suite
+refuses to run against a database holding real accounts (override with
+`SMOKE_FORCE=1`). The two that empty a whole table — `smoke-audit-rotate` and
+`smoke-run-history` — restore its rows afterwards regardless of that override, because
+a guard you can switch off is a guard that will be switched off.
 
 > **Tip:** don't run `npm run build` while `npm run dev` is running — they share the
 > `.next` folder and corrupt it. Stop dev first.

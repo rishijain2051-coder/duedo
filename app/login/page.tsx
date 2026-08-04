@@ -195,10 +195,6 @@ export default function LoginPage() {
     setError(null);
     try {
       const res = await api.auth.register({ name, email, pin, accountType });
-      if (res.status === "active") {
-        goToApp();
-        return;
-      }
       setSignedUp({
         verificationSent: res.verificationSent === true,
         message: res.message,
@@ -233,7 +229,7 @@ export default function LoginPage() {
               : signedUp
                 ? "Almost there"
                 : setupNeeded
-                  ? "Set up the first account"
+                  ? "Create the first account"
                   : mode === "register"
                     ? "Create your account"
                     : "Welcome back"}
@@ -319,10 +315,8 @@ export default function LoginPage() {
             <div className="space-y-4">
               {setupNeeded && (
                 <p className="rounded-md border border-primary/40 bg-primary/10 px-3 py-2 text-xs">
-                  Nobody has an account yet, so this first one becomes the{" "}
-                  <strong>admin</strong> and is active straight away — no
-                  confirmation email needed, because there is nobody to send it to
-                  you yet.
+                  Nobody has an account yet. Confirm your email as usual, then follow
+                  the last step in DEPLOY.md to make this account the admin.
                 </p>
               )}
 

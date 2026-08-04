@@ -26,6 +26,7 @@ const AUTH_USER_SELECT = {
   name: true,
   email: true,
   role: true,
+  isRootAdmin: true,
   status: true,
   accountType: true,
   timezone: true,
@@ -41,6 +42,8 @@ export interface AuthUser {
   name: string;
   email: string;
   role: string;
+  /** Holder of the install. See the field's note in prisma/schema.prisma. */
+  isRootAdmin: boolean;
   status: string;
   accountType: string;
   timezone: string;

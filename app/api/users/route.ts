@@ -37,12 +37,10 @@ export async function GET(req: NextRequest) {
         role: true,
         status: true,
         accountType: true,
-        approvedAt: true,
+        isRootAdmin: true,
         emailVerifiedAt: true,
         createdAt: true,
-        _count: {
-          select: { reminders: true, families: true, pushDevices: true },
-        },
+        _count: { select: { reminders: true } },
       },
       orderBy: { createdAt: "asc" },
     });
@@ -52,7 +50,11 @@ export async function GET(req: NextRequest) {
     // "pending", so on any install with more than a handful of approved accounts
     // the queue was buried at the bottom of the list.
     const RANK: Record<string, number> = { pending: 0, active: 1, rejected: 2 };
-    users.sort((a, b) => (RANK[a.status] ?? 9) - (RANK[b.status] ?? 9));
+    users.sort(
+      (a, b) =>
+        (RANK[a.status] ?? 9) - (RANK[b.status] ?? 9) ||
+        Number(b.isRootAdmin) - Number(a.isRootAdmin),
+    );
 
     return users.map((u) => ({
       id: u.id,
@@ -62,15 +64,12 @@ export async function GET(req: NextRequest) {
       role: u.role,
       status: u.status,
       accountType: u.accountType,
-      approvedAt: u.approvedAt,
+      isRoot: u.isRootAdmin,
       emailVerifiedAt: u.emailVerifiedAt,
       createdAt: u.createdAt,
       self: u.id === admin.id,
-      counts: {
-        reminders: u._count.reminders,
-        families: u._count.families,
-        devices: u._count.pushDevices,
-      },
+      canTransferRoot: admin.isRootAdmin && u.role === "admin" && u.status === "active",
+      reminders: u._count.reminders,
     }));
   });
 }

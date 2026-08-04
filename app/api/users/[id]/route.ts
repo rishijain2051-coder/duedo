@@ -15,6 +15,7 @@ const SELECT = {
   role: true,
   status: true,
   accountType: true,
+  isRootAdmin: true,
   approvedAt: true,
   emailVerifiedAt: true,
   createdAt: true,
@@ -23,11 +24,13 @@ const SELECT = {
 /**
  * ADMIN ONLY — approve, reject, or change the role of another account.
  *
- * An admin may never act on their own row here. That single rule is what keeps
- * the install from being stranded: since the acting admin is by definition an
- * active admin and can't demote, reject or delete themselves, there is always at
- * least one active admin left afterwards. No "is this the last admin?" counting
- * required.
+ * Two rules keep the install from being stranded, and between them no counting of
+ * admins is needed anywhere:
+ *
+ *   * an admin may never act on their own row, so the acting admin always survives
+ *     whatever they just did;
+ *   * the root row — the install's owner — is untouchable by anyone else, so an admin
+ *     it promoted cannot turn round and lock it out.
  */
 export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   return jsonAdmin(async (admin) => {
@@ -43,6 +46,42 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
     if (!target) throw new HttpError(404, "Account not found");
 
     const body = await readJson(req);
+
+    // Handing over ownership. Only the holder can give it away, and only to an admin
+    // who is actually able to use it — an inactive one would leave the flag stranded
+    // on a row that can't sign in. Both writes are one transaction so the install is
+    // never momentarily ownerless.
+    if (body.makeRoot !== undefined) {
+      if (body.makeRoot !== true) {
+        throw new HttpError(400, "makeRoot can only be true.");
+      }
+      if (!admin.isRootAdmin) {
+        throw new HttpError(403, "Only the root admin can hand over ownership.");
+      }
+      if (target.role !== "admin" || target.status !== "active") {
+        throw new HttpError(400, "Ownership can only pass to an active admin.");
+      }
+      await prisma.$transaction([
+        prisma.user.update({ where: { id: admin.id }, data: { isRootAdmin: false } }),
+        prisma.user.update({ where: { id }, data: { isRootAdmin: true } }),
+      ]);
+      await audit({
+        actorId: admin.id,
+        action: "user.root.transfer",
+        entity: "user",
+        entityId: id,
+        detail: { to: target.email },
+      });
+      return { ...target, isRootAdmin: true };
+    }
+
+    if (target.isRootAdmin) {
+      throw new HttpError(
+        403,
+        "That account is the install's owner — only it can change its own role, access or PIN, from Settings.",
+      );
+    }
+
     const data: Record<string, unknown> = {};
 
     if (body.status !== undefined) {
@@ -133,9 +172,12 @@ export async function DELETE(_req: NextRequest, ctx: { params: Promise<{ id: str
     }
     const target = await prisma.user.findUnique({
       where: { id },
-      select: { id: true },
+      select: { id: true, isRootAdmin: true },
     });
     if (!target) throw new HttpError(404, "Account not found");
+    if (target.isRootAdmin) {
+      throw new HttpError(403, "The install's owner cannot be deleted.");
+    }
 
     await prisma.user.delete({ where: { id } });
     await audit({

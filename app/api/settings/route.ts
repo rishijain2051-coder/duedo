@@ -39,9 +39,6 @@ async function shape(userId: string): Promise<Settings> {
   ]);
 
   const isAdmin = u.role === "admin";
-  const pendingApprovals = isAdmin
-    ? await prisma.user.count({ where: { status: "pending" } })
-    : undefined;
 
   return {
     name: u.name,
@@ -59,7 +56,6 @@ async function shape(userId: string): Promise<Settings> {
     pushConfigured: isPushConfigured(),
     mailConfigured: isMailConfigured(),
     pushSubscriptions,
-    ...(pendingApprovals !== undefined ? { pendingApprovals } : {}),
   };
 }
 

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Check, Eye, KeyRound, Loader2, Trash2, X } from "lucide-react";
+import { Check, Crown, Eye, KeyRound, Loader2, Trash2, X } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/form";
@@ -85,6 +85,34 @@ export default function AdminAccountsPage() {
     }
   }
 
+  /**
+   * One-way as far as this admin is concerned: the flag moves off their row, so the
+   * button they just pressed is the last owner action they can take. Worth a
+   * confirmation that says so rather than a generic "are you sure".
+   */
+  async function makeOwner(u: ManagedUser) {
+    if (
+      !confirm(
+        `Hand this install over to ${u.name}?\n\n` +
+          `They become the account nobody else can demote, reject or delete — and ` +
+          `you lose that protection. Only they can hand it back.`,
+      )
+    )
+      return;
+    setBusy(u.id);
+    setError(null);
+    setNotice(null);
+    try {
+      await api.users.makeOwner(u.id);
+      await load();
+      setNotice(`${u.name} is now the owner of this install.`);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  }
+
   async function openReminders(u: ManagedUser) {
     setViewing(u);
     setViewed(null);
@@ -129,11 +157,6 @@ export default function AdminAccountsPage() {
         </Select>
       </div>
 
-      <p className="text-xs text-muted-foreground">
-        You can&apos;t change your own row — that&apos;s what stops the last admin
-        locking everyone out.
-      </p>
-
       {loading ? (
         <div className="flex items-center py-12 text-muted-foreground">
           <Loader2 className="mr-2 h-5 w-5 animate-spin" /> Loading…
@@ -157,18 +180,19 @@ export default function AdminAccountsPage() {
                   <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
                     <p className="min-w-0 max-w-full truncate font-medium">{u.name}</p>
                     {u.self && <span className="text-xs text-primary">you</span>}
-                    {u.role === "admin" && (
-                      <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-semibold uppercase text-muted-foreground">
-                        admin
+                    {u.isRoot ? (
+                      <span className="rounded bg-primary/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-primary">
+                        owner
                       </span>
+                    ) : (
+                      u.role === "admin" && (
+                        <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-semibold uppercase text-muted-foreground">
+                          admin
+                        </span>
+                      )
                     )}
-                    <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-semibold uppercase text-muted-foreground">
-                      {u.accountType}
-                    </span>
                   </div>
-                  <p className="truncate text-xs text-muted-foreground">
-                    {u.email} · joined {formatDateTime(u.createdAt, false, timeZone)}
-                  </p>
+                  <p className="truncate text-xs text-muted-foreground">{u.email}</p>
                   <p className="text-xs">
                     <span
                       className={
@@ -193,17 +217,11 @@ export default function AdminAccountsPage() {
                             : "text-muted-foreground"
                         }
                       >
-                        {u.emailVerifiedAt
-                          ? " · email confirmed"
-                          : " · email not confirmed yet"}
+                        {u.emailVerifiedAt ? " · confirmed" : " · not confirmed"}
                       </span>
                     )}
-                    {u.counts && (
-                      <span className="text-muted-foreground">
-                        {" · "}
-                        {u.counts.reminders} reminders · {u.counts.families} families ·{" "}
-                        {u.counts.devices} devices
-                      </span>
+                    {u.accountType === "family" && (
+                      <span className="text-muted-foreground"> · family</span>
                     )}
                   </p>
                 </div>
@@ -213,8 +231,12 @@ export default function AdminAccountsPage() {
                     never gets narrow enough for its own wrapping to trigger, and on
                     a phone the row of six buttons ran ~130px past the screen edge —
                     clipped by the shell's overflow and unreachable. Allowed to
-                    shrink, the group drops onto its own line and wraps there. */}
-                {!u.self && (
+                    shrink, the group drops onto its own line and wraps there.
+
+                    Nothing is offered on the owner's row: the API refuses every one
+                    of these against it, so showing buttons would only promise an
+                    action that comes back as a 403. */}
+                {!u.self && !u.isRoot && (
                   <div className="flex flex-wrap items-center gap-1">
                     {u.status !== "active" && (
                       <Button
@@ -227,7 +249,7 @@ export default function AdminAccountsPage() {
                         ) : (
                           <Check className="mr-1 h-3.5 w-3.5" />
                         )}
-                        Approve
+                        Activate
                       </Button>
                     )}
                     {u.status !== "rejected" && (
@@ -275,6 +297,17 @@ export default function AdminAccountsPage() {
                     >
                       <Eye className="mr-1 h-3.5 w-3.5" /> Reminders
                     </Button>
+                    {u.canTransferRoot && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        title="Hand this install over to them"
+                        disabled={busy !== null}
+                        onClick={() => makeOwner(u)}
+                      >
+                        <Crown className="mr-1 h-3.5 w-3.5" /> Make owner
+                      </Button>
+                    )}
                     <Button
                       variant="ghost"
                       size="icon"
@@ -301,8 +334,7 @@ export default function AdminAccountsPage() {
       >
         <div className="space-y-4">
           <p className="text-sm text-muted-foreground">
-            For someone locked out. Their current PIN isn&apos;t needed, so this is
-            recorded in the audit log and all their devices are signed out.
+            Recorded in the audit log, and signs out all their devices.
           </p>
           <Input
             inputMode="numeric"

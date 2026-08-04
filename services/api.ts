@@ -73,17 +73,17 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 }
 
 export interface AuthStatus {
-  /** True on a fresh install: the first account to register becomes the admin. */
+  /** True while the install has no accounts, so the page offers signup, not sign-in. */
   setupNeeded: boolean;
 }
 
 export interface RegisterResult {
-  status: "pending" | "active";
+  status: "pending";
   message: string;
   /**
-   * Whether the confirmation link actually went out. Absent for the first account on
-   * an install, which is active without one. False means mail is unavailable and the
-   * account needs an admin instead — a different instruction for the person waiting.
+   * Whether the confirmation link actually went out. False means mail is unavailable
+   * and the account needs an admin instead — a different instruction for the person
+   * waiting.
    */
   verificationSent?: boolean;
 }
@@ -247,6 +247,12 @@ export const api = {
       }),
     remove: (id: string) =>
       request<{ deleted: boolean }>(`/users/${id}`, { method: "DELETE" }),
+    /** Hand the install over. Only the current owner may call it. */
+    makeOwner: (id: string) =>
+      request<ManagedUser>(`/users/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ makeRoot: true }),
+      }),
     resetPin: (id: string, pin: string) =>
       request<{ reset: boolean }>(`/users/${id}`, {
         method: "PATCH",

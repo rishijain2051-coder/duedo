@@ -619,8 +619,7 @@ export default function RemindersPage() {
               })}
             </div>
             <p className="mt-1.5 text-xs text-muted-foreground">
-              You always get one at the due time. These are the extra heads-ups —
-              tick as many as you want.
+              You always get one at the due time. These are extra.
             </p>
           </div>
 
@@ -728,11 +727,15 @@ export default function RemindersPage() {
         title={`Complete: ${completing?.title ?? ""}`}
       >
         <div className="space-y-4">
-          <p className="text-sm text-muted-foreground">
-            {completing?.recurrenceRule && completing.recurrenceRule !== "One Time"
-              ? `This is recurring (${completing.recurrenceRule}) — it will roll forward to the next due date and re-arm its notifications.`
-              : "This will mark the reminder completed and stop its notifications."}
-          </p>
+          {/* Only when there is something non-obvious to say. "Complete" doing what
+              the word means needs no caption; a reminder that comes straight back
+              does. */}
+          {completing?.recurrenceRule && completing.recurrenceRule !== "One Time" && (
+            <p className="text-sm text-muted-foreground">
+              Recurring ({completing.recurrenceRule}) — this rolls forward to the next
+              due date and re-arms its alerts.
+            </p>
+          )}
           <Field label="Amount paid (₹)">
             <Input
               type="number"
@@ -772,8 +775,7 @@ export default function RemindersPage() {
       >
         <div className="space-y-4">
           <p className="text-sm text-muted-foreground">
-            Pauses notifications for this reminder. It stays on the list and keeps
-            counting toward the app badge.
+            Pauses alerts. It stays on the list and in the badge count.
           </p>
           <div className="grid grid-cols-2 gap-2">
             {SNOOZE_OPTIONS.map((o) => (

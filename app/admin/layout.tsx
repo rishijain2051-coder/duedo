@@ -49,8 +49,6 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     );
   }
 
-  const pending = settings.pendingApprovals ?? 0;
-
   return (
     <div className="flex-1 space-y-4 p-4 md:p-8">
       <div>
@@ -81,11 +79,6 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
               )}
             >
               {tab.label}
-              {tab.href === "/admin/accounts" && pending > 0 && (
-                <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-destructive px-1.5 text-[10px] font-bold text-white">
-                  {pending}
-                </span>
-              )}
             </Link>
           );
         })}
