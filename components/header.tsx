@@ -43,7 +43,7 @@ export function Header({ onMenuToggle }: { onMenuToggle?: () => void }) {
         >
           <Menu className="h-6 w-6" />
         </button>
-        <span className="md:hidden text-lg font-bold bg-clip-text text-transparent bg-gradient-to-r from-primary to-primary-soft">
+        <span className="wordmark bg-gradient-to-r from-primary to-primary-soft bg-clip-text text-lg font-bold text-transparent md:hidden">
           PRO-SYS
         </span>
         <div className="hidden md:flex items-center gap-2 text-sm">

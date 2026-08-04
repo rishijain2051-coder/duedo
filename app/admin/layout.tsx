@@ -72,6 +72,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             <Link
               key={tab.href}
               href={tab.href}
+              aria-current={active ? "page" : undefined}
               className={cn(
                 "flex shrink-0 items-center gap-2 rounded-md border px-4 text-sm font-medium transition-colors min-h-11 md:min-h-0 md:py-1.5",
                 active

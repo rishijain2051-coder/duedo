@@ -26,7 +26,9 @@ export function AppFrame({ children }: { children: React.ReactNode }) {
     <AppProvider>
       <Sidebar />
       <MobileNav open={mobileNavOpen} onClose={() => setMobileNavOpen(false)} />
-      <main className="flex-1 flex flex-col h-screen overflow-hidden">
+      {/* h-full, not its own viewport height: body already is one viewport tall, and
+          a second 100vh here would ignore the dvh correction body just made. */}
+      <main className="flex h-full min-w-0 flex-1 flex-col overflow-hidden">
         <Header onMenuToggle={() => setMobileNavOpen((o) => !o)} />
         <div className="flex-1 overflow-y-auto pb-[env(safe-area-inset-bottom)]">
           {/* Above the page content on every screen — notifications are the point

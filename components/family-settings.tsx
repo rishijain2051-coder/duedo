@@ -202,12 +202,15 @@ function FamilyBlock({
     <div className="space-y-3 rounded-md border border-border p-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="min-w-0">
-          <p className="truncate font-medium">
-            {family.name}
-            <span className="ml-2 rounded bg-muted px-1.5 py-0.5 text-[10px] font-semibold uppercase text-muted-foreground">
+          {/* Same reason as the member rows below: a chip inline in a `truncate`
+              paragraph inherits white-space:nowrap, so a long family name pushed the
+              role badge into the clipped overflow. Sibling that wraps instead. */}
+          <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+            <p className="min-w-0 max-w-full truncate font-medium">{family.name}</p>
+            <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-semibold uppercase text-muted-foreground">
               {family.role}
             </span>
-          </p>
+          </div>
           <p className="text-xs text-muted-foreground">
             {family.members.length} member{family.members.length === 1 ? "" : "s"} ·
             since {formatDateTime(family.createdAt, false, timeZone)}
@@ -319,17 +322,20 @@ function FamilyBlock({
             className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-sm"
           >
             <div className="min-w-0">
-              <p className="truncate font-medium">
-                {m.name}
-                {m.self && (
-                  <span className="ml-2 text-xs font-normal text-primary">you</span>
-                )}
+              {/* The badges are siblings of the name, not inline inside it. Inside a
+                  `truncate` paragraph they inherit white-space:nowrap and share one
+                  unbreakable line, so on a 320px screen the HEAD chip was simply
+                  clipped away by the overflow rather than moving. Now the name
+                  truncates on its own and the chips wrap. */}
+              <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                <p className="min-w-0 max-w-full truncate font-medium">{m.name}</p>
+                {m.self && <span className="text-xs text-primary">you</span>}
                 {m.role === "head" && (
-                  <span className="ml-2 rounded bg-muted px-1.5 py-0.5 text-[10px] font-semibold uppercase text-muted-foreground">
+                  <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-semibold uppercase text-muted-foreground">
                     head
                   </span>
                 )}
-              </p>
+              </div>
               <p className="truncate text-xs text-muted-foreground">{m.email}</p>
             </div>
 

@@ -102,6 +102,65 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+/*
+ * Exactly one viewport tall — the app shell, and anything that has to fit inside
+ * the visible area on a phone.
+ *
+ * 100vh on a mobile browser is the *large* viewport: it measures as if the address
+ * bar were hidden, so the bottom of the shell sat behind the browser chrome. 100dvh
+ * tracks what is actually visible. Two declarations rather than one, because the vh
+ * line is the fallback for anything that doesn't know dvh — the browser keeps the
+ * last value it understands.
+ *
+ * The trade: dvh changes as the toolbar hides and shows, so the shell resizes while
+ * you scroll. Here that only moves the bottom edge of the scroll container, which
+ * is preferable to a permanently unreachable strip of app.
+ */
+.h-app-shell {
+  height: 100vh;
+  height: 100dvh;
+}
+.max-h-app-panel {
+  max-height: 90vh;
+  max-height: 90dvh;
+}
+
+/*
+ * The wordmark paints its gradient through the text. In forced-colors mode the
+ * browser drops background images, and `color: transparent` would leave nothing
+ * behind — an invisible app name. Fall back to the system colour.
+ */
+@media (forced-colors: active) {
+  .wordmark {
+    -webkit-background-clip: border-box;
+    background-clip: border-box;
+    background-image: none;
+    color: CanvasText;
+    forced-color-adjust: none;
+  }
+}
+
+/*
+ * Honour "reduce motion". The button press/hover scale and the spinners are
+ * decoration; for anyone who gets motion sick or disoriented they are not.
+ * Animations are left running but reduced to a single state rather than removed,
+ * so a loading spinner still reads as "busy".
+ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  .hover\:scale-\[1\.02\]:hover,
+  .active\:scale-\[0\.98\]:active {
+    transform: none !important;
+  }
+}
+
 /* Glassmorphism utility — follows the active palette instead of assuming dark. */
 .glass {
   background: var(--glass-bg);

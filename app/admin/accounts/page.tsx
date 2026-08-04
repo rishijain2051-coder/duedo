@@ -150,20 +150,22 @@ export default function AdminAccountsPage() {
             <li key={u.id} className="px-3 py-2.5 text-sm">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="min-w-0">
-                  <p className="truncate font-medium">
-                    {u.name}
-                    {u.self && (
-                      <span className="ml-2 text-xs font-normal text-primary">you</span>
-                    )}
+                  {/* Badges as siblings, not inline in a `truncate` paragraph: there
+                      they inherited white-space:nowrap, so a long name pushed the
+                      ADMIN and SOLO chips into the clipped overflow and they
+                      vanished instead of wrapping. */}
+                  <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                    <p className="min-w-0 max-w-full truncate font-medium">{u.name}</p>
+                    {u.self && <span className="text-xs text-primary">you</span>}
                     {u.role === "admin" && (
-                      <span className="ml-2 rounded bg-muted px-1.5 py-0.5 text-[10px] font-semibold uppercase text-muted-foreground">
+                      <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-semibold uppercase text-muted-foreground">
                         admin
                       </span>
                     )}
-                    <span className="ml-2 rounded bg-muted px-1.5 py-0.5 text-[10px] font-semibold uppercase text-muted-foreground">
+                    <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-semibold uppercase text-muted-foreground">
                       {u.accountType}
                     </span>
-                  </p>
+                  </div>
                   <p className="truncate text-xs text-muted-foreground">
                     {u.email} · joined {formatDateTime(u.createdAt, false, timeZone)}
                   </p>

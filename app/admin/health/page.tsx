@@ -118,7 +118,42 @@ export default function AdminHealthPage() {
               No runs recorded yet.
             </p>
           ) : (
-            <div className="overflow-x-auto">
+            <>
+              {/* Phones get a list. As a sideways-scrolling table the last two
+                  columns — Email and Took — were off the edge of the screen, and a
+                  scroll gesture inside a table is easy to miss on touch. */}
+              <ul className="divide-y divide-border sm:hidden">
+                {data.runs.map((r) => (
+                  <li
+                    key={r.id}
+                    className={`space-y-1 px-3 py-2.5 text-sm ${r.error ? "bg-destructive/10" : ""}`}
+                  >
+                    <div className="flex items-baseline justify-between gap-2">
+                      <p className="font-medium">
+                        {formatDateTime(r.ranAt, true, timeZone)}
+                      </p>
+                      <p className="text-xs text-muted-foreground">{r.durationMs}ms</p>
+                    </div>
+                    {r.error ? (
+                      <p className="text-xs text-red-700 dark:text-red-400">{r.error}</p>
+                    ) : (
+                      <p className="text-xs text-muted-foreground">
+                        {r.considered} considered · {r.firedLead}/{r.firedDue}/
+                        {r.firedOverdue} alerts · {r.recipients} sent
+                      </p>
+                    )}
+                    <p className="text-xs text-muted-foreground">
+                      {r.pushesSent} push
+                      {r.pushesFailed > 0 && (
+                        <span className="text-destructive"> ({r.pushesFailed} failed)</span>
+                      )}{" "}
+                      · {r.emailsSent} email
+                    </p>
+                  </li>
+                ))}
+              </ul>
+
+              <div className="hidden overflow-x-auto sm:block">
               <table className="w-full text-left text-sm">
                 <thead className="bg-muted/50 text-xs uppercase text-muted-foreground">
                   <tr>
@@ -156,7 +191,8 @@ export default function AdminHealthPage() {
                   ))}
                 </tbody>
               </table>
-            </div>
+              </div>
+            </>
           )}
         </CardContent>
       </Card>
