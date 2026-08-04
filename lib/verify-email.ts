@@ -63,6 +63,8 @@ export async function sendVerificationEmail(user: {
   if (!isMailConfigured()) {
     return { sent: false, reason: "email is not configured on this install" };
   }
+  // Reasons read as a clause after "could not be sent", so they say the cause and
+  // not the outcome — the caller has already stated that.
 
   const token = randomBytes(TOKEN_BYTES).toString("base64url");
   await prisma.user.update({
@@ -98,7 +100,7 @@ export async function sendVerificationEmail(user: {
   if (!sent) {
     // The token stays on the row. Harmless — it can't be used by anyone who never
     // received it, and a resend will replace it.
-    return { sent: false, reason: "the verification email could not be sent" };
+    return { sent: false, reason: "the mail server rejected the address" };
   }
   return { sent: true };
 }
