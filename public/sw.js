@@ -1,25 +1,165 @@
-/* PRO-SYS service worker — push delivery only.
- *
- * Deliberately does NOT precache the app shell. Next.js ships hashed assets and a
- * stale cached HTML document is a much worse bug than a slightly slower cold load,
- * so this worker exists purely to receive pushes and act on notification taps.
+/* PRO-SYS service worker — push delivery, and enough caching to open offline.
  *
  * Note that it holds no notion of *who* is signed in. Every fetch below goes out
  * with the session cookie, so an action always applies to whoever is logged in on
  * this device — which is also why the server scopes each of those endpoints by the
  * session rather than trusting an id from here.
+ *
+ * On caching, the rules below are narrow on purpose:
+ *
+ *   * A page document is fetched from the **network first**, always, and only falls
+ *     back to a stored copy when the network fails. This worker used to precache
+ *     nothing at all, on the grounds that a stale HTML document is a worse bug than a
+ *     slow cold load — which is true of cache-first, and is why that isn't what this
+ *     does. Network-first cannot serve stale content while there is a connection.
+ *   * Only assets the server marks `immutable` are served cache-first. Under
+ *     /_next/static a production build hashes the filename, so the URL changes
+ *     whenever the bytes do; the header is what proves that rather than assumed.
+ *   * Anything under /api is never cached, in either direction. Those are per-account
+ *     and the leak risk on a shared device is real; the app keeps its own snapshot
+ *     under a key bound to the signed-in account instead. See lib/cache.ts.
+ *
+ * Storing page documents is only acceptable because every page in this app is a
+ * client component that fetches after hydration: the HTML is chrome, and carries no
+ * reminder, name or figure belonging to anyone. If a page is ever server-rendered
+ * with account data in it, it must be excluded here.
  */
 
 const APP_ICON = "/icons/icon-192.png";
 const BADGE_ICON = "/icons/badge-96.png";
 
-self.addEventListener("install", () => {
+/** Content-hashed assets. Immutable by construction, so cache-first is safe. */
+const STATIC_CACHE = "prosys-static-v1";
+/** Page documents, kept only as a fallback for when the network is gone. */
+const SHELL_CACHE = "prosys-shell-v1";
+// Precached at install, so editing that file alone is not enough to ship the change —
+// SHELL_CACHE has to be renamed too, or installed devices keep serving the old copy.
+const OFFLINE_URL = "/offline.html";
+/** Every cache this version of the worker knows about; the rest are deleted. */
+const KEEP = [STATIC_CACHE, SHELL_CACHE];
+
+// Caps, because a hashed URL is a new entry on every deploy and nothing else would
+// ever evict the old ones. Cache.keys() is in insertion order, so the oldest go first.
+const MAX_STATIC = 150;
+const MAX_SHELL = 20;
+
+self.addEventListener("install", (event) => {
+  event.waitUntil(
+    (async () => {
+      try {
+        const cache = await caches.open(SHELL_CACHE);
+        await cache.add(OFFLINE_URL);
+      } catch {
+        // The one thing precached here. If it fails the worker still installs —
+        // losing the fallback page is not worth losing push delivery over.
+      }
+    })(),
+  );
   // Take over straight away rather than waiting for every tab to close.
   self.skipWaiting();
 });
 
 self.addEventListener("activate", (event) => {
-  event.waitUntil(self.clients.claim());
+  event.waitUntil(
+    (async () => {
+      // A rename of either cache above is how a bad stored copy gets abandoned, so
+      // the sweep has to actually happen rather than being left for the browser.
+      const names = await caches.keys();
+      await Promise.all(
+        names.filter((n) => n.startsWith("prosys-") && !KEEP.includes(n)).map((n) => caches.delete(n)),
+      );
+      await self.clients.claim();
+    })(),
+  );
+});
+
+async function trim(name, max) {
+  try {
+    const cache = await caches.open(name);
+    const keys = await cache.keys();
+    for (let i = 0; i < keys.length - max; i++) await cache.delete(keys[i]);
+  } catch {
+    /* eviction is housekeeping, never worth failing a response over */
+  }
+}
+
+/** True for URLs whose contents can never change without the URL changing too. */
+function isImmutable(pathname) {
+  return pathname.startsWith("/_next/static/") || pathname.startsWith("/icons/");
+}
+
+async function cacheFirst(request) {
+  const cache = await caches.open(STATIC_CACHE);
+  const hit = await cache.match(request);
+  if (hit) return hit;
+  const res = await fetch(request);
+  // Stored only when the server itself says the bytes behind this URL can never
+  // change. The path is not enough: `next dev` serves these same /_next/static paths
+  // unhashed and no-store, so trusting the prefix alone would pin the first chunk
+  // ever fetched and break every subsequent edit — offline support that silently
+  // stops the app updating is not a trade worth making.
+  const immutable = (res.headers.get("Cache-Control") || "").includes("immutable");
+  if (res && res.ok && immutable) {
+    cache.put(request, res.clone());
+    void trim(STATIC_CACHE, MAX_STATIC);
+  }
+  return res;
+}
+
+async function networkFirst(request) {
+  try {
+    const res = await fetch(request);
+    // `redirected` excludes the case that matters: an expired session answers a
+    // request for /reminders with the login page. Storing that under the /reminders
+    // key would serve the lock screen offline to someone who is signed in.
+    if (res && res.ok && !res.redirected) {
+      const cache = await caches.open(SHELL_CACHE);
+      cache.put(request, res.clone());
+      void trim(SHELL_CACHE, MAX_SHELL);
+    }
+    return res;
+  } catch {
+    const cache = await caches.open(SHELL_CACHE);
+    // ignoreSearch, so /reminders?new=1 is answered by the copy of /reminders.
+    const hit = await cache.match(request, { ignoreSearch: true });
+    if (hit) return hit;
+    // Deliberately NOT "serve any cached page as a shell". That was the first version
+    // of this and it is wrong: an App Router document carries the render of its own
+    // route, so answering /insights with the stored /reminders document hydrates the
+    // reminders page under the /insights URL — the wrong screen, silently, with no
+    // clue anything went astray. A page never opened on this device has nothing
+    // truthful to show, so it says exactly that.
+    const offline = await cache.match(OFFLINE_URL);
+    return offline || Response.error();
+  }
+}
+
+self.addEventListener("fetch", (event) => {
+  const request = event.request;
+  // Only GET, and only our own origin. A queued write is replayed by the app from
+  // IndexedDB when the connection returns — retrying one from here would replay it
+  // without the conflict rules that decide whether it should still land.
+  if (request.method !== "GET") return;
+
+  let url;
+  try {
+    url = new URL(request.url);
+  } catch {
+    return;
+  }
+  if (url.origin !== self.location.origin) return;
+  // Never cached, and deliberately not even wrapped: letting the request go through
+  // untouched means an /api failure reaches the app as the same error it always was.
+  if (url.pathname.startsWith("/api/")) return;
+
+  if (request.mode === "navigate") {
+    event.respondWith(networkFirst(request));
+    return;
+  }
+  if (isImmutable(url.pathname)) {
+    event.respondWith(cacheFirst(request));
+  }
+  // Everything else — favicon, manifest, the odd svg — is left to the HTTP cache.
 });
 
 // Lets "Reload" in the app promote a waiting worker instead of leaving the old

@@ -7,6 +7,7 @@ import { Sidebar, MobileNav } from "@/components/sidebar";
 import { Header } from "@/components/header";
 import { PushPrompt } from "@/components/push-prompt";
 import { UpdateBanner } from "@/components/update-banner";
+import { OfflineBar } from "@/components/offline-bar";
 
 export function AppFrame({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -33,6 +34,7 @@ export function AppFrame({ children }: { children: React.ReactNode }) {
         <div className="flex-1 overflow-y-auto pb-[env(safe-area-inset-bottom)]">
           {/* Above the page content on every screen — notifications are the point
               of the app, so setting them up shouldn't require finding Settings. */}
+          <OfflineBar />
           <UpdateBanner />
           <PushPrompt />
           {children}

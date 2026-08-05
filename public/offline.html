@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Offline · PRO-SYS</title>
+    <!--
+      The last resort, served by the service worker when a page is asked for with no
+      connection and no cached copy of it. Deliberately self-contained: no stylesheet,
+      no bundle, no icon. Anything it referenced would be a second request that has
+      just been proved impossible, and a broken fallback is worse than a plain one.
+
+      Dark by default, because the app is (lib/theme.ts DEFAULT_MODE) — following the
+      OS preference instead meant this arrived white in a dark app, which reads as
+      having landed on some other site entirely.
+    -->
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #0b1120;
+        --fg: #e2e8f0;
+        --muted: #94a3b8;
+        --line: #1e293b;
+      }
+      :root[data-theme="light"] {
+        color-scheme: light;
+        --bg: #f8fafc;
+        --fg: #0f172a;
+        --muted: #64748b;
+        --line: #e2e8f0;
+      }
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+      }
+      body {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+        background: var(--bg);
+        color: var(--fg);
+        font:
+          16px/1.5 system-ui,
+          -apple-system,
+          "Segoe UI",
+          sans-serif;
+        text-align: center;
+      }
+      .card {
+        max-width: 22rem;
+      }
+      h1 {
+        margin: 0 0 8px;
+        font-size: 1.25rem;
+      }
+      p {
+        margin: 0 0 20px;
+        color: var(--muted);
+        font-size: 0.9375rem;
+      }
+      button {
+        min-height: 44px;
+        padding: 0 20px;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        background: transparent;
+        color: inherit;
+        font: inherit;
+        cursor: pointer;
+      }
+    </style>
+    <script>
+      // The same choice lib/theme.ts makes, kept in step by hand because this file
+      // cannot import it. Reading localStorage is not a request, so it is safe here.
+      try {
+        var m = localStorage.getItem("prosys:theme-mode");
+        var light =
+          m === "light" ||
+          (m === "system" &&
+            !window.matchMedia("(prefers-color-scheme: dark)").matches);
+        if (light) document.documentElement.setAttribute("data-theme", "light");
+      } catch (e) {
+        /* private mode — the dark default stands */
+      }
+    </script>
+  </head>
+  <body>
+    <div class="card">
+      <h1>No connection</h1>
+      <p>
+        This page hasn&rsquo;t been opened on this device yet, so there was nothing
+        saved to show. Pages you have visited still work offline.
+      </p>
+      <button onclick="location.reload()">Try again</button>
+    </div>
+  </body>
+</html>

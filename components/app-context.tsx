@@ -12,7 +12,12 @@ import {
 import { useRouter } from "next/navigation";
 import { api } from "@/services/api";
 import { clearCache, readCache, setCacheOwner, writeCache } from "@/lib/cache";
-import { ensurePushSubscribed, setBadge } from "@/lib/push-client";
+import { isOfflineError } from "@/lib/net";
+import {
+  ensurePushSubscribed,
+  registerServiceWorker,
+  setBadge,
+} from "@/lib/push-client";
 import {
   applyTheme,
   readAccent,
@@ -235,6 +240,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             : current,
         );
         void setBadge(boot.badge.outstanding);
+        // The worker serves the app offline as well as receiving pushes, so it has to
+        // be registered for everyone. ensurePushSubscribed() below registers it too,
+        // but only after finding permission already granted — which left every person
+        // who declined notifications, or never answered, with no offline app at all.
+        void registerServiceWorker();
         // Registers the worker AND re-hands this device's subscription to the
         // server on every authenticated load, so a pruned or rotated
         // subscription heals itself instead of failing silently — and a device
@@ -245,7 +255,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         // calling it would spend a second request re-reading what was just set.
         // Returning to the app is what makes them stale, and that path still syncs.
         lastBadgeSync.current = Date.now();
-      } catch {
+      } catch (e) {
+        // A dropped connection is not a lapsed session. Left alone, opening the
+        // installed app with no signal sent you to the lock screen — which cannot be
+        // passed offline either, so the app became unusable at exactly the moment the
+        // cached copy was most wanted. The session cookie is still there; the shell
+        // that just painted from cache is still correct; so stay put and let the
+        // pages show what they have.
+        if (isOfflineError(e) && readCache<BootstrapPayload>(BOOT_CACHE_KEY)) return;
         router.replace("/login");
       } finally {
         setLoading(false);

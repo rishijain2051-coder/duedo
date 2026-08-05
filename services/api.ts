@@ -1,3 +1,4 @@
+import { markOffline, markOnline, type OfflineError } from "@/lib/net";
 import type {
   AccountType,
   Activity,
@@ -27,8 +28,20 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
       cache: "no-store",
       ...options,
     });
+    // Any response at all means the server was reached, so a 401 or a 500 clears
+    // the offline flag just as a 200 does. The distinction lib/net.ts cares about
+    // is "did this leave the device", not "did it succeed".
+    markOnline();
   } catch {
-    throw new Error("Cannot reach the server. Please try again.");
+    // The one case where nothing was reached. Flagged rather than merely worded, so
+    // callers can tell a dropped connection from a refusal and stop painting a red
+    // error over data they still have.
+    markOffline();
+    const err = new Error(
+      "You're offline. Showing the last saved copy.",
+    ) as OfflineError;
+    err.offline = true;
+    throw err;
   }
 
   if (!res.ok) {

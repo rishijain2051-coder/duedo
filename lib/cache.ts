@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 
+import { isOfflineError } from "@/lib/net";
+
 // Stale-while-revalidate on top of localStorage.
 //
 // Every page here is a client component that fetches after hydration, so without
@@ -91,10 +93,22 @@ export interface Cached<T> {
   error: string | null;
   /** True while revalidating in the background over cached data. */
   validating: boolean;
+  /**
+   * True when the last attempt never reached the server. Cached data is usually still
+   * on screen underneath, which is why this is separate from `error` rather than
+   * folded into it — "no connection, this is what we had" is not a failure to report.
+   */
+  offline: boolean;
   refresh: () => Promise<void>;
   /** Replaces the value locally and in the cache, for optimistic updates. */
   set: (value: T) => void;
 }
+
+/**
+ * Fired after the outbox drains, so every cached page re-reads rather than sitting on
+ * the optimistic copy it painted while offline. See lib/offline.ts.
+ */
+export const SYNCED_EVENT = "prosys:synced";
 
 /**
  * Fetches `key` through `fetcher`, seeding from localStorage first.
@@ -106,14 +120,21 @@ export function useCached<T>(key: string, fetcher: () => Promise<T>): Cached<T> 
   const [data, setData] = useState<T | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [validating, setValidating] = useState(false);
+  const [offline, setOffline] = useState(false);
   const [primed, setPrimed] = useState(false);
 
   const fetcherRef = useRef(fetcher);
   fetcherRef.current = fetcher;
+  // Read inside revalidate's catch, where `data` from the closure would be the value
+  // as of the render that created it rather than the one on screen now.
+  const hasData = useRef(false);
 
   useBeforePaint(() => {
     const cached = readCache<T>(key);
-    if (cached !== null) setData(cached);
+    if (cached !== null) {
+      setData(cached);
+      hasData.current = true;
+    }
     setPrimed(true);
   }, [key]);
 
@@ -122,12 +143,20 @@ export function useCached<T>(key: string, fetcher: () => Promise<T>): Cached<T> 
     try {
       const fresh = await fetcherRef.current();
       setData(fresh);
+      hasData.current = true;
       writeCache(key, fresh);
       setError(null);
+      setOffline(false);
     } catch (e) {
       // Deliberately keeps whatever is on screen: stale content beats an empty
       // page when a request fails.
-      setError((e as Error).message);
+      const dropped = isOfflineError(e);
+      setOffline(dropped);
+      // A dropped connection over data we already have is not an error to report —
+      // the chrome says "Offline" once for the whole app, and repeating it as a red
+      // banner on every page reads as five separate faults. With nothing cached
+      // there is nothing else to say, so it is surfaced.
+      setError(dropped && hasData.current ? null : (e as Error).message);
     } finally {
       setValidating(false);
     }
@@ -138,6 +167,19 @@ export function useCached<T>(key: string, fetcher: () => Promise<T>): Cached<T> 
     void revalidate();
   }, [primed, revalidate]);
 
+  // Two moments when what's on screen is known to be behind: the connection came
+  // back, and the outbox finished replaying. Both mean this page's data was written
+  // by somebody — possibly this device, minutes ago — and never re-read.
+  useEffect(() => {
+    const again = () => void revalidate();
+    window.addEventListener("online", again);
+    window.addEventListener(SYNCED_EVENT, again);
+    return () => {
+      window.removeEventListener("online", again);
+      window.removeEventListener(SYNCED_EVENT, again);
+    };
+  }, [revalidate]);
+
   const set = useCallback(
     (value: T) => {
       setData(value);
@@ -146,5 +188,13 @@ export function useCached<T>(key: string, fetcher: () => Promise<T>): Cached<T> 
     [key],
   );
 
-  return { data, loading: data === null, error, validating, refresh: revalidate, set };
+  return {
+    data,
+    loading: data === null,
+    error,
+    validating,
+    offline,
+    refresh: revalidate,
+    set,
+  };
 }
