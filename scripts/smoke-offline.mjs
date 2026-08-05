@@ -493,6 +493,32 @@ try {
     400,
   );
 
+  // The race itself, not the sequential case above. Two people tapping Complete in the
+  // same instant both pass the route's check — that is what the unique index on
+  // (reminderId, cycleDueAt) is for, and the route turns the resulting P2002 into the
+  // same 409 rather than a 500. Worth an assertion because the check alone looks
+  // sufficient right up until two requests interleave.
+  const racing = await head("GET", `/api/reminders/${mintedId}`);
+  const raceCycle = racing.data.dueAt;
+  const both = await Promise.all([
+    head("POST", `/api/reminders/${mintedId}/complete`, { cycleDueAt: raceCycle, amount: 700 }),
+    member("POST", `/api/reminders/${mintedId}/complete`, { cycleDueAt: raceCycle, amount: 700 }),
+  ]);
+  const statuses = both.map((r) => r.status).sort();
+  check("exactly one of two simultaneous completions wins", statuses, [200, 409]);
+  check(
+    "and the loser is told, not 500'd",
+    both.find((r) => r.status === 409)?.data?.message?.includes("already marked this done"),
+    true,
+  );
+  check(
+    "one history row for that cycle, so the money is counted once",
+    await prisma.reminderHistory.count({
+      where: { reminderId: mintedId, cycleDueAt: new Date(raceCycle) },
+    }),
+    1,
+  );
+
   // ---- an edit based on an overtaken version is refused
   const target = await head("POST", "/api/reminders", {
     title: "Editable",

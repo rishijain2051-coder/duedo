@@ -198,8 +198,14 @@ try {
   console.log("\n4. On-time uses the cycle, not the current dueAt");
   // Late by a day against its own cycle, which is the only way to know after a
   // recurring reminder has rolled forward.
-  const lateOn = new Date(thisMonth.getTime() + 86_400_000);
-  await history(billId, lateOn, 500, thisMonth);
+  //
+  // Its cycle is deliberately a *different* day from the on-time row this reminder
+  // already has. ReminderHistory is unique on (reminderId, cycleDueAt) — one reminder
+  // settles any given cycle at most once — so reusing thisMonth here would be seeding
+  // a pair of rows the app itself can no longer produce.
+  const lateCycle = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1, 6, 0, 0));
+  const lateOn = new Date(lateCycle.getTime() + 86_400_000);
+  await history(billId, lateOn, 500, lateCycle);
   // Three completions carry a cycle this month: two on their date, one a day after.
   const onTime = (await ann.call("GET", "/api/insights")).data.onTime;
   check("two of the three met their date", onTime.met, 2);
