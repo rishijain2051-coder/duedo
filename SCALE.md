@@ -107,6 +107,17 @@ however long the outage lasts.
 **`MonthlyRollup` had no ceiling of any kind.** The year view reads twelve months, so it
 is capped at 24. Roughly 49 kB a year per household — tidiness rather than savings.
 
+It also had the orphan problem in a worse form than the feed. `scopeKey` is a composite
+string, `"u:<userId>"` or `"f:<familyId>"`, so no foreign key can cascade: deleting an
+account or dissolving a family left its monthly totals behind, and a rollup outlives the
+reminders it totalled, so even the "empty the shared list first" rule on dissolve doesn't
+help. On this install **147 of 150 rows belonged to 49 scopes that had already gone**.
+Rollups whose scope no longer exists are now swept hourly rather than cleared at each of
+the four delete sites — a rule that has to be remembered in four places is one that will
+be forgotten in one, and sweeping also catches paths nobody has written yet. The guard
+that matters is the empty-install check: `notIn []` matches every row, so a database with
+no accounts is left alone rather than emptied.
+
 Left alone deliberately: `ReminderHistory`, because that *is* Spending and
 `lib/rollup.ts` already prunes it under the rule that a month with no rollup is never
 pruned; blocked `ExternalContact` and `PushSubscription` rows, because the block has to

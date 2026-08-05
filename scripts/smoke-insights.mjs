@@ -396,6 +396,37 @@ try {
     7777,
   );
 
+  console.log("\n   and a rollup whose scope has gone is swept");
+  // scopeKey is a composite string — "u:<id>" / "f:<id>" — so there is no foreign key to
+  // cascade. Deleting an account or dissolving a family left its monthly totals behind,
+  // and the 24-month cap would have held them for two years: this database was carrying
+  // 147 rows across 49 scopes that no longer existed.
+  const ghostScope = `u:00000000-0000-4000-8000-000000000000`;
+  await prisma.monthlyRollup.create({
+    data: {
+      scopeKey: ghostScope,
+      month: localMonthStart,
+      categoryKey: "none",
+      categoryName: "Nothing recorded",
+    },
+  });
+  const sweeping = await tick("?rollup=1");
+  check("the sweep reported it", (sweeping.swept?.retention?.rollups ?? 0) >= 1, true);
+  check(
+    "the orphan is gone",
+    await prisma.monthlyRollup.count({ where: { scopeKey: ghostScope } }),
+    0,
+  );
+  check(
+    "and a live scope's rollup is untouched",
+    (
+      await prisma.monthlyRollup.findFirst({
+        where: { scopeKey: `u:${ann.id}`, month: localMonthStart },
+      })
+    )?.spent,
+    7777,
+  );
+
   // ──────────────────────────────────────────────────────────────────────────────
   console.log("\n10. The year view counts months that have NOT been closed yet");
   // The bug this replaces: the year total read rollups plus the current month only, so any

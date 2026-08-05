@@ -866,6 +866,41 @@ export async function sweepDispatchLedger(now = new Date()): Promise<number> {
  * a device that never comes back leaves its row for good, and nothing anywhere swept
  * them. An expired session is unusable by definition, so there is no window to observe.
  */
+/**
+ * Deletes rollups whose scope no longer exists.
+ *
+ * `MonthlyRollup.scopeKey` is a composite string — "u:<userId>" or "f:<familyId>" — so
+ * there is no foreign key to cascade. Deleting an account or dissolving a family leaves
+ * its monthly totals behind, and the 24-month cap above would hold them for two years:
+ * on this install 147 of 150 rows belonged to scopes that had already gone.
+ *
+ * Swept rather than cleared at each delete site, deliberately. A rollup can outlive the
+ * reminders it totalled — dissolving a family requires an empty shared list but not an
+ * empty history — so the sites are the two account paths *and* both dissolve routes, and
+ * a rule that has to be remembered in four places is a rule that will be forgotten in
+ * one. This catches every path, including ones nobody has written yet.
+ *
+ * Reading every id is fine at the scale this app is for; SCALE.md puts the ceiling in
+ * the hundreds. The empty-install guard is the important line: `notIn []` matches
+ * everything, so a database with no accounts must be left alone rather than emptied.
+ */
+async function sweepOrphanedRollups(): Promise<number> {
+  const [users, families] = await Promise.all([
+    prisma.user.findMany({ select: { id: true } }),
+    prisma.family.findMany({ select: { id: true } }),
+  ]);
+  if (users.length === 0) return 0;
+
+  const live = [
+    ...users.map((u) => `u:${u.id}`),
+    ...families.map((f) => `f:${f.id}`),
+  ];
+  const { count } = await prisma.monthlyRollup.deleteMany({
+    where: { scopeKey: { notIn: live } },
+  });
+  return count;
+}
+
 export interface RetentionSweep {
   ran: boolean;
   notifications: number;
@@ -900,16 +935,18 @@ export async function sweepRetention(
       prisma.session.deleteMany({ where: { expiresAt: { lt: now } } }),
       prisma.monthlyRollup.deleteMany({ where: { month: { lt: rollupCutoff } } }),
     ]);
-    if (notifications.count || sessions.count || rollups.count) {
+    const orphans = await sweepOrphanedRollups();
+    const rollupCount = rollups.count + orphans;
+    if (notifications.count || sessions.count || rollupCount) {
       console.log(
-        `[dispatch] swept ${notifications.count} notifications, ${sessions.count} expired sessions, ${rollups.count} rollups`,
+        `[dispatch] swept ${notifications.count} notifications, ${sessions.count} expired sessions, ${rollupCount} rollups`,
       );
     }
     return {
       ran: true,
       notifications: notifications.count,
       sessions: sessions.count,
-      rollups: rollups.count,
+      rollups: rollupCount,
     };
   } catch (err) {
     console.error("[dispatch] retention sweep failed:", (err as Error).message);
