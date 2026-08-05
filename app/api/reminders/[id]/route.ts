@@ -4,6 +4,7 @@ import { HttpError, json, readJson } from "@/lib/http";
 import { sanitizeReminderInput } from "@/lib/reminder-logic";
 import { assertReminderAction, findVisibleReminder } from "@/lib/ownership";
 import { assertReminderDestination, assertReminderFields } from "@/lib/reminder-scope";
+import { clearDispatchLedger } from "@/lib/dispatch";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -80,6 +81,14 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
       data.snoozedUntil = null;
       data.lastNaggedAt = null;
     }
+
+    // The rows keyed on the old cycle are now unreachable, so they are removed rather
+    // than left for a sweep. Also on a status change, which is how a reminder gets
+    // abandoned without ever being completed — an archived one would otherwise hold its
+    // due row for as long as the install lasts, since only completion clears it.
+    const movedOn =
+      data.dueAt !== undefined || (data.status !== undefined && data.status !== existing.status);
+    if (movedOn) await clearDispatchLedger(id);
 
     return prisma.reminder.update({
       where: { id },

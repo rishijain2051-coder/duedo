@@ -407,6 +407,99 @@ try {
   rows = await dispatchesFor(unassigned.id);
   check("still reaches someone", rows.length, 1);
   check("namely the creator", rows[0]?.userId, user.id);
+
+  // ──────────────────────────────────────────────────────────────────────────────
+  console.log("\n13. The ledger keeps open cycles and drops spent ones");
+  //
+  // These ticks are REAL — no `?now=`. The sweeps only run on a real tick, precisely so
+  // that time travel can never reach a delete, so a travelled tick cannot test them.
+  //
+  // The rows are written by hand with chosen cycleDueAt and firedAt values, because the
+  // thing under test is which ones survive, and waiting out the real minutes that would
+  // produce them is not a test anyone would run.
+  const realTick = async (query = "") => {
+    const res = await fetch(`${BASE}/api/cron/dispatch${query}`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${SECRET}` },
+    });
+    const body = await res.json();
+    if (!res.ok) throw new Error(`dispatch ${res.status}: ${body?.message}`);
+    return body;
+  };
+
+  const nowMs = Date.now();
+  const daysAgo = (n) => new Date(nowMs - n * 24 * 60 * MIN);
+  const minsAgo = (n) => new Date(nowMs - n * MIN);
+
+  // A reminder abandoned 100 days ago: still active, long past the nag limit. Under the
+  // old 90-day prune this is the exact shape that re-sent its due alert every hour.
+  const stale = await prisma.reminder.create({
+    data: {
+      ...mine,
+      title: "Abandoned",
+      categoryId: category.id,
+      dueAt: daysAgo(100),
+      leadOffsets: [],
+      createdAt: daysAgo(130),
+    },
+  });
+  const ledgerRow = (kind, cycleDueAt, extra = {}) =>
+    prisma.reminderDispatch.create({
+      data: { reminderId: stale.id, userId: user.id, kind, cycleDueAt, ...extra },
+    });
+
+  await ledgerRow("due", daysAgo(100), { offsetMin: 0 });
+  await ledgerRow("lead", daysAgo(100), { offsetMin: 1440 });
+  await ledgerRow("lead", new Date(nowMs + 60 * MIN), { offsetMin: 60 });
+  await ledgerRow("overdue", daysAgo(100), { offsetMin: 10, firedAt: minsAgo(10) });
+  await ledgerRow("overdue", daysAgo(100), { offsetMin: 11, firedAt: new Date(nowMs) });
+  await ledgerRow("overdue", daysAgo(5), { offsetMin: 12, emailedAt: minsAgo(30) });
+  await ledgerRow("overdue", daysAgo(20), { offsetMin: 13, emailedAt: daysAgo(20) });
+  await ledgerRow("escalation", daysAgo(5), { offsetMin: 1440 });
+  await ledgerRow("escalation", daysAgo(20), { offsetMin: 1440 });
+  check("nine rows to judge", (await dispatchesFor(stale.id)).length, 9);
+
+  const swept = await realTick("?rollup=1");
+  check("the sweep ran", typeof swept.swept?.ledger, "number");
+
+  const left = await prisma.reminderDispatch.findMany({
+    where: { reminderId: stale.id },
+    select: { kind: true, offsetMin: true },
+  });
+  const surviving = left.map((r) => `${r.kind}:${r.offsetMin}`).sort();
+  check(
+    "only the unreachable ones went",
+    surviving,
+    [
+      // Held because its reminder is still active — the whole point.
+      "due:0",
+      // Its cycle has not arrived, so those leads can still be planned.
+      "lead:60",
+      // Written this minute, so the slot it guards is still current.
+      "overdue:11",
+      // Carried an email, still inside the 12-hour cap's reach.
+      "overdue:12",
+      // Inside the nag limit, so the step could still be planned.
+      "escalation:1440",
+    ].sort(),
+  );
+
+  console.log("\n   and the due row is what stops the alert repeating");
+  // The bug this replaces: the prune deleted this row because the cycle was 100 days
+  // old, the next tick re-planned the due alert and sent it again, and wrote a fresh row
+  // for the prune to delete an hour later. Hourly, forever, on a reminder that had
+  // promised to go quiet after a fortnight.
+  const again = await realTick("?rollup=1");
+  check("no repeat of the due alert", again.fired.due, 0);
+  check(
+    "because the row survived a second sweep",
+    await prisma.reminderDispatch.count({ where: { reminderId: stale.id, kind: "due" } }),
+    1,
+  );
+
+  // Clearing the ledger on completion is asserted in smoke-offline instead: it goes
+  // through the complete route, and that suite already signs accounts in. This one
+  // drives the engine straight off the database and has no session machinery.
 } finally {
   await cleanup();
   await prisma.$disconnect();

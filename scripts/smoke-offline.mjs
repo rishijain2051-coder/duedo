@@ -519,6 +519,73 @@ try {
     1,
   );
 
+  // ---- completing a reminder clears its dedupe ledger
+  //
+  // The rows are unreachable the moment the reminder moves on, and removing them here is
+  // what lets ReminderDispatch hold "cycles still open" rather than a rolling window —
+  // which in turn is what lets the due row of an active reminder be kept indefinitely
+  // instead of being pruned out from under it. Written by hand because the dispatcher
+  // would need real minutes to produce them.
+  const ledgerFor = (id) => prisma.reminderDispatch.count({ where: { reminderId: id } });
+  const ledgerTarget = await head("POST", "/api/reminders", {
+    title: "Has a ledger",
+    categoryId,
+    dueAt: "2026-08-25T10:00",
+    familyId,
+    audience: "family",
+    recurrenceRule: "Monthly",
+  });
+  const ledgerId = ledgerTarget.data.id;
+  const ledgerCycle = new Date(ledgerTarget.data.dueAt);
+  const headId = (await head("GET", "/api/auth/me")).data.id;
+  for (const [kind, offsetMin] of [
+    ["lead", 1440],
+    ["due", 0],
+    ["overdue", 60],
+    ["escalation", 1440],
+  ]) {
+    await prisma.reminderDispatch.create({
+      data: { reminderId: ledgerId, userId: headId, kind, offsetMin, cycleDueAt: ledgerCycle },
+    });
+  }
+  check("four dedupe rows to start", await ledgerFor(ledgerId), 4);
+  check(
+    "completing it succeeds",
+    (await head("POST", `/api/reminders/${ledgerId}/complete`, {
+      cycleDueAt: ledgerCycle.toISOString(),
+    })).status,
+    200,
+  );
+  check("and the ledger is empty", await ledgerFor(ledgerId), 0);
+  // A completion replayed from an offline queue is refused as already settled, and the
+  // clear is a plain delete either way — nothing here depends on it running once.
+  check(
+    "a replayed completion is still refused",
+    (await head("POST", `/api/reminders/${ledgerId}/complete`, {
+      cycleDueAt: ledgerCycle.toISOString(),
+    })).status,
+    409,
+  );
+  check("and left the ledger alone", await ledgerFor(ledgerId), 0);
+
+  console.log("\n   re-dating a reminder clears it too");
+  const nextCycle = (await head("GET", `/api/reminders/${ledgerId}`)).data;
+  await prisma.reminderDispatch.create({
+    data: {
+      reminderId: ledgerId,
+      userId: headId,
+      kind: "due",
+      offsetMin: 0,
+      cycleDueAt: new Date(nextCycle.dueAt),
+    },
+  });
+  check("a row on the new cycle", await ledgerFor(ledgerId), 1);
+  await head("PATCH", `/api/reminders/${ledgerId}`, { dueAt: "2026-11-30T10:00" });
+  // PATCH already documented a moved due instant as a fresh notification cycle; this is
+  // that promise carried through to the rows, which would otherwise sit there unreachable
+  // for as long as the reminder was never completed.
+  check("cleared by the re-dating", await ledgerFor(ledgerId), 0);
+
   // ---- an edit based on an overtaken version is refused
   const target = await head("POST", "/api/reminders", {
     title: "Editable",

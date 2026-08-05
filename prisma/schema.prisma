@@ -500,7 +500,7 @@ model ReminderDispatch {
   user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   cycleDueAt DateTime  @db.Timestamptz // the dueAt this fire belongs to
-  kind       String // lead | due | overdue
+  kind       String // lead | due | overdue | escalation
   /// lead: the offset in minutes. due: 0. overdue: whole minutes since cycleDueAt,
   /// which is unique per minute and so dedupes naturally against a per-minute cron.
   offsetMin  Int

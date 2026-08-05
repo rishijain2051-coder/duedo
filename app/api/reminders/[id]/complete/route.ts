@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db";
 import { HttpError, json, readJson } from "@/lib/http";
 import { computeNextDueAt } from "@/lib/reminder-logic";
+import { clearDispatchLedger } from "@/lib/dispatch";
 import { assertReminderAction } from "@/lib/ownership";
 
 export const runtime = "nodejs";
@@ -98,6 +99,13 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     // the two differ only when the due date was edited after the completion was queued,
     // and the edited date is the one the user last chose.
     const next = computeNextDueAt(reminder.dueAt, reminder.recurrenceRule);
+
+    // Every dedupe row for this reminder is now unreachable: a one-off ends at
+    // `completed`, which the dispatcher's query excludes, and a recurring one rolls
+    // strictly forward past the cycle those rows key. Removing them here is what keeps
+    // ReminderDispatch to "cycles still open" — and it is the reason the due row of an
+    // active reminder needs no expiry at all. See clearDispatchLedger.
+    await clearDispatchLedger(id);
 
     // Either way the nag state is cleared. For a recurring reminder the new dueAt
     // also gives ReminderDispatch a new cycleDueAt, so the whole set of lead/due

@@ -163,6 +163,9 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
  * Everything the account owns cascades: reminders, categories, history,
  * notifications, sessions, passkeys and push devices. There is no soft-delete, so
  * rejecting is the reversible option and this one is not.
+ *
+ * The one thing the cascade cannot reach is other people's notifications about this
+ * account's reminders, which is why they are cleared first.
  */
 export async function DELETE(_req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   return jsonAdmin(async (admin) => {
@@ -177,6 +180,25 @@ export async function DELETE(_req: NextRequest, ctx: { params: Promise<{ id: str
     if (!target) throw new HttpError(404, "Account not found");
     if (target.isRootAdmin) {
       throw new HttpError(403, "The install's owner cannot be deleted.");
+    }
+
+    // Notification.reminderId is a bare String? with an index and no foreign key, so
+    // nothing in the database cleans it up. DELETE /api/reminders/:id clears them for
+    // the direct case; this is the one cascade that gets past that — other members of
+    // this account's families hold notifications about reminders it created, and the
+    // cascade takes the reminders while leaving those entries naming something nobody
+    // can open. Read the ids while they still exist, then delete.
+    //
+    // Dissolving a family is not a third case: both dissolve routes refuse while the
+    // shared list still holds reminders, so nothing cascades there.
+    const owned = await prisma.reminder.findMany({
+      where: { userId: id },
+      select: { id: true },
+    });
+    if (owned.length > 0) {
+      await prisma.notification.deleteMany({
+        where: { reminderId: { in: owned.map((r) => r.id) } },
+      });
     }
 
     await prisma.user.delete({ where: { id } });

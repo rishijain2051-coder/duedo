@@ -45,15 +45,54 @@ const SUCCESSFUL_RUN_HISTORY = 10;
 const OVERDUE_NAG_LIMIT_DAYS = 14;
 
 /**
- * How long the dedupe ledger and the notification feed are kept.
- *
- * Both were unbounded. ReminderDispatch exists to stop an alert going twice, which
- * only matters while a due-cycle is current; Notification is a feed the UI reads 100
- * rows of. Keeping 90 days of each leaves plenty of history to look back through
- * while making total storage a function of *active* use rather than of how long the
- * install has existed.
+ * How long an unread notification is kept. Read ones go much sooner — see below.
  */
-const RETENTION_DAYS = 90;
+const NOTIFICATION_UNREAD_DAYS = 90;
+
+/**
+ * How long a *read* notification is kept.
+ *
+ * The feed exists so a failed push or email still leaves a trace. Once somebody has
+ * read the entry it has done that job, and 90 days of read alerts is the largest
+ * app-side table for no benefit anyone can name. Unread ones keep the full window,
+ * because an unread alert is the one that might still be news.
+ */
+const NOTIFICATION_READ_DAYS = 14;
+
+/**
+ * How long a MonthlyRollup is kept. The year view reads twelve months, so twice that
+ * loses nothing and stops the only app table with no ceiling at all from having none.
+ */
+const ROLLUP_MONTHS = 24;
+
+/**
+ * Overdue dedupe rows exist to stop two ticks in the same minute sending the same nag.
+ * `offsetMin` is minutes-since-due and only ever increases, so once the minute has
+ * passed the slot can never come round again and the row has no further job.
+ *
+ * Two minutes rather than one, so a tick that straddles a minute boundary still finds
+ * the row it wrote.
+ */
+const OVERDUE_LEDGER_MINS = 2;
+
+/**
+ * Escalation rows, and overdue rows that carried an email, are kept until a day past
+ * the nag limit — no step is ever planned beyond OVERDUE_NAG_LIMIT_DAYS, and the
+ * emailed ones are what the 12-hour cap reads.
+ */
+const LEDGER_TAIL_DAYS = OVERDUE_NAG_LIMIT_DAYS + 1;
+
+/**
+ * Failed runs kept from each end of the table.
+ *
+ * Failures used to be unbounded on the reasoning that the *oldest* failure is the most
+ * useful, being when the problem started — which is right, and is why a plain "keep the
+ * newest N" would be wrong. But nothing bounded them at all: a dispatcher broken for a
+ * month reaches ~43,000 rows and 27 MB, and a 30-day window would not have helped,
+ * because that is the window. Keeping both ends preserves the onset *and* the current
+ * state, and caps the table at twice this number however long the outage lasts.
+ */
+const FAILED_RUNS_EACH_END = 20;
 
 interface Owner {
   id: string;
@@ -377,7 +416,13 @@ export async function dispatchDueReminders(
     const key = `${reminderId}:${userId}`;
     if (lastEmailAt.has(key)) return lastEmailAt.get(key);
     const row = await prisma.reminderDispatch.findFirst({
-      where: { reminderId, userId, emailedAt: { not: null } },
+      // Overdue rows only. The 12-hour cap below applies to overdue repeats and
+      // nothing else — "the first alert is never throttled; only the repeats are" —
+      // but this read took the newest emailedAt of *any* kind, so a lead email an hour
+      // earlier suppressed the due-time overdue email that was supposed to follow it.
+      // Filtering here is what makes that comment true, and it is also what lets the
+      // sweep delete lead and due rows without loosening the cap.
+      where: { reminderId, userId, kind: "overdue", emailedAt: { not: null } },
       orderBy: { emailedAt: "desc" },
       select: { emailedAt: true },
     });
@@ -639,7 +684,12 @@ export async function dispatchDueReminders(
 
   summary.durationMs = Date.now() - startedAt;
   await recordRun(summary);
-  await pruneRetention(now);
+  // The sweeps are deliberately NOT called here. They are housekeeping, and housekeeping
+  // is driven from the cron route so that `?now=` skips it — the same rule the audit
+  // rotation and the month close already follow. Time travel exists to test what the
+  // engine *sends*; pointed at a delete it becomes a way to destroy rows that are still
+  // live, and these sweeps compare a travelled `now` against a real `firedAt`, so the
+  // dispatch suite ticking a year ahead would have emptied the ledger under itself.
   return summary;
 }
 
@@ -672,20 +722,36 @@ async function recordRun(s: DispatchSummary, error?: string): Promise<void> {
     // most useful one, because it is when the problem started. So successes are
     // capped and failures are kept.
     //
-    // Nothing bounds the failures, which is deliberate but worth knowing: a
-    // dispatcher that has been broken for a month will have ~43,000 rows here. At the
-    // measured 627 bytes a row that is 27 MB, and the admin page will have been
-    // showing it as red the whole time.
+    // Failures are now bounded too, but from both ends rather than by age. Nothing
+    // bounded them at all before: a dispatcher broken for a month reaches ~43,000 rows
+    // and, at the measured 627 bytes each, 27 MB — while the admin page showed it red
+    // the whole time. A 30-day window would not have helped, since a month is the
+    // window. Keeping the oldest few and the newest few holds on to the onset, which is
+    // the reading this table is actually opened for, plus where things stand now.
     const stale = await prisma.dispatchRun.findMany({
       where: { error: null },
       orderBy: { ranAt: "desc" },
       skip: SUCCESSFUL_RUN_HISTORY,
       select: { id: true },
     });
-    if (stale.length > 0) {
-      await prisma.dispatchRun.deleteMany({
-        where: { id: { in: stale.map((r) => r.id) } },
-      });
+
+    const middle: { id: string }[] = [];
+    const failures = await prisma.dispatchRun.count({ where: { error: { not: null } } });
+    if (failures > FAILED_RUNS_EACH_END * 2) {
+      middle.push(
+        ...(await prisma.dispatchRun.findMany({
+          where: { error: { not: null } },
+          orderBy: { ranAt: "desc" },
+          skip: FAILED_RUNS_EACH_END,
+          take: failures - FAILED_RUNS_EACH_END * 2,
+          select: { id: true },
+        })),
+      );
+    }
+
+    const ids = [...stale, ...middle].map((r) => r.id);
+    if (ids.length > 0) {
+      await prisma.dispatchRun.deleteMany({ where: { id: { in: ids } } });
     }
   } catch (err) {
     console.error("[dispatch] could not record run:", (err as Error).message);
@@ -693,33 +759,161 @@ async function recordRun(s: DispatchSummary, error?: string): Promise<void> {
 }
 
 /**
- * Drops dedupe rows and feed entries past the retention window.
+ * Drops every dedupe row for one reminder, because none of them can be reached again.
  *
- * Sampled rather than run every minute: at one in sixty ticks this is roughly hourly,
- * which is far more often than a 90-day window needs, and it keeps the ordinary tick
- * down to the work it exists to do. Both deletes are indexed range scans.
+ * Called when a reminder completes, and when its `dueAt` or `status` changes. In each
+ * case planFires can no longer plan any cycle those rows key:
  *
- * Safe for a reminder that is *still* overdue at the cutoff: `offsetMin` on an
- * overdue row is minutes-since-due, so it only ever increases — a pruned slot can
- * never come round again and be re-sent. Lead and due rows are keyed on the cycle's
- * dueAt, and a cycle 90 days behind has either rolled over or stopped nagging.
+ *   * completing a one-off ends at `status: "completed"`, which the dispatcher's query
+ *     excludes, and there is no un-complete route anywhere in the app;
+ *   * completing a recurring one rolls `dueAt` strictly forward, so the settled
+ *     `cycleDueAt` is behind the only cycle that can now be planned;
+ *   * re-dating or archiving likewise leaves every stored `cycleDueAt` unreachable —
+ *     and PATCH already treats a moved due instant as a fresh notification cycle for
+ *     exactly this reason.
+ *
+ * This is what makes a window over ReminderDispatch unnecessary rather than merely
+ * generous: rows are removed at the moment they become unreachable instead of three
+ * months later on the hope that they have. It is a plain delete keyed on an indexed
+ * column, and idempotent — a completion replayed from an offline queue simply finds
+ * nothing left to remove.
  */
-async function pruneRetention(now: Date): Promise<void> {
-  if (Math.floor(now.getTime() / 60_000) % 60 !== 0) return;
-  const cutoff = new Date(now.getTime() - RETENTION_DAYS * 24 * 60 * MS_PER_MIN);
+export async function clearDispatchLedger(reminderId: string): Promise<number> {
   try {
-    const [dispatches, notifications] = await Promise.all([
-      prisma.reminderDispatch.deleteMany({ where: { cycleDueAt: { lt: cutoff } } }),
-      prisma.notification.deleteMany({ where: { createdAt: { lt: cutoff } } }),
-    ]);
-    if (dispatches.count || notifications.count) {
-      console.log(
-        `[dispatch] pruned ${dispatches.count} dedupe rows and ${notifications.count} notifications older than ${RETENTION_DAYS} days`,
-      );
+    const { count } = await prisma.reminderDispatch.deleteMany({
+      where: { reminderId },
+    });
+    return count;
+  } catch (err) {
+    // Never at the cost of the write that triggered it. A row left behind only means a
+    // later sweep or the next completion clears it.
+    console.error("[dispatch] could not clear the ledger:", (err as Error).message);
+    return 0;
+  }
+}
+
+/**
+ * Reduces the dedupe ledger to the cycles that are still open.
+ *
+ * This replaces a 90-day window over ReminderDispatch, which was wrong in a way that
+ * was invisible until you looked for it. The window's stated safety was that "a cycle
+ * 90 days behind has either rolled over or stopped nagging" — true of leads and of
+ * nagging, but the **due** fire at planFires has no time cap at all. So for any active
+ * reminder more than 90 days overdue — an abandoned one, or one somebody backdated —
+ * the hourly prune deleted its due row, the next tick re-planned the due alert and sent
+ * it again, and wrote a fresh row for the prune to delete an hour later. It nagged
+ * hourly, forever, having promised to stop after a fortnight.
+ *
+ * The fix is not a bigger window. Each kind is unreachable at a different, provable
+ * moment, and a due row is unreachable only once its reminder moves on:
+ *
+ *   * **lead** — planned solely in the `!isDue` branch, so once `cycleDueAt` has passed
+ *     that cycle's leads can never be planned again;
+ *   * **overdue** — `offsetMin` is minutes-since-due and only increases, so a slot
+ *     cannot recur. The row guards two ticks inside one minute and nothing else. The
+ *     exception is a row that carried an email: that is what the 12-hour cap reads, so
+ *     it stays until the nag limit;
+ *   * **escalation** — no step is planned past OVERDUE_NAG_LIMIT_DAYS;
+ *   * **due** — deliberately not swept. It is the only row standing between an active
+ *     overdue reminder and a repeat of its due alert, and there is no age at which that
+ *     stops being true. Capping the due fire at 14 days instead would make a window
+ *     safe, but it would also silence a legitimately backdated reminder, and unlike
+ *     leads the due alert has no no-back-fill rule to lean on. So it is held until the
+ *     reminder is completed, re-dated or deleted — see clearDispatchLedger.
+ *
+ * What is retained is therefore "cycles still open" rather than "the last three
+ * months": one due row per open cycle per recipient, bounded by how many reminders
+ * people abandon rather than by how long the install has existed.
+ *
+ * Runs every tick, not sampled. The whole point is that the ledger stays small, and
+ * these are narrow deletes against a table this keeps small in the first place.
+ */
+export async function sweepDispatchLedger(now = new Date()): Promise<number> {
+  const overdueCutoff = new Date(now.getTime() - OVERDUE_LEDGER_MINS * MS_PER_MIN);
+  const tailCutoff = new Date(now.getTime() - LEDGER_TAIL_DAYS * 24 * 60 * MS_PER_MIN);
+  try {
+    const removed = await prisma.reminderDispatch.deleteMany({
+      where: {
+        OR: [
+          { kind: "lead", cycleDueAt: { lte: now } },
+          // The bulk of the ledger. Only the ones that never carried an email, so the
+          // cap below keeps the evidence it depends on.
+          { kind: "overdue", emailedAt: null, firedAt: { lt: overdueCutoff } },
+          { kind: "overdue", emailedAt: { not: null }, cycleDueAt: { lt: tailCutoff } },
+          { kind: "escalation", cycleDueAt: { lt: tailCutoff } },
+        ],
+      },
+    });
+    if (removed.count > 0) {
+      console.log(`[dispatch] swept ${removed.count} spent dedupe rows`);
     }
+    return removed.count;
   } catch (err) {
     // Housekeeping must never stop delivery.
-    console.error("[dispatch] retention prune failed:", (err as Error).message);
+    console.error("[dispatch] ledger sweep failed:", (err as Error).message);
+    return 0;
+  }
+}
+
+/**
+ * Bounds the feed, expired logins and the rollup table.
+ *
+ * Sampled at one tick in sixty, so roughly hourly: none of these needs to be prompt,
+ * and the ordinary tick should stay on the work it exists to do.
+ *
+ * The sessions delete is the one that was missing entirely rather than merely generous.
+ * resolveSession deletes an expired row when that exact session is next presented — so
+ * a device that never comes back leaves its row for good, and nothing anywhere swept
+ * them. An expired session is unusable by definition, so there is no window to observe.
+ */
+export interface RetentionSweep {
+  ran: boolean;
+  notifications: number;
+  sessions: number;
+  rollups: number;
+}
+
+export async function sweepRetention(
+  now = new Date(),
+  /** Dev-only, so a suite need not wait out an hour for the sampled tick. */
+  force = false,
+): Promise<RetentionSweep> {
+  const idle = { ran: false, notifications: 0, sessions: 0, rollups: 0 };
+  if (!force && Math.floor(now.getTime() / 60_000) % 60 !== 0) return idle;
+  const day = 24 * 60 * MS_PER_MIN;
+  const readCutoff = new Date(now.getTime() - NOTIFICATION_READ_DAYS * day);
+  const unreadCutoff = new Date(now.getTime() - NOTIFICATION_UNREAD_DAYS * day);
+  // Month starts, so "24 months" is 24 whole months rather than 730 days.
+  const rollupCutoff = new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - ROLLUP_MONTHS, 1),
+  );
+  try {
+    const [notifications, sessions, rollups] = await Promise.all([
+      prisma.notification.deleteMany({
+        where: {
+          OR: [
+            { read: true, createdAt: { lt: readCutoff } },
+            { read: false, createdAt: { lt: unreadCutoff } },
+          ],
+        },
+      }),
+      prisma.session.deleteMany({ where: { expiresAt: { lt: now } } }),
+      prisma.monthlyRollup.deleteMany({ where: { month: { lt: rollupCutoff } } }),
+    ]);
+    if (notifications.count || sessions.count || rollups.count) {
+      console.log(
+        `[dispatch] swept ${notifications.count} notifications, ${sessions.count} expired sessions, ${rollups.count} rollups`,
+      );
+    }
+    return {
+      ran: true,
+      notifications: notifications.count,
+      sessions: sessions.count,
+      rollups: rollups.count,
+    };
+  } catch (err) {
+    console.error("[dispatch] retention sweep failed:", (err as Error).message);
+    return idle;
   }
 }
 

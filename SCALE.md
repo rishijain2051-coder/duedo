@@ -57,13 +57,60 @@ notifications stop. Something a fortnight late is not a reminder any more, and h
 alerts about it have stopped being information.
 
 **Nothing was ever deleted.** `ReminderDispatch` and `Notification` both grew for the
-lifetime of the install. Only `DispatchRun` had a cap. Both are now pruned past
-**90 days** (`RETENTION_DAYS`), which makes total storage a function of active use
-rather than of how long the install has existed. The prune runs on roughly one tick in
-sixty and is an indexed range scan.
+lifetime of the install. Only `DispatchRun` had a cap.
 
-Pruning an overdue dedupe row cannot cause a duplicate alert: the `offsetMin` slot it
-guarded only ever moves forward, so it can never come round again.
+The first fix was a 90-day window over both, which was wrong about `ReminderDispatch`
+in a way that took a second pass to see. Its stated safety was that "a cycle 90 days
+behind has either rolled over or stopped nagging" — true of leads, and true of nagging,
+but **the due alert has no time cap at all**. So for any active reminder more than 90
+days overdue, the hourly prune deleted its due row, the next tick re-planned the due
+alert and sent it, and wrote a fresh row for the prune to delete an hour later. An
+abandoned reminder nagged hourly forever, having promised to go quiet after a fortnight.
+The bound above was real; this one silently undid it.
+
+A window was the wrong shape. Each row becomes unreachable at a provable moment:
+
+| Row | Removed | Why it can never fire again |
+| --- | --- | --- |
+| any kind, on completion | at once | a one-off ends `completed`, which the query excludes; a recurring one rolls `dueAt` strictly forward. There is no un-complete route |
+| any kind, on a `dueAt` or `status` change | at once | every stored `cycleDueAt` is then behind the only cycle that can be planned |
+| `lead` | once `cycleDueAt` passes | leads are planned solely in the not-yet-due branch |
+| `overdue` | 2 minutes after firing | `offsetMin` is minutes-since-due and only increases, so the slot cannot recur. It guards two ticks inside one minute and nothing else |
+| `overdue` that carried an email | 15 days | it is what the 12-hour email cap reads |
+| `escalation` | 15 days | no step is planned past the 14-day nag limit |
+| `due` | **never, while its reminder is active** | it is the only thing standing between an overdue reminder and a repeat of its due alert, and no age changes that |
+
+Keeping due rows indefinitely holds one row per open cycle per recipient — bounded by
+how many reminders people abandon, not by how long the install has run. Capping the due
+fire at 14 days would have made a window safe instead, but it would also silence a
+legitimately backdated reminder, and unlike leads the due alert has no no-back-fill rule
+to lean on. Retained rows now mean "cycles still open" rather than "the last three
+months": for a household of four with 30 shared monthly reminders, 692 kB → ~230 kB.
+
+**The feed is the bigger app-side lever, and it is a product choice.** Read
+notifications are kept **14 days** — once somebody has read the entry it has done its
+job of leaving a trace — and unread ones the full **90**, because an unread alert might
+still be news. Same household: 476 kB → ~79 kB.
+
+**Expired logins were never swept at all.** `resolveSession` deletes an expired row when
+that exact session is next presented, so a device that never comes back left its row for
+good. They are now swept globally; an expired session is unusable by definition, so
+there is no window to observe.
+
+**Failed dispatch runs were deliberately unbounded**, on the sound reasoning that the
+*oldest* failure is the most useful because it is when the problem started. But a
+dispatcher broken for a month reaches ~43,000 rows and 27 MB, and a 30-day window would
+not have helped, because a month is the window. The oldest 20 and newest 20 are kept:
+the onset survives, so does the current state, and the table cannot exceed 40 rows
+however long the outage lasts.
+
+**`MonthlyRollup` had no ceiling of any kind.** The year view reads twelve months, so it
+is capped at 24. Roughly 49 kB a year per household — tidiness rather than savings.
+
+Left alone deliberately: `ReminderHistory`, because that *is* Spending and
+`lib/rollup.ts` already prunes it under the rule that a month with no rollup is never
+pruned; blocked `ExternalContact` and `PushSubscription` rows, because the block has to
+outlive everything and the app re-registers a deleted subscription on the next load.
 
 **The audit log** is separately handled — it is emailed to the owner daily and then
 trimmed to its 50 most recent entries, so it holds at a fixed few kB rather than

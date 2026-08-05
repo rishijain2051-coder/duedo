@@ -1,5 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { dispatchDueReminders, recordFailedRun } from "@/lib/dispatch";
+import {
+  dispatchDueReminders,
+  recordFailedRun,
+  sweepDispatchLedger,
+  sweepRetention,
+} from "@/lib/dispatch";
 import { rotateAuditLogIfDue } from "@/lib/audit-rotate";
 import { runMonthlyMaintenance } from "@/lib/rollup";
 import { advanceStreaks } from "@/lib/streaks";
@@ -163,12 +168,27 @@ async function handle(req: NextRequest) {
     // turned, and it must never take dispatch down with it. Skipped under `?now=` for
     // the same reason the rotation is — closing a month and deleting the detail behind
     // it are one-way doors, and time travel exists to test the *engine*.
+    let swept: { ledger: number; retention: Awaited<ReturnType<typeof sweepRetention>> } | null =
+      null;
     let rollup: Awaited<ReturnType<typeof runMonthlyMaintenance>> | { error: string } | null =
       null;
     let streaks: Awaited<ReturnType<typeof advanceStreaks>> | { error: string } | null = null;
     let report: Awaited<ReturnType<typeof sendMonthlyReports>> | { error: string } | null =
       null;
     if (!nowParam) {
+      // Retention. Here rather than inside dispatchDueReminders for the same reason
+      // everything else in this block is: these are deletes, and `?now=` must never
+      // reach a delete. The ledger sweep compares a travelled clock against the real
+      // firedAt of rows written seconds ago, so under time travel it would clear the
+      // very ledger the dispatch suite is asserting on.
+      try {
+        swept = {
+          ledger: await sweepDispatchLedger(now),
+          retention: await sweepRetention(now, forceRollup),
+        };
+      } catch (e) {
+        console.error("[cron] retention sweep failed:", e);
+      }
       try {
         rollup = await runMonthlyMaintenance(now, forceRollup);
       } catch (e) {
@@ -196,7 +216,7 @@ async function handle(req: NextRequest) {
       }
     }
 
-    return NextResponse.json({ ...summary, audit, rollup, streaks, report });
+    return NextResponse.json({ ...summary, audit, swept, rollup, streaks, report });
   } catch (e) {
     console.error("[cron] dispatch failed:", e);
     // Recorded, not just logged: a dispatcher that has been throwing for a day
