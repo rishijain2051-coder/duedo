@@ -95,6 +95,30 @@ async function handle(req: NextRequest) {
       );
     }
 
+    // Dev-only, and the same rules again. Rotation happens once a calendar day and this
+    // install's production cron shares the database, so from just after midnight the
+    // day is spent and the suite cannot reach the rotation at all until tomorrow.
+    // Forcing the day check is the way back in; see rotateAuditLogIfDue.
+    const forceAuditRotate = req.nextUrl.searchParams.get("forceAuditRotate") === "1";
+    if (forceAuditRotate && isServerless) {
+      return NextResponse.json(
+        { message: "The audit rotate override is not available in production." },
+        { status: 400 },
+      );
+    }
+    // Never with the real sender. A forced rotation is the one path that can mail the
+    // install's owner a dump on demand — and then delete what it mailed — so it is only
+    // offered alongside an override that makes the send fake or fail.
+    if (forceAuditRotate && !failSend && !fakeSend) {
+      return NextResponse.json(
+        {
+          message:
+            "forceAuditRotate needs failAuditMail=1 or fakeAuditMail=1 as well, so a forced rotation can't send real mail.",
+        },
+        { status: 400 },
+      );
+    }
+
     // Also dev-only. Month close and history pruning normally run on one tick in 360,
     // which a test can't wait for — and pruning is destructive, so it must not be
     // forceable in production.
@@ -127,7 +151,7 @@ async function handle(req: NextRequest) {
           : fakeSend
             ? async () => true
             : undefined;
-        audit = await rotateAuditLogIfDue(now, override);
+        audit = await rotateAuditLogIfDue(now, override, forceAuditRotate);
       } catch (e) {
         console.error("[cron] audit rotation failed:", e);
         audit = { error: (e as Error).message };

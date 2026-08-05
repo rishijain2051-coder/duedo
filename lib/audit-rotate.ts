@@ -78,6 +78,20 @@ export async function rotateAuditLogIfDue(
    * so a test built on that deletes the log while appearing to prove it wouldn't.
    */
   send: typeof sendMail | undefined = undefined,
+  /**
+   * Skips the once-a-day check, and nothing else.
+   *
+   * Rotation happens once per calendar day, which a test cannot wait for — and this
+   * install's production cron shares the database, so from just after midnight the
+   * day is already spent and every assertion that expects a rotation fails for the
+   * next 23 hours. Forcing the day check is the only way back in.
+   *
+   * Deliberately does not touch the send, the cutoff or the trim. The route refuses
+   * this in production, and refuses it anywhere unless one of the mail overrides is
+   * set too — a forced rotation with the real sender would mail the install's owner a
+   * dump of whatever a test had just seeded.
+   */
+  force = false,
 ): Promise<RotationResult> {
   const deliver = send ?? sendMail;
   const admin = await mainAdmin();
@@ -89,10 +103,12 @@ export async function rotateAuditLogIfDue(
   // DST, which is not worth re-deriving here.
   const { start: localMidnight } = zonedDayBounds(now, admin.timezone);
 
-  const alreadyToday = await prisma.activityLog.findFirst({
-    where: { action: "audit.rotate", timestamp: { gte: localMidnight } },
-    select: { id: true },
-  });
+  const alreadyToday = force
+    ? null
+    : await prisma.activityLog.findFirst({
+        where: { action: "audit.rotate", timestamp: { gte: localMidnight } },
+        select: { id: true },
+      });
   if (alreadyToday) return { ran: false, reason: "already rotated today" };
 
   // Only entries from before this rotation started, so anything written while the

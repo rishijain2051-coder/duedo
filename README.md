@@ -301,6 +301,14 @@ It also copies the existing log out and puts it back, so a run can't cost you hi
 node --env-file=.env scripts/smoke-audit-rotate.mjs
 ```
 
+Rotation happens once a calendar day, so on a database this install's production cron
+also rotates, the day is spent from just after midnight and this suite could only pass
+in the window before the first real tick. `?forceAuditRotate=1` skips that day check —
+dev-only, and refused unless `failAuditMail=1` or `fakeAuditMail=1` is set too, so a
+forced rotation can never send real mail. The suite also leaves one rotation marker in
+place while it runs: emptying the log removed production's own marker, so its next tick
+found no rotation for today and mailed the owner a dump of the suite's fake rows.
+
 Spending insights — the totals, and more importantly the scoping. These routes read
 `ReminderHistory` rather than `Reminder`, so they bypass `lib/ownership.ts` entirely; a
 missing clause leaks money rather than throwing. Also covers the month close and the

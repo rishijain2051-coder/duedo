@@ -19,11 +19,22 @@
 // The third is the one that would have saved those 188 rows. A guard you can override
 // is a guard that will be overridden.
 //
-// One known flake, and only under SMOKE_FORCE=1 against the live database: rotation
-// happens once a day, and production's own cron tick shares this database. If a real tick
-// lands between this suite's cleanup and section 4, it writes the day's marker first and
-// section 4 correctly reports "already rotated today". Re-run it. Pointing DATABASE_URL at
-// a scratch database — which is what the guard is asking for — removes the race entirely.
+// Two things make this runnable against a database production is also rotating, which it
+// previously was not:
+//
+//   * `?forceAuditRotate=1` skips the once-a-day check. Rotation happens once per calendar
+//     day and production's cron does it just after midnight, so for the next 23 hours
+//     every assertion expecting a rotation failed — the suite was only ever green in the
+//     window before the first real tick of the day.
+//   * cleanup() leaves one `audit.rotate` row dated earlier today. That was the actual
+//     hazard: emptying the log removed production's marker, so its next tick found no
+//     rotation for today, mailed the install's owner a dump of this suite's fake rows and
+//     spent the day's real rotation on them. With the marker in place production stands
+//     down for the whole run, and the suite gets past it by forcing instead.
+//
+// The forced rotation is refused unless a mail override is set too, so it can never send
+// real mail. Section 5 deliberately does *not* force, which is what keeps the once-a-day
+// rule itself under test.
 
 import { Prisma, PrismaClient } from "@prisma/client";
 import { readFileSync } from "node:fs";
@@ -45,6 +56,12 @@ const KEEP = Number(
 );
 /** Enough over the tail that the trim has something to remove. */
 const SEEDED = KEEP + 12;
+/**
+ * The one row cleanup() leaves behind: a marker saying today has been rotated, which is
+ * what stops production's cron rotating for real in the middle of this run. It sits in
+ * every count taken before section 4's rotation sweeps it up with the rest.
+ */
+const GUARD = 1;
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -84,6 +101,29 @@ async function holdRealLog() {
 async function cleanup() {
   await prisma.activityLog.deleteMany({});
   await prisma.user.deleteMany({ where: { email: ADMIN } });
+}
+
+/**
+ * Tells production's cron the day is already done.
+ *
+ * Dated five minutes ago, which puts it inside today in the admin's timezone — so
+ * rotateAuditLogIfDue stands down for anyone who doesn't force — and older than every
+ * row seedLog() writes, so it is trimmed away with them rather than surviving in the
+ * tail and shifting the assertions about which entries are kept.
+ *
+ * The five minutes is the one assumption here: run this suite within five minutes of
+ * the admin's local midnight and the marker lands in yesterday, where it stops standing
+ * production down. Nothing breaks, it just becomes racy again for that one run.
+ */
+async function standDownProductionCron() {
+  await prisma.activityLog.create({
+    data: {
+      action: "audit.rotate",
+      entity: "audit",
+      timestamp: new Date(Date.now() - 5 * 60_000),
+      detail: { note: "placeholder written by smoke-audit-rotate" },
+    },
+  });
 }
 
 /**
@@ -136,6 +176,7 @@ await holdRealLog();
 
 try {
   await cleanup();
+  await standDownProductionCron();
 
   // The dump goes to the install's owner — the account holding isRootAdmin.
   await prisma.user.create({
@@ -154,19 +195,29 @@ try {
   // ────────────────────────────────────────────────────────────────────────────
   console.log("\n1. A failed send deletes nothing");
   await seedLog(SEEDED);
-  check("seeded", await prisma.activityLog.count(), SEEDED);
+  check("seeded", await prisma.activityLog.count(), SEEDED + GUARD);
 
-  const failed = await tick("?failAuditMail=1");
+  const failed = await tick("?failAuditMail=1&forceAuditRotate=1");
   check("the rotation reports it did not run", failed.audit?.ran, false);
   check(
     "and says the mail was the problem",
     /could not be emailed/.test(failed.audit?.reason ?? ""),
     true,
   );
-  check("every row survived", await prisma.activityLog.count(), SEEDED);
-  check("no rotation marker was written",
-    await prisma.activityLog.count({ where: { action: "audit.rotate" } }), 0);
+  check("every row survived", await prisma.activityLog.count(), SEEDED + GUARD);
+  // Still only the placeholder. A failed send must not leave a marker behind, or the
+  // day would count as done and the rows it refused to delete would never be mailed.
+  check("no new rotation marker was written",
+    await prisma.activityLog.count({ where: { action: "audit.rotate" } }), GUARD);
   check("dispatch itself was unaffected", failed.ran, true);
+
+  console.log("\n   forcing a rotation cannot send real mail");
+  const forcedAlone = await fetch(`${BASE}/api/cron/dispatch?forceAuditRotate=1`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${process.env.CRON_SECRET}` },
+  });
+  check("forceAuditRotate on its own is a 400", forcedAlone.status, 400);
+  check("and nothing was rotated", await prisma.activityLog.count(), SEEDED + GUARD);
 
   console.log("\n2. Time travel never triggers a real rotation");
   // ?now= exists so the engine's lead/due/overdue spacing can be tested without
@@ -178,13 +229,17 @@ try {
   const travelled = await tick(`?now=${encodeURIComponent(future)}`);
   check("the rotation stands down", travelled.audit?.ran, false);
   check("saying why", travelled.audit?.reason, "skipped: the clock is overridden");
-  check("and the log is untouched", await prisma.activityLog.count(), SEEDED);
+  check("and the log is untouched", await prisma.activityLog.count(), SEEDED + GUARD);
   check("while dispatch still time-travelled", travelled.ran, true);
 
   console.log("\n3. Retrying after a failure still has everything to send");
-  const failedAgain = await tick("?failAuditMail=1");
+  const failedAgain = await tick("?failAuditMail=1&forceAuditRotate=1");
   check("still refuses to delete", failedAgain.audit?.ran, false);
-  check("rows intact after a second failure", await prisma.activityLog.count(), SEEDED);
+  check(
+    "rows intact after a second failure",
+    await prisma.activityLog.count(),
+    SEEDED + GUARD,
+  );
 
   console.log("\n   the two overrides are mutually exclusive");
   const both = await fetch(
@@ -200,11 +255,11 @@ try {
   // which meant the branch that actually removes rows was never covered by a normal
   // run — and it could not be: the test admin's address is on a reserved domain, and
   // lib/mail.ts refuses those, so the real sender always reports failure here.
-  const ok = await tick("?fakeAuditMail=1");
+  const ok = await tick("?fakeAuditMail=1&forceAuditRotate=1");
   check("the rotation ran", ok.audit?.ran, true);
   {
-    check("every row went into the dump", ok.audit?.rowsMailed, SEEDED);
-    check("only the surplus was trimmed", ok.audit?.rowsDeleted, SEEDED - KEEP);
+    check("every row went into the dump", ok.audit?.rowsMailed, SEEDED + GUARD);
+    check("only the surplus was trimmed", ok.audit?.rowsDeleted, SEEDED + GUARD - KEEP);
     check("the tail was kept", ok.audit?.keptTail, KEEP);
     // Asserted as the rule, not as a literal address. Under SMOKE_FORCE=1 the real
     // owner is still in the table alongside this suite's admin, and the dump belongs
@@ -234,6 +289,9 @@ try {
     );
 
     console.log("\n5. It happens once a day, not once a minute");
+    // No forceAuditRotate here, deliberately: this is the once-a-day rule itself, and
+    // the marker it must respect is the one section 4 just wrote. Forcing everything
+    // for convenience would leave the rule with no test at all.
     const again = await tick("?fakeAuditMail=1");
     check("a later tick the same day is skipped", again.audit?.ran, false);
     check("for the right reason", again.audit?.reason, "already rotated today");
