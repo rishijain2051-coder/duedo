@@ -136,8 +136,15 @@ to the table for no benefit. Offline they report that plainly instead.
 - Every new mutation gets an isolation assertion in `smoke-security` or `smoke-family`
   before it ships.
 - No new runtime dependency without a reason that survives the bundle cost.
+- **`tsc --noEmit` is not the gate; `npm run build` is.** `tsc` passed clean on a JSX
+  comment placed as the second child of a ternary branch — invalid JSX that SWC rejects
+  outright — and the file stayed broken across three edits before a page 500'd and gave
+  it away. The two parsers do not agree, and only the one Vercel uses matters.
 - Restart `next dev` after `prisma generate` — a running server holds the old client, and a
   new column then reads as undefined while writes fail silently.
+- Don't edit `lib/` while a suite is running against `next dev`. Fast Refresh recompiles
+  mid-run, so a momentarily broken file fails whatever section is in flight — which reads
+  exactly like a regression in the code under test.
 - `public/sw.js` has no build step, no types and no lint. `smoke-offline` parses it;
   editing it without running that suite is how push delivery breaks silently.
 - Renaming a cache in `public/sw.js` is the only way a bad stored copy — including
