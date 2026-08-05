@@ -5,7 +5,7 @@
 | Phase | Commit | State |
 | --- | --- | --- |
 | 1 — spending awareness | `55ab5d8` | live |
-| 2 — family accountability, packs, escalation | `eb66af7` | live |
+| 2 — family accountability, packs, escalation | `eb66af7` | live, packs since removed |
 | 3a — open and read offline | `0aeb9ad` | live |
 | 3b — queue writes made offline | this commit | live |
 
@@ -106,6 +106,12 @@ to the table for no benefit. Offline they report that plainly instead.
 
 ## Deliberately not built
 
+- **Starter packs, at all.** Built in phase 2 and removed afterwards. Four curated
+  lists of household paperwork sound helpful and are mostly guesswork: they arrive with
+  amounts nobody's household matches and dates a pack cannot know, so every item needs
+  editing anyway. That is more work than typing the two or three reminders someone
+  actually wants, and it left a screen of choices in front of a person whose only goal
+  was to add one thing.
 - **Community-shared packs.** Hosting lists other people wrote means moderation and a
   report path: a product, not a feature of this one.
 - **Financial-year reporting, PDF export, accounting semantics.** Not what this app is for.

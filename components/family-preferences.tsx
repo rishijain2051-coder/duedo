@@ -18,11 +18,23 @@ import { api, type FamilyFlags } from "@/services/api";
  * on, so by default it is completion counts with no ordering and no streaks. Otherwise the
  * one message that arrives unasked would be the one containing what you chose to hide.
  */
-const SWITCHES: { key: keyof FamilyFlags; label: string; hint: string }[] = [
+/**
+ * `whenOff` exists because a hint that describes one state is read as the current state.
+ * This switch's hint was the fixed string "Off: everyone sees their own numbers, in
+ * joining order." — shown with the switch on, it told the head their household was not
+ * being ranked while it was. The toggle was right and the sentence beside it wasn't.
+ */
+const SWITCHES: {
+  key: keyof FamilyFlags;
+  label: string;
+  hint: string;
+  whenOff?: string;
+}[] = [
   {
     key: "showRanking",
     label: "Order members by score",
-    hint: "Off: everyone sees their own numbers, in joining order.",
+    hint: "Members are listed highest score first.",
+    whenOff: "Everyone sees their own numbers, in joining order.",
   },
   {
     key: "showStreaks",
@@ -93,7 +105,9 @@ export function FamilyPreferences({
         >
           <span className="min-w-0">
             <span className="block text-sm">{s.label}</span>
-            <span className="mt-0.5 block text-xs text-muted-foreground">{s.hint}</span>
+            <span className="mt-0.5 block text-xs text-muted-foreground">
+              {flags[s.key] === true ? s.hint : (s.whenOff ?? s.hint)}
+            </span>
           </span>
           <span className="relative mt-0.5 inline-flex shrink-0">
             {busy === s.key && (

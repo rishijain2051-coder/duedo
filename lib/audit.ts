@@ -21,8 +21,6 @@ export type AuditAction =
   | "user.pin.change"
   /** The install changed hands. Rare, and the most consequential entry here. */
   | "user.root.transfer"
-  /** A starter pack was imported. Worth recording: it creates a dozen rows at once. */
-  | "template.import"
   /** Someone claimed a shared reminder. The one accountability act worth a trail. */
   | "reminder.acknowledge"
   // families

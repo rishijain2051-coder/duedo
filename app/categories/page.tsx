@@ -1,56 +1,70 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useMemo, useState } from "react";
 import { FolderPlus, Pencil, Trash2, Loader2 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
-import { Field, Input } from "@/components/ui/form";
+import { Field, Input, Select } from "@/components/ui/form";
+import { useApp } from "@/components/app-context";
+import { useCached } from "@/lib/cache";
 import { api } from "@/services/api";
 import type { Category, Reminder } from "@/types";
 
 const DEFAULT_COLOR = "#3b82f6";
 
+/** Stable identities, so an empty result doesn't invalidate the memo every render. */
+const NO_CATEGORIES: Category[] = [];
+const NO_REMINDERS: Reminder[] = [];
+
 export default function CategoriesPage() {
-  const [categories, setCategories] = useState<Category[]>([]);
-  const [reminders, setReminders] = useState<Reminder[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { families, scope } = useApp();
+
+  // Cached like every other page, so this one also paints instantly and still shows
+  // something with no connection. It was the last page doing a bare fetch, which
+  // offline meant an error and an empty grid where the rest of the app carried on.
+  const {
+    data,
+    loading,
+    error: loadError,
+    refresh: load,
+  } = useCached("categories-page", async () => {
+    const [cats, rem] = await Promise.all([
+      api.categories.list(),
+      api.reminders.list(),
+    ]);
+    return { cats, rem };
+  });
+  const categories = data?.cats ?? NO_CATEGORIES;
+  const reminders = data?.rem ?? NO_REMINDERS;
   const [error, setError] = useState<string | null>(null);
 
   const [open, setOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [color, setColor] = useState(DEFAULT_COLOR);
+  /** Which list a new category belongs to: "" for personal, or a family id. */
+  const [owner, setOwner] = useState("");
   const [saving, setSaving] = useState(false);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const [cats, rem] = await Promise.all([
-        api.categories.list(),
-        api.reminders.list(),
-      ]);
-      setCategories(cats);
-      setReminders(rem);
-      setError(null);
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setLoading(false);
+  const counts = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const r of reminders) {
+      if (r.status !== "active") continue;
+      map.set(r.categoryId, (map.get(r.categoryId) ?? 0) + 1);
     }
-  }, []);
-
-  useEffect(() => {
-    load();
-  }, [load]);
-
-  const countFor = (id: string) =>
-    reminders.filter((r) => r.categoryId === id && r.status === "active").length;
+    return map;
+  }, [reminders]);
+  const countFor = (id: string) => counts.get(id) ?? 0;
 
   function openCreate() {
     setEditingId(null);
     setName("");
     setColor(DEFAULT_COLOR);
+    // Defaults to whichever list you are looking at elsewhere in the app, so the
+    // shared Mine/family switcher decides this too rather than it being a fresh
+    // question every time.
+    setOwner(scope === "mine" ? "" : scope);
     setOpen(true);
   }
 
@@ -58,6 +72,7 @@ export default function CategoriesPage() {
     setEditingId(c.id);
     setName(c.name);
     setColor(c.color ?? DEFAULT_COLOR);
+    setOwner(c.familyId ?? "");
     setOpen(true);
   }
 
@@ -70,8 +85,14 @@ export default function CategoriesPage() {
     setSaving(true);
     try {
       if (editingId) await api.categories.update(editingId, { name, color });
-      else await api.categories.create({ name, color });
+      // familyId is what was missing: this page lists personal *and* family
+      // categories, so without it every category created here was silently personal
+      // and a family could never gain a new one — only ever the eight it was seeded
+      // with. A family reminder can only be filed under its own family's categories,
+      // so that was a dead end with no error to explain it.
+      else await api.categories.create({ name, color, familyId: owner || null });
       setOpen(false);
+      setError(null);
       await load();
     } catch (e) {
       setError((e as Error).message);
@@ -100,9 +121,9 @@ export default function CategoriesPage() {
         </Button>
       </div>
 
-      {error && (
-        <div className="rounded-md border border-destructive/40 bg-destructive/10 px-4 py-2 text-sm text-red-400">
-          {error}
+      {(error ?? loadError) && (
+        <div className="rounded-md border border-destructive/40 bg-destructive/10 px-4 py-2 text-sm text-red-700 dark:text-red-400">
+          {error ?? loadError}
         </div>
       )}
 
@@ -173,6 +194,33 @@ export default function CategoriesPage() {
               autoFocus
             />
           </Field>
+          {/* Only on create. Moving a category between lists would leave its reminders
+              filed under something their own list can't see, so the field is shown as
+              a fact when editing rather than offered as a choice. */}
+          {editingId ? (
+            families.length > 0 && (
+              <p className="text-xs text-muted-foreground">
+                On{" "}
+                <span className="font-medium">
+                  {owner
+                    ? (families.find((f) => f.id === owner)?.name ?? "a family list")
+                    : "your personal list"}
+                </span>
+                . Which list a category belongs to can&apos;t be changed.
+              </p>
+            )
+          ) : families.length > 0 ? (
+            <Field label="Which list">
+              <Select value={owner} onChange={(e) => setOwner(e.target.value)}>
+                <option value="">Personal — only you</option>
+                {families.map((f) => (
+                  <option key={f.id} value={f.id}>
+                    {f.name} — everyone in it
+                  </option>
+                ))}
+              </Select>
+            </Field>
+          ) : null}
           <Field label="Color">
             <div className="flex items-center gap-3">
               <input

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Select } from "@/components/ui/form";
 import { useApp } from "@/components/app-context";
@@ -31,28 +32,51 @@ function summarise(detail: unknown): string {
     .join(" · ");
 }
 
+/**
+ * How many entries to ask for.
+ *
+ * This page asked for **three**, a number borrowed from the "last 3 dispatch runs" on
+ * the Health page, and offered no way to see more. Three is a reasonable glance at
+ * recent activity; it is not an audit log. The install had 286 entries and an admin
+ * looking for who read whose reminders could reach three of them — the daily emailed
+ * dump was the only way to actually read the trail.
+ */
+const PAGE = 50;
+/** The route's own cap, so "Show more" stops offering when there is nothing behind it. */
+const MAX = 500;
+
 export default function AdminAuditPage() {
   const { timeZone } = useApp();
   const [rows, setRows] = useState<AuditEntry[]>([]);
   const [action, setAction] = useState("");
+  const [take, setTake] = useState(PAGE);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      setRows(await api.admin.audit({ action: action || undefined, take: 3 }));
+      setRows(await api.admin.audit({ action: action || undefined, take }));
       setError(null);
     } catch (e) {
       setError((e as Error).message);
     } finally {
       setLoading(false);
     }
-  }, [action]);
+  }, [action, take]);
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Back to the first page when the filter changes, or switching filters after asking
+  // for more would keep the larger window and read as the filter having done nothing.
+  useEffect(() => {
+    setTake(PAGE);
+  }, [action]);
+
+  /** Only when the last request came back full — otherwise there is nothing more. */
+  const more = rows.length >= take && take < MAX;
 
   return (
     <div className="space-y-4">
@@ -85,6 +109,7 @@ export default function AdminAuditPage() {
           </CardContent>
         </Card>
       ) : (
+        <>
         <ul className="divide-y divide-border rounded-md border">
           {rows.map((r) => (
             <li key={r.id} className="px-3 py-2 text-sm">
@@ -101,6 +126,22 @@ export default function AdminAuditPage() {
             </li>
           ))}
         </ul>
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-xs text-muted-foreground">
+            {rows.length} {rows.length === 1 ? "entry" : "entries"}
+            {!more && rows.length > 0 && " — the whole trail"}
+          </p>
+          {more && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setTake((t) => Math.min(t + PAGE, MAX))}
+            >
+              Show more
+            </Button>
+          )}
+        </div>
+        </>
       )}
     </div>
   );

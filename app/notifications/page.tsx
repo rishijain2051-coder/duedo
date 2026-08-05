@@ -1,7 +1,16 @@
 "use client";
 
 import { useState } from "react";
-import { AlarmClock, Bell, BellRing, Check, CheckCheck, Loader2 } from "lucide-react";
+import {
+  AlarmClock,
+  AlertTriangle,
+  Bell,
+  BellRing,
+  Check,
+  CheckCheck,
+  Hand,
+  Loader2,
+} from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useApp } from "@/components/app-context";
@@ -10,7 +19,18 @@ import { api } from "@/services/api";
 import { formatDateTime } from "@/lib/format";
 import type { AppNotification } from "@/types";
 
-/** Visual treatment per notification kind — lead / due / overdue. */
+/**
+ * Visual treatment per notification kind.
+ *
+ * All five the app writes: lib/dispatch.ts sends lead, due, overdue and escalation, and
+ * the nudge route sends nudge. This listed only the first three, so a nudge from another
+ * member and an escalation to somebody outside the app both fell through to the `due`
+ * fallback and were labelled "Due" — a label that is simply untrue of them, on the two
+ * kinds that most need to stand out.
+ *
+ * The fallback is now neutral rather than "Due", so a kind added later shows up as
+ * unstyled instead of quietly claiming to be something it isn't.
+ */
 const KIND_STYLE: Record<
   string,
   { icon: typeof Bell; className: string; label: string }
@@ -18,6 +38,18 @@ const KIND_STYLE: Record<
   lead: { icon: BellRing, className: "bg-blue-500/15 text-blue-400", label: "Heads-up" },
   due: { icon: AlarmClock, className: "bg-orange-500/15 text-orange-400", label: "Due" },
   overdue: { icon: AlarmClock, className: "bg-red-500/15 text-red-400", label: "Overdue" },
+  escalation: {
+    icon: AlertTriangle,
+    className: "bg-red-600/20 text-red-300",
+    label: "Escalated",
+  },
+  nudge: { icon: Hand, className: "bg-violet-500/15 text-violet-400", label: "Nudge" },
+};
+
+const FALLBACK_STYLE = {
+  icon: Bell,
+  className: "bg-muted text-muted-foreground",
+  label: "Alert",
 };
 
 export default function NotificationsPage() {
@@ -96,7 +128,7 @@ export default function NotificationsPage() {
       ) : (
         <div className="space-y-2">
           {items.map((n) => {
-            const style = KIND_STYLE[n.kind] ?? KIND_STYLE.due;
+            const style = KIND_STYLE[n.kind] ?? FALLBACK_STYLE;
             const Icon = style.icon;
             return (
               <div

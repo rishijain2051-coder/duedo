@@ -21,7 +21,6 @@ import { Field, Input, Select, Textarea } from "@/components/ui/form";
 import { useApp } from "@/components/app-context";
 import { ScopeTabs } from "@/components/scope-tabs";
 import { ReminderThread } from "@/components/reminder-thread";
-import { TemplatePacksCard } from "@/components/template-packs";
 import { EscalationEditor } from "@/components/escalation-editor";
 import { useCached } from "@/lib/cache";
 import {
@@ -508,24 +507,25 @@ export default function RemindersPage() {
           <Loader2 className="mr-2 h-5 w-5 animate-spin" /> Loading…
         </div>
       ) : visible.length === 0 ? (
-        <div className="space-y-3">
-          <Card>
-            <CardContent className="py-8 text-center text-muted-foreground">
-              No reminders here yet.
-            </CardContent>
-          </Card>
-          {/* Where the packs earn their place: an empty list beside a "New reminder"
-              button asks the person to remember everything they came here to be
-              reminded about. Only on the empty state — once there is a list, this is
-              clutter, and it lives in Settings too. */}
-          {filter === "active" && (
-            <TemplatePacksCard
-              onNotice={setNotice}
-              onError={setError}
-              onImported={load}
-            />
-          )}
-        </div>
+        <Card>
+          {/* An empty state that says which empty it is. "No reminders here yet" under
+              the Completed filter reads as data loss; it only means nothing has been
+              completed on this list. */}
+          <CardContent className="space-y-3 py-8 text-center">
+            <p className="text-muted-foreground">
+              {filter === "active"
+                ? scope === "mine"
+                  ? "Nothing on your list yet."
+                  : `Nothing on ${activeFamily?.name ?? "this"} list yet.`
+                : `No ${filter} reminders on this list.`}
+            </p>
+            {filter === "active" && !noCategories && (
+              <Button variant="outline" size="sm" onClick={openCreate}>
+                <Plus className="mr-1 h-4 w-4" /> Add the first one
+              </Button>
+            )}
+          </CardContent>
+        </Card>
       ) : (
         <>
           {/* Phones get a plain list. Wrapping these cards in another Card just

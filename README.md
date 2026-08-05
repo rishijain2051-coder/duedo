@@ -130,14 +130,6 @@ Sessions are stored in the database, so **Settings → Security** can list every
 active login and sign any of them out, and an optional inactivity timeout is
 enforced server-side rather than merely honoured by the browser.
 
-## Starter packs
-
-An empty list beside a "New reminder" button asks you to remember everything you came
-here to be reminded about. Four packs — **Indian household**, **Homeowner**,
-**Family life**, **Freelancer** — cover the paperwork and payments that come round
-anyway. You get a checklist with real dates and amounts and untick what you don't want,
-and importing the same pack twice adds only what's missing.
-
 ## Spending
 
 Reminders carry an amount, so completing them records what you paid. **Spending** shows
@@ -319,7 +311,7 @@ pruned**:
 node --env-file=.env scripts/smoke-insights.mjs
 ```
 
-Family accountability, packs and escalation — mostly negative assertions, because
+Family accountability and escalation — mostly negative assertions, because
 everything here writes to a *shared* row: who may not acknowledge, comment, nudge or read
 a scoreboard. The escalation section drives `?now=` time travel, since it changes
 `planFires()` in `lib/dispatch.ts` — the one file where a bug means silence:

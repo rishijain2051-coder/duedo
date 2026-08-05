@@ -80,6 +80,8 @@ interface ReminderRow {
   user: Owner;
   family: { name: string } | null;
   category: { name: string } | null;
+  /** Only used by the escalation copy, which has to say whose job this was. */
+  assignedTo: { name: string } | null;
 }
 
 interface Fire {
@@ -240,6 +242,21 @@ function buildCopy(fire: Fire, timeZone: string): { title: string; body: string 
       body: `${formatTimeInZone(r.dueAt, timeZone)}${category}${amount}`,
     };
   }
+  // Escalation goes to somebody who is not the person who was supposed to do it — the
+  // family head, an admin, or a contact outside the app entirely. Worded like the
+  // overdue nag below, which is what it used to be, it read as their own reminder: no
+  // hint that it had escalated, and none of whose job it was. A landlord got a message
+  // indistinguishable from one of their own.
+  if (kind === "escalation") {
+    const whose = r.assignedTo?.name
+      ? `Assigned to ${r.assignedTo.name}`
+      : "Nobody has taken it on";
+    return {
+      title: `Still not done: ${r.title}${scope}`,
+      body: `${whose} — overdue by ${humanizeMinutes(-minutesUntilDue)}, was due ${formatInZone(r.dueAt, timeZone)}${amount}`,
+    };
+  }
+
   return {
     title: `Still due: ${r.title}${scope}`,
     body: `Overdue by ${humanizeMinutes(-minutesUntilDue)} — was due ${formatInZone(r.dueAt, timeZone)}${amount}`,
@@ -279,6 +296,10 @@ export async function dispatchDueReminders(
       user: { select: { id: true, overdueRepeatMins: true } },
       family: { select: { name: true } },
       category: { select: { name: true } },
+      // For the escalation wording only. One more join on a query that already makes
+      // three, and escalation is unreadable without it — "still not done" tells the
+      // family head nothing if it doesn't say whose job it was.
+      assignedTo: { select: { name: true } },
     },
   })) as ReminderRow[];
 

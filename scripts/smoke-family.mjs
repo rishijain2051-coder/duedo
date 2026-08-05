@@ -1,4 +1,4 @@
-// Family accountability, packs and escalation smoke suite:
+// Family accountability and escalation smoke suite:
 //   node --env-file=.env scripts/smoke-family.mjs
 //
 // Everything phase 2 added writes to a *shared* row, which is a different risk from the
@@ -145,8 +145,6 @@ try {
     ["POST", `/api/reminders/${shared.id}/nudge`],
     ["GET", `/api/families/${fam.id}/activity`],
     ["GET", `/api/families/${fam.id}/scoreboard`],
-    ["GET", "/api/templates"],
-    ["POST", "/api/templates/import"],
     ["GET", "/api/contacts"],
   ]) {
     // Body only on the verbs that accept one — fetch throws on a GET with a body.
@@ -406,54 +404,9 @@ try {
     1,
   );
 
-  console.log("\n6. Packs import once, whatever you press");
-  const packs = (await head.call("GET", "/api/templates?scope=mine")).data;
-  check("four packs are offered", packs.packs.length, 4);
-  const pack = packs.packs.find((p) => p.id === "in-household");
-  check("with resolved dates", typeof pack.items[0].dueAt, "string");
-  check("and nothing imported yet", pack.items.every((i) => !i.alreadyImported), true);
-
-  const keys = pack.items.slice(0, 3).map((i) => i.key);
-  const first = await head.call("POST", "/api/templates/import", {
-    pack: "in-household",
-    scope: "mine",
-    keys,
-  });
-  check("three created", first.data?.created, 3);
-  const second = await head.call("POST", "/api/templates/import", {
-    pack: "in-household",
-    scope: "mine",
-    keys,
-  });
-  check("a second import creates nothing", second.data?.created, 0);
-  check("and says they were already there", second.data?.skipped, 3);
-  check(
-    "an unknown pack is a 400",
-    (await head.call("POST", "/api/templates/import", { pack: "nope", scope: "mine" })).status,
-    400,
-  );
-  check(
-    "importing into someone else's family is 404",
-    (await outsider.call("POST", "/api/templates/import", {
-      pack: "in-household",
-      scope: fam.id,
-      keys,
-    })).status,
-    404,
-  );
-
-  console.log("\n   a family import lands on the shared list, addressed to everyone");
-  await head.call("POST", "/api/templates/import", {
-    pack: "homeowner",
-    scope: fam.id,
-    keys: [packs.packs.find((p) => p.id === "homeowner").items[0].key],
-  });
-  const imported = await prisma.reminder.findFirst({
-    where: { familyId: fam.id, templateKey: { not: null } },
-    select: { audience: true, familyId: true },
-  });
-  check("on the family list", imported?.familyId, fam.id);
-  check("addressed to the family", imported?.audience, "family");
+  // Starter packs used to be tested here. The feature is gone, and so are its routes —
+  // that /api/templates now 404s is asserted in smoke-routes, which is where a route
+  // that should not exist belongs.
 
   // ──────────────────────────────────────────────────────────────────────────────
   console.log("\n7. Outside contacts are not written to until they agree");

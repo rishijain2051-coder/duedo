@@ -180,8 +180,6 @@ try {
     ["GET", "/api/reports/dashboard"],
     ["GET", "/api/reports/overview"],
     ["GET", "/api/reports/recent-activity"],
-    ["GET", "/api/templates"],
-    ["POST", "/api/templates/import", { pack: "in-household", scope: "mine" }],
     ["POST", `/api/reminders/${GHOST}/acknowledge`],
     ["DELETE", `/api/reminders/${GHOST}/acknowledge`],
     ["GET", `/api/reminders/${GHOST}/comments`],
@@ -238,8 +236,6 @@ try {
     ["GET", "/api/push/test"],
     ["POST", "/api/admin/overview"],
     ["POST", "/api/insights"],
-    ["PUT", "/api/templates"],
-    ["GET", "/api/templates/import"],
     ["GET", `/api/reminders/${GHOST}/nudge`],
     ["POST", `/api/families/${GHOST}/activity`],
     ["POST", "/api/insights/export"],
@@ -255,6 +251,12 @@ try {
     (await anon("GET", `/api/families/${GHOST}/requests`)).status,
     404,
   );
+  // Starter packs were removed. Same reasoning as the line above: a leftover route
+  // would answer 401 rather than 404, and a client still calling it would look like an
+  // auth problem instead of a call to something that no longer exists.
+  for (const path of ["/api/templates", "/api/templates/import"]) {
+    check(`${path} is gone`, (await anon("GET", path)).status, 404);
+  }
 
   // ────────────────────────────────────────────────────────────────────────────
   console.log("\n4. Registration and sign-in validation");

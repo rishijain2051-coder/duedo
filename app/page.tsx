@@ -58,7 +58,9 @@ export default function DashboardPage() {
       tone: "text-orange-500",
     },
     {
-      label: "Overdue",
+      // Every list you can see, not only what is yours — see the note on the subtitle
+      // above. The label says so, because the number is otherwise read as personal.
+      label: "Overdue on your lists",
       value: stats?.overdue ?? 0,
       icon: Clock,
       tone: "text-red-500",
@@ -79,12 +81,19 @@ export default function DashboardPage() {
           <h2 className="truncate text-xl font-bold tracking-tight md:text-3xl">
             {user ? `Hi ${user.name.split(" ")[0]}` : "Dashboard"}
           </h2>
+          {/* `outstanding` is what is addressed to *you*; `overdue` counts everything
+              overdue on every list you can see. They answer different questions, and
+              side by side with no hint of that this line read "Nothing due right now"
+              directly above a red "Overdue 2" — which looks like a broken page rather
+              than two reminders someone else is on the hook for. */}
           <p className="truncate text-xs text-muted-foreground md:text-sm">
             {loading
               ? "…"
               : stats?.outstanding
                 ? `${stats.outstanding} needing attention now`
-                : "Nothing due right now"}
+                : stats?.overdue
+                  ? `Nothing for you — ${stats.overdue} overdue for someone else`
+                  : "Nothing due right now"}
           </p>
         </div>
         <Link href="/reminders" className="shrink-0">

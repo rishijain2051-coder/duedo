@@ -262,20 +262,27 @@ export default function AdminAccountsPage() {
                         <X className="mr-1 h-3.5 w-3.5" /> Reject
                       </Button>
                     )}
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      disabled={busy !== null}
-                      onClick={() =>
-                        api.users
-                          .setRole(u.id, u.role === "admin" ? "member" : "admin")
-                          .then(load)
-                          .then(() => setNotice(`${u.name}'s role updated.`))
-                          .catch((e) => setError((e as Error).message))
-                      }
-                    >
-                      {u.role === "admin" ? "Make member" : "Make admin"}
-                    </Button>
+                    {/* Only on an account that can actually sign in. Offered on a
+                        rejected or unconfirmed one it did nothing visible — the role
+                        cannot be used until the account is active — and left a trap:
+                        whoever activated them later would be handing out admin without
+                        knowing it had been granted. */}
+                    {u.status === "active" && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={busy !== null}
+                        onClick={() =>
+                          api.users
+                            .setRole(u.id, u.role === "admin" ? "member" : "admin")
+                            .then(load)
+                            .then(() => setNotice(`${u.name}'s role updated.`))
+                            .catch((e) => setError((e as Error).message))
+                        }
+                      >
+                        {u.role === "admin" ? "Make member" : "Make admin"}
+                      </Button>
+                    )}
                     <Button
                       size="sm"
                       variant="outline"

@@ -42,11 +42,46 @@ export default function AdminOverviewPage() {
   // Deliberately not a problem any more. Pending accounts are waiting on their own
   // inbox, not on an admin — listing them under "needs attention" asked someone to
   // act on something they can't do anything about.
+  /**
+   * The labels say "active", because the numbers are.
+   *
+   * They read "Accounts 5" and "Reminders 6" on an install holding 7 accounts and 8
+   * reminders — an inventory panel quietly under-reporting the inventory. The active
+   * counts are the more useful figure, so they stay; what changed is that they no
+   * longer claim to be totals, and the rest is in the hint instead of nowhere. A
+   * rejected account in particular had no way of showing up on this page at all.
+   */
+  const rest = (parts: [number, string][]) =>
+    parts
+      .filter(([n]) => n > 0)
+      .map(([n, word]) => `${n} ${word}`)
+      .join(" · ");
+
   const tiles = [
-    { label: "Accounts", value: data.users.active, hint: `${data.users.pending} unconfirmed` },
+    {
+      label: "Active accounts",
+      value: data.users.active,
+      hint:
+        rest([
+          [data.users.pending, "unconfirmed"],
+          [data.users.rejected, "rejected"],
+        ]) || `${data.users.total} in total`,
+    },
     { label: "Families", value: data.families, hint: "" },
-    { label: "Reminders", value: data.reminders.active, hint: `${data.reminders.overdue} overdue` },
-    { label: "Devices", value: data.devices.total, hint: "" },
+    {
+      label: "Active reminders",
+      value: data.reminders.active,
+      hint:
+        rest([
+          [data.reminders.overdue, "overdue"],
+          [data.reminders.total - data.reminders.active, "done or archived"],
+        ]) || "none overdue",
+    },
+    {
+      label: "Devices",
+      value: data.devices.total,
+      hint: rest([[data.devices.blocked, "blocked"]]),
+    },
   ];
 
   return (

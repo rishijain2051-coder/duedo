@@ -54,7 +54,15 @@ export interface SendMailOptions {
  */
 const UNDELIVERABLE = /(^|\.)(invalid|test|localhost|example)$|(^|@)example\.(com|net|org)$/i;
 
-function isUndeliverable(address: string): boolean {
+/**
+ * Exported so a caller can tell this apart from a genuine send failure.
+ *
+ * sendMail() returns false for three different reasons — reserved domain, no
+ * transporter, refused by the server — and "Check the SMTP credentials" is the wrong
+ * advice for the first of them. Anyone whose account carries an @example.com address
+ * was being sent to debug working credentials.
+ */
+export function isUndeliverable(address: string): boolean {
   const domain = address.split("@")[1]?.trim().toLowerCase();
   return !domain || UNDELIVERABLE.test(domain);
 }

@@ -28,7 +28,6 @@ import { Field, Input, Select } from "@/components/ui/form";
 import { useApp } from "@/components/app-context";
 import { Credit } from "@/components/credit";
 import { FamilySettings } from "@/components/family-settings";
-import { TemplatePacksCard } from "@/components/template-packs";
 import { ExternalContactsCard } from "@/components/external-contacts";
 import {
   api,
@@ -498,9 +497,6 @@ export default function SettingsPage() {
           </CardContent>
         </Card>
       )}
-
-      {/* ---------------- Starter packs ---------------- */}
-      <TemplatePacksCard onNotice={flash} onError={setError} />
 
       {/* ---------------- Appearance ---------------- */}
       <Card>

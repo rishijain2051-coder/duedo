@@ -176,12 +176,16 @@ export default function AdminHealthPage() {
                       </p>
                       <p className="text-xs text-muted-foreground">{r.durationMs}ms</p>
                     </div>
+                    {/* The alert breakdown includes escalations. firedEscalation is
+                        recorded on every run precisely so this page can answer "why was
+                        somebody outside the app written to", and it was being shown on
+                        none of them — which left that question unanswerable here. */}
                     {r.error ? (
                       <p className="text-xs text-red-700 dark:text-red-400">{r.error}</p>
                     ) : (
                       <p className="text-xs text-muted-foreground">
                         {r.considered} considered · {r.firedLead}/{r.firedDue}/
-                        {r.firedOverdue} alerts · {r.recipients} sent
+                        {r.firedOverdue}/{r.firedEscalation} alerts · {r.recipients} sent
                       </p>
                     )}
                     <p className="text-xs text-muted-foreground">
@@ -201,7 +205,7 @@ export default function AdminHealthPage() {
                   <tr>
                     <th className="px-3 py-2 font-medium">When</th>
                     <th className="px-3 py-2 font-medium">Considered</th>
-                    <th className="px-3 py-2 font-medium">Lead/Due/Overdue</th>
+                    <th className="px-3 py-2 font-medium">Lead/Due/Overdue/Esc</th>
                     <th className="px-3 py-2 font-medium">Push</th>
                     <th className="px-3 py-2 font-medium">Email</th>
                     <th className="px-3 py-2 font-medium">Took</th>
@@ -217,7 +221,7 @@ export default function AdminHealthPage() {
                       <td className="px-3 py-2 text-xs text-muted-foreground">
                         {r.error
                           ? "—"
-                          : `${r.firedLead}/${r.firedDue}/${r.firedOverdue} · ${r.recipients} sent`}
+                          : `${r.firedLead}/${r.firedDue}/${r.firedOverdue}/${r.firedEscalation} · ${r.recipients} sent`}
                       </td>
                       <td className="px-3 py-2">
                         {r.pushesSent}

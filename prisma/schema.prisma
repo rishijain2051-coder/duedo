@@ -341,10 +341,6 @@ model Reminder {
   /// paths it did before escalation existed.
   escalation Json?
 
-  /// Which template pack item this came from, so importing a pack twice is a no-op and
-  /// the import screen can say what you already have.
-  templateKey String?
-
   /// Suppresses all alerts until this instant (set by the Snooze action).
   snoozedUntil DateTime? @db.Timestamptz
   /// Last overdue nag. A fact about the reminder's cycle, not about any one
@@ -364,7 +360,6 @@ model Reminder {
   @@index([familyId, status, dueAt])
   @@index([status, dueAt])
   @@index([assignedToId])
-  @@index([templateKey])
 }
 
 /// A comment on a family reminder — "I'll pay this on Monday" — so a shared list

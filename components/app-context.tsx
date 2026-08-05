@@ -207,13 +207,29 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
    * visit still waits rather than flashing an empty app.
    */
   useLayoutEffect(() => {
+    const cached = readCache<BootstrapPayload>(BOOT_CACHE_KEY, BOOT_CACHE_MAX_AGE_MS);
+
     // Read before paint too, so the list you were last looking at is the list that
     // appears — restoring it a frame later would show your personal reminders and then
     // replace them, which reads as a glitch.
+    //
+    // Checked against the cached membership first. A saved scope can name a family
+    // somebody has since left, and the effect below only corrects that once
+    // /api/bootstrap answers — which is a whole round trip during which every scoped
+    // page is asking about a family the API refuses. Reminders answer that with an
+    // empty list, but Categories and Spending answer 404, so the pages painted a red
+    // error and then quietly fixed themselves. With no cached payload there is nothing
+    // to check against, and nothing is rendered until bootstrap lands anyway.
     const savedScope = readCache<string>(SCOPE_CACHE_KEY);
-    if (savedScope) setScopeState(savedScope);
+    if (
+      savedScope &&
+      (savedScope === "mine" ||
+        !cached ||
+        cached.families.some((f) => f.id === savedScope))
+    ) {
+      setScopeState(savedScope);
+    }
 
-    const cached = readCache<BootstrapPayload>(BOOT_CACHE_KEY, BOOT_CACHE_MAX_AGE_MS);
     if (!cached) return;
     // Adopted from the cached identity as well as the fresh one, because offline is
     // exactly when the queue matters and the fresh payload may never arrive.

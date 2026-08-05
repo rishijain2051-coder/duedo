@@ -185,8 +185,6 @@ export interface Reminder {
   acknowledgedById?: string | null;
   /** Who to tell if it stays undone. Null on almost every reminder. */
   escalation?: EscalationStep[] | null;
-  /** Which starter-pack item this came from, if any. */
-  templateKey?: string | null;
   /** Bumped on every write; the offline sync uses it as the version token. */
   updatedAt?: string;
 }

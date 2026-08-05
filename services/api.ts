@@ -143,25 +143,6 @@ export interface YearInsights {
   detailFrom: string;
 }
 
-export interface PackItemView {
-  key: string;
-  title: string;
-  category: string;
-  recurrence: string;
-  leadOffsets: number[];
-  amount: number;
-  note: string | null;
-  dueAt: string;
-  /** The date is a stand-in — a birthday has no date a pack could know. */
-  datePlaceholder: boolean;
-  alreadyImported: boolean;
-}
-
-export interface TemplatePacks {
-  scope: string;
-  packs: { id: string; name: string; blurb: string; items: PackItemView[] }[];
-}
-
 export interface FamilyEvent {
   id: string;
   kind: "completed" | "commented";
@@ -564,15 +545,6 @@ export const api = {
     /** Just the counters — used by the badge sync, which needs nothing else. */
     dashboard: () => request<DashboardStats>("/reports/dashboard"),
     recentActivity: () => request<Activity[]>("/reports/recent-activity"),
-  },
-  templates: {
-    list: (scope: string) =>
-      request<TemplatePacks>(`/templates?scope=${encodeURIComponent(scope)}`),
-    import: (pack: string, scope: string, keys: string[]) =>
-      request<{ created: number; skipped: number; categoriesCreated: number }>(
-        "/templates/import",
-        { method: "POST", body: JSON.stringify({ pack, scope, keys }) },
-      ),
   },
   family: {
     activity: (id: string) => request<FamilyEvent[]>(`/families/${id}/activity`),
