@@ -57,6 +57,10 @@ are always on. What is **off until the head switches it on**: ordering members a
 each other, streak badges, and letting members nudge each other. A household that
 hasn't asked to be a league table isn't one.
 
+The head also gets a **monthly summary by email**, on by default. It carries only what is
+switched on above, so unless you change anything it is completion counts with no ordering
+and no streaks.
+
 Editing, reassigning and changing the audience stay with the creator and the head,
 because those change the thing for everyone.
 

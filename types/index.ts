@@ -90,6 +90,16 @@ export interface FamilySummary {
   createdAt: string;
   /** Only sent to the head — a member has no business handing the code out. */
   joinCode: string | null;
+  /**
+   * What this family has opted into. Head-controlled; every member sees the values,
+   * because the UI has to know which actions to offer before offering them.
+   */
+  flags: {
+    showRanking: boolean;
+    showStreaks: boolean;
+    allowNudges: boolean;
+    monthlyReportToHead: boolean;
+  };
   members: FamilyMemberSummary[];
 }
 

@@ -107,6 +107,21 @@ export async function GET() {
         role,
         createdAt: family.createdAt,
         joinCode: role === "head" ? family.joinCode : null,
+        /**
+         * What the family has opted into.
+         *
+         * Carried on every load rather than fetched with the scoreboard, because the
+         * reminders page needs `allowNudges` and has no scoreboard — and because the
+         * scoreboard never returned `monthlyReportToHead` at all, so the head's switch for
+         * it showed as on however it was actually set. Four booleans is a cheaper payload
+         * than a second request, and one source of truth beats two.
+         */
+        flags: {
+          showRanking: family.showRanking,
+          showStreaks: family.showStreaks,
+          allowNudges: family.allowNudges,
+          monthlyReportToHead: family.monthlyReportToHead,
+        },
         members: family.members.map((m) => ({
           id: m.user.id,
           name: m.user.name,

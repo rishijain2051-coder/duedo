@@ -91,7 +91,11 @@ export function EscalationEditor({
               >
                 {isFamily && <option value="assignee">the assignee again</option>}
                 {isFamily && <option value="head">the family head</option>}
-                <option value="admins">an admin</option>
+                {/* Not offered on a personal reminder. Escalating your own private thing to
+                    whoever administers the install is not a household workflow — it sends
+                    the title to people who have no part in it, and they have no way to opt
+                    out. On a family reminder the admin is plausibly a member. */}
+                {isFamily && <option value="admins">an admin</option>}
                 {usable.length > 0 && <option value="external">someone outside</option>}
               </Select>
               {step.notify === "external" && (
@@ -122,7 +126,9 @@ export function EscalationEditor({
         </ul>
       )}
 
-      {steps.length < MAX_STEPS && (
+      {/* Nothing to escalate *to* on a personal reminder with no outside contacts, so the
+          button is withheld rather than left to create a step the server refuses. */}
+      {steps.length < MAX_STEPS && (isFamily || usable.length > 0) && (
         <Button
           type="button"
           variant="outline"
@@ -136,7 +142,8 @@ export function EscalationEditor({
                 // second would silently never fire.
                 afterMins:
                   DELAYS[Math.min(DELAYS.length - 1, steps.length === 0 ? 2 : 3)].mins,
-                notify: isFamily ? "head" : "admins",
+                notify: isFamily ? "head" : "external",
+                ...(isFamily ? {} : { contactId: usable[0]?.id ?? "" }),
               },
             ])
           }

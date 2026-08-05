@@ -120,6 +120,14 @@ export default function CategoriesPage() {
               />
               <CardHeader className="pb-2 pl-6">
                 <CardTitle className="text-xl font-bold">{c.name}</CardTitle>
+                {/* Which list this belongs to.
+                    A family starts with the same default categories as a person, so
+                    "Utility Bills" appears twice the moment you join one — identical
+                    cards, different lists, and no way to tell which you were editing or
+                    which the reminder count belonged to. */}
+                <p className="text-xs text-muted-foreground">
+                  {c.family ? c.family.name : "Personal"}
+                </p>
               </CardHeader>
               <CardContent className="pl-6">
                 <p className="text-sm text-muted-foreground">

@@ -30,6 +30,11 @@ export type AuditAction =
   | "family.rename"
   /** Ranking, streaks, nudges or the monthly mail switched on or off by the head. */
   | "family.settings"
+  /**
+   * The monthly summary to a head. Doubles as the once-a-month guard, the same way
+   * audit.rotate does for the daily dump — see lib/family-report.ts.
+   */
+  | "family.report"
   | "family.code.rotate"
   | "family.join"
   | "family.member.remove"

@@ -18,7 +18,6 @@ import { useApp } from "@/components/app-context";
 import { FamilyActivity } from "@/components/family-activity";
 import { FamilyPreferences } from "@/components/family-preferences";
 import { api } from "@/services/api";
-import { useCached } from "@/lib/cache";
 import { formatDateTime } from "@/lib/format";
 import type { FamilySummary } from "@/types";
 
@@ -207,20 +206,7 @@ function FamilyBlock({
   const isHead = family.role === "head";
   const [rename, setRename] = useState("");
 
-  // The flags come back with the scoreboard rather than on FamilySummary, so the head's
-  // switches read them from there — one fewer field on a payload every page loads, for
-  // something only a head ever sees.
-  const board = useCached(`family-scoreboard-${family.id}`, () =>
-    api.family.scoreboard(family.id),
-  );
-  const flags = {
-    showRanking: board.data?.ranked ?? false,
-    showStreaks: board.data?.streaks ?? false,
-    allowNudges: board.data?.nudges ?? false,
-    // Not in the scoreboard payload — it is about mail, not display — so it shows as on,
-    // matching the column default, until the head changes it.
-    monthlyReportToHead: true,
-  };
+
 
   return (
     <div className="space-y-3 rounded-md border border-border p-3">
@@ -412,7 +398,7 @@ function FamilyBlock({
       {isHead && (
         <FamilyPreferences
           familyId={family.id}
-          initial={flags}
+          initial={family.flags}
           onNotice={onNotice}
           onError={onError}
         />

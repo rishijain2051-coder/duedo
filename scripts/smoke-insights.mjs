@@ -391,7 +391,33 @@ try {
   );
 
   // ──────────────────────────────────────────────────────────────────────────────
-  console.log("\n10. The year view reads closed months plus the live one");
+  console.log("\n10. The year view counts months that have NOT been closed yet");
+  // The bug this replaces: the year total read rollups plus the current month only, so any
+  // month holding detail but no rollup vanished from it — while the dashboard listed the
+  // very same payments. Two screens in one app disagreeing about the same money.
+  //
+  // Ann has rent history in this month and the two before it. Section 8 closed the older
+  // ones, so testing the un-closed path means removing those rollups first.
+  await prisma.monthlyRollup.deleteMany({ where: { scopeKey: `u:${ann.id}` } });
+  const unclosed = (await ann.call("GET", "/api/insights/year")).data;
+  check(
+    "all three months are counted",
+    unclosed.months.filter((m) => m.spent > 0).length,
+    3,
+  );
+  check("and the total includes them", unclosed.total, 14000.5 + 1000 + 3000);
+
+  console.log("\n   and closing them changes nothing");
+  await tick("?rollup=1");
+  const closedAgain = (await ann.call("GET", "/api/insights/year")).data;
+  check("the same total, from rollups this time", closedAgain.total, unclosed.total);
+  check(
+    "with no month double-counted",
+    closedAgain.months.filter((m) => m.spent > 0).length,
+    3,
+  );
+
+  console.log("\n11. The year view reads closed months plus the live one");
   const yr = (await ann.call("GET", "/api/insights/year")).data;
   check("twelve buckets", yr.months.length, 12);
   check("the newest is this month", yr.months[11].spent, 14000.5);

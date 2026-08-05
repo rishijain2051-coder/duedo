@@ -332,6 +332,25 @@ try {
     404,
   );
 
+  check("and it reports the mail setting too", board.monthlyReport, true);
+
+  console.log("\n   the flags ride the families payload, which is what the UI reads");
+  // They used to come only with the scoreboard, which the reminders page never fetches — so
+  // the Nudge button appeared for every family and 403'd, and the head's switch for the
+  // monthly mail showed as on however it was actually set.
+  const payload = (await member.call("GET", "/api/families")).data;
+  const seen = payload.find((f) => f.id === fam.id);
+  check("allowNudges is there", seen.flags.allowNudges, true);
+  check("and so is monthlyReportToHead", seen.flags.monthlyReportToHead, true);
+  await head.call("PATCH", `/api/families/${fam.id}`, { monthlyReportToHead: false });
+  check(
+    "turning it off is visible in the payload",
+    (await member.call("GET", "/api/families")).data.find((f) => f.id === fam.id).flags
+      .monthlyReportToHead,
+    false,
+  );
+  await head.call("PATCH", `/api/families/${fam.id}`, { monthlyReportToHead: true });
+
   await head.call("PATCH", `/api/families/${fam.id}`, { showStreaks: true });
   const withStreaks = (await member.call("GET", `/api/families/${fam.id}/scoreboard`)).data;
   check("switching streaks on reveals them", typeof withStreaks.members[0].streakWeeks, "number");
@@ -342,6 +361,51 @@ try {
   check("of both kinds", new Set(feed.map((e) => e.kind)).size, 2);
 
   // ──────────────────────────────────────────────────────────────────────────────
+  console.log("\n5b. The monthly summary actually goes, once");
+  // The switch for this existed and defaulted to on while nothing sent it — a setting that
+  // lied about what the app does. ?fakeAuditMail=1 stands in for the sender so nothing
+  // leaves the machine; ?rollup=1 forces the month check, which otherwise only runs in the
+  // first few days of a month.
+  await prisma.activityLog.deleteMany({
+    where: { action: "family.report", entityId: fam.id },
+  });
+  // Something assigned and settled last month, so there is a report worth sending.
+  const nowForReport = new Date();
+  const lastCycle = new Date(
+    Date.UTC(nowForReport.getUTCFullYear(), nowForReport.getUTCMonth() - 1, 10, 6),
+  );
+  await prisma.reminderHistory.create({
+    data: {
+      reminderId: overdue.id,
+      completedById: member.id,
+      amount: 100,
+      status: "completed",
+      cycleDueAt: lastCycle,
+      completedOn: new Date(lastCycle.getTime() + 3_600_000),
+    },
+  });
+
+  const firstReport = await tick("?rollup=1&fakeAuditMail=1");
+  check("it ran", firstReport.report?.ran, true);
+  check("and sent at least one", (firstReport.report?.sent ?? 0) >= 1, true);
+  check(
+    "with a marker recording it",
+    await prisma.activityLog.count({
+      where: { action: "family.report", entityId: fam.id },
+    }),
+    1,
+  );
+
+  const secondReport = await tick("?rollup=1&fakeAuditMail=1");
+  check("a second pass sends nothing", secondReport.report?.sent, 0);
+  check(
+    "and writes no second marker",
+    await prisma.activityLog.count({
+      where: { action: "family.report", entityId: fam.id },
+    }),
+    1,
+  );
+
   console.log("\n6. Packs import once, whatever you press");
   const packs = (await head.call("GET", "/api/templates?scope=mine")).data;
   check("four packs are offered", packs.packs.length, 4);

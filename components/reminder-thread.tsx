@@ -34,6 +34,14 @@ export function ReminderThread({
   const [comments, setComments] = useState<ReminderComment[] | null>(null);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
+  /**
+   * Messages shown *inside* the sheet.
+   *
+   * They used to go to the page's banner, which renders at the top of the reminders list —
+   * behind this modal. Pressing Nudge with nudges switched off therefore looked like
+   * nothing happened at all, and the explanation was under the sheet the whole time.
+   */
+  const [message, setMessage] = useState<{ text: string; bad: boolean } | null>(null);
 
   const id = reminder?.id ?? null;
 
@@ -75,8 +83,12 @@ export function ReminderThread({
       : reminder.audience === "assignee"
         ? (reminder.assignedToId ?? reminder.userId) === user?.id
         : Boolean(family?.members.some((m) => m.id === user?.id));
+  // `family.flags.allowNudges` is the piece that was missing: the route refuses when the
+  // household hasn't switched nudges on, so without it the button appeared for every
+  // family and came back 403.
   const nudgeable =
     Boolean(reminder.familyId) &&
+    family?.flags.allowNudges === true &&
     Boolean(reminder.assignedToId) &&
     reminder.assignedToId !== user?.id &&
     !reminder.acknowledgedAt &&
@@ -84,9 +96,12 @@ export function ReminderThread({
 
   async function act(key: string, fn: () => Promise<void>) {
     setBusy(key);
+    setMessage(null);
     try {
       await fn();
     } catch (e) {
+      setMessage({ text: (e as Error).message, bad: true });
+      // Still reported upwards, so the failure survives closing the sheet.
       onError((e as Error).message);
     } finally {
       setBusy(null);
@@ -96,6 +111,17 @@ export function ReminderThread({
   return (
     <Modal open onClose={onClose} title={reminder.title}>
       <div className="space-y-4">
+        {message && (
+          <div
+            className={`rounded-md border px-3 py-2 text-sm ${
+              message.bad
+                ? "border-destructive/40 bg-destructive/10 text-red-700 dark:text-red-400"
+                : "border-green-500/40 bg-green-500/10 text-green-700 dark:text-green-400"
+            }`}
+          >
+            {message.text}
+          </div>
+        )}
         {reminder.familyId && (
           <div className="space-y-2 rounded-md border border-border p-3">
             {claimedBy ? (
@@ -160,7 +186,7 @@ export function ReminderThread({
                   onClick={() =>
                     act("nudge", async () => {
                       const res = await api.reminders.nudge(reminder.id);
-                      onError(`Nudged ${res.nudged}.`);
+                      setMessage({ text: `Nudged ${res.nudged}.`, bad: false });
                     })
                   }
                 >

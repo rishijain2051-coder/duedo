@@ -3,6 +3,7 @@ import { dispatchDueReminders, recordFailedRun } from "@/lib/dispatch";
 import { rotateAuditLogIfDue } from "@/lib/audit-rotate";
 import { runMonthlyMaintenance } from "@/lib/rollup";
 import { advanceStreaks } from "@/lib/streaks";
+import { sendMonthlyReports } from "@/lib/family-report";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -141,6 +142,8 @@ async function handle(req: NextRequest) {
     let rollup: Awaited<ReturnType<typeof runMonthlyMaintenance>> | { error: string } | null =
       null;
     let streaks: Awaited<ReturnType<typeof advanceStreaks>> | { error: string } | null = null;
+    let report: Awaited<ReturnType<typeof sendMonthlyReports>> | { error: string } | null =
+      null;
     if (!nowParam) {
       try {
         rollup = await runMonthlyMaintenance(now, forceRollup);
@@ -154,9 +157,22 @@ async function handle(req: NextRequest) {
         console.error("[cron] streak advance failed:", e);
         streaks = { error: (e as Error).message };
       }
+      try {
+        // Same override as the rollup, and the same reason: it only does anything in the
+        // first days of a month, which a test can't wait for. `fakeAuditMail` doubles as
+        // "don't actually send" here too, so the suite can drive it without mailing anyone.
+        report = await sendMonthlyReports(
+          now,
+          fakeSend ? async () => true : undefined,
+          forceRollup,
+        );
+      } catch (e) {
+        console.error("[cron] monthly report failed:", e);
+        report = { error: (e as Error).message };
+      }
     }
 
-    return NextResponse.json({ ...summary, audit, rollup, streaks });
+    return NextResponse.json({ ...summary, audit, rollup, streaks, report });
   } catch (e) {
     console.error("[cron] dispatch failed:", e);
     // Recorded, not just logged: a dispatcher that has been throwing for a day

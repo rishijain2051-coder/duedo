@@ -48,9 +48,21 @@ export async function GET(req: NextRequest) {
         where: { scopeKey, month: { gte: windowStart, lt: monthStart } },
         orderBy: { month: "asc" },
       }),
+      // The whole window, not just this month.
+      //
+      // A month is only closed once the daily maintenance pass reaches it, so at any
+      // moment the recent months have detail and no rollup. Reading only rollups plus the
+      // current month therefore silently omitted them: the dashboard listed three
+      // payments while this view totalled one, and two screens in the same app disagreed
+      // about the same money. Each month below takes its rollup if it has one and its
+      // detail otherwise, so the figure is right whether or not the close has run.
       prisma.reminderHistory.findMany({
-        where: { ...where, completedOn: { gte: monthStart } },
-        select: { amount: true, reminder: { select: { categoryId: true } } },
+        where: { ...where, completedOn: { gte: windowStart } },
+        select: {
+          amount: true,
+          completedOn: true,
+          reminder: { select: { categoryId: true } },
+        },
       }),
     ]);
 
@@ -65,6 +77,9 @@ export async function GET(req: NextRequest) {
     }
 
     const byCategory = new Map<string, { name: string; spent: number }>();
+
+    /** Which months already have a rollup, so their detail must not be counted twice. */
+    const rolled = new Set(closed.map((r) => r.month.toISOString()));
 
     for (const row of closed) {
       const b = buckets.get(row.month.toISOString());
@@ -82,17 +97,25 @@ export async function GET(req: NextRequest) {
       byCategory.set(row.categoryKey, c);
     }
 
-    const liveBucket = buckets.get(monthStart.toISOString());
+    // Bucket starts newest-first, so the first one at or before a completion is its month.
+    const starts = [...buckets.values()].map((b) => b.month).reverse();
+    const bucketFor = (at: Date) =>
+      starts.find((s) => s <= at)?.toISOString() ?? null;
+
     for (const row of live) {
-      const key = row.reminder?.categoryId ?? "none";
-      if (liveBucket) {
-        liveBucket.spent += row.amount ?? 0;
-        liveBucket.completions += 1;
-      }
+      const key = bucketFor(row.completedOn);
+      // Either outside the window, or in a month the rollup has already accounted for.
+      if (!key || rolled.has(key)) continue;
+
+      const bucket = buckets.get(key)!;
+      bucket.spent += row.amount ?? 0;
+      bucket.completions += 1;
+
+      const cat = row.reminder?.categoryId ?? "none";
       const c =
-        byCategory.get(key) ?? { name: names.get(key) ?? "Uncategorised", spent: 0 };
+        byCategory.get(cat) ?? { name: names.get(cat) ?? "Uncategorised", spent: 0 };
       c.spent += row.amount ?? 0;
-      byCategory.set(key, c);
+      byCategory.set(cat, c);
     }
 
     const months = [...buckets.values()].map((b) => ({

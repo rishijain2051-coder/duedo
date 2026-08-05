@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
+import { useApp } from "@/components/app-context";
 import { api, type FamilyFlags } from "@/services/api";
 
 /**
@@ -51,12 +52,15 @@ export function FamilyPreferences({
   onNotice: (message: string) => void;
   onError: (message: string) => void;
 }) {
+  const { refreshFamilies } = useApp();
   const [flags, setFlags] = useState<Partial<FamilyFlags>>(initial);
   const [busy, setBusy] = useState<string | null>(null);
 
-  // The scoreboard response is the source of truth for two of these, and it is fetched
-  // by a sibling — so mirror whatever the parent hands down when it changes.
-  useEffect(() => setFlags(initial), [initial]);
+  // Compared by value, not by reference. `initial` is a fresh object on every render of
+  // the parent, so a reference check would overwrite an in-flight optimistic toggle with
+  // the stale value the moment anything else on the page re-rendered.
+  const signature = JSON.stringify(initial);
+  useEffect(() => setFlags(JSON.parse(signature)), [signature]);
 
   async function toggle(key: keyof FamilyFlags) {
     const next = !flags[key];
@@ -66,6 +70,10 @@ export function FamilyPreferences({
     setFlags((f) => ({ ...f, [key]: next }));
     try {
       await api.family.setFlags(familyId, { [key]: next });
+      // The families payload is what every other surface reads these from — the nudge
+      // button on the reminders page, most of all — so it has to be refreshed rather than
+      // left to go stale until the next full load.
+      await refreshFamilies();
       onNotice("Saved.");
     } catch (e) {
       setFlags((f) => ({ ...f, [key]: !next }));
