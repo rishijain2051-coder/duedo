@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo } from "react";
 import Link from "next/link";
 import {
   Activity as ActivityIcon,
@@ -13,6 +14,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useApp } from "@/components/app-context";
 import { useCached } from "@/lib/cache";
+import { projectReminders, useOutbox } from "@/lib/offline";
 import { api } from "@/services/api";
 import {
   formatCurrency,
@@ -22,6 +24,9 @@ import {
 } from "@/lib/format";
 import type { Activity, DashboardStats, Reminder } from "@/types";
 
+/** Stable identity, so an empty result doesn't invalidate the memo every render. */
+const NO_REMINDERS: Reminder[] = [];
+
 export default function DashboardPage() {
   const { user, timeZone } = useApp();
   // Seeded from localStorage, so the numbers and list are on screen before the
@@ -29,8 +34,15 @@ export default function DashboardPage() {
   // sorting and top-5 slice rather than shipping every active reminder.
   const { data, loading, error } = useCached("overview", api.reports.overview);
   const stats: DashboardStats | null = data?.stats ?? null;
-  const upcoming: Reminder[] = data?.upcoming ?? [];
   const activity: Activity[] = data?.activity ?? [];
+  // Projected like the other lists, so a bill completed offline stops appearing under
+  // "coming up". The counters above it can't be — they are aggregates the server
+  // computed — so they stay as last read, which the offline strip already accounts for.
+  const { items: queued } = useOutbox();
+  const upcoming: Reminder[] = useMemo(
+    () => projectReminders(data?.upcoming ?? NO_REMINDERS, queued),
+    [data?.upcoming, queued],
+  );
 
   const kpis = [
     {

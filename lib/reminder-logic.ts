@@ -1,8 +1,17 @@
 // Pure helpers shared by the reminder API routes.
 
 import { parseDueAt, LEAD_OFFSET_VALUES } from "./time";
-import { isAudience } from "./recipients";
-import { PRIORITY_OPTIONS, RECURRENCE_OPTIONS, REMINDER_STATUSES } from "@/types";
+// isAudience straight from @/types, not via lib/recipients which merely re-exports it:
+// that module imports prisma, and going through it made this whole file — including the
+// recurrence arithmetic — unreachable from a client component. The offline queue needs
+// computeNextDueAt to show a completed recurring reminder at its next date, and a second
+// copy of that rule would be a second thing to keep in step.
+import {
+  isAudience,
+  PRIORITY_OPTIONS,
+  RECURRENCE_OPTIONS,
+  REMINDER_STATUSES,
+} from "@/types";
 
 /**
  * Keeps a value only if it is one of the ones the app knows about.

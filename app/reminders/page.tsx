@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import {
   Plus,
@@ -24,6 +24,12 @@ import { ReminderThread } from "@/components/reminder-thread";
 import { TemplatePacksCard } from "@/components/template-packs";
 import { EscalationEditor } from "@/components/escalation-editor";
 import { useCached } from "@/lib/cache";
+import {
+  mintReminderId,
+  projectReminders,
+  sendOrQueue,
+  useOutbox,
+} from "@/lib/offline";
 import { api } from "@/services/api";
 import {
   formatCurrency,
@@ -94,8 +100,20 @@ export default function RemindersPage() {
     ]);
     return { rem, cats };
   });
-  const reminders = data?.rem ?? NO_REMINDERS;
+  // Anything queued while offline is laid over the list, so a bill marked paid looks
+  // paid. Without it the write is safely queued, the refetch behind it fails, the row
+  // sits there still due — and the user taps Complete again.
+  const { items: queued } = useOutbox();
   const categories = data?.cats ?? NO_CATEGORIES;
+  const reminders = useMemo(() => {
+    const projected = projectReminders(data?.rem ?? NO_REMINDERS, queued);
+    // A reminder created offline holds only the categoryId it was filed under — the
+    // joined category comes back with the server's copy. Resolved from the list already
+    // on screen so a new row shows "Bills" rather than an em dash.
+    return projected.map((r) =>
+      r.category ? r : { ...r, category: categories.find((c) => c.id === r.categoryId) },
+    );
+  }, [data?.rem, categories, queued]);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [filter, setFilter] = useState<StatusFilter>("active");
@@ -211,8 +229,36 @@ export default function RemindersPage() {
         // takes exactly the paths it did before escalation existed.
         escalation: form.escalation.length > 0 ? form.escalation : null,
       };
-      if (editingId) await api.reminders.update(editingId, payload);
-      else await api.reminders.create(payload);
+      if (editingId) {
+        // The version this edit was composed against. The server refuses the write if
+        // the reminder has moved on since — the one conflict that is undetectable
+        // afterwards, so it is the one that is refused rather than merged.
+        const basedOn = reminders.find((r) => r.id === editingId)?.updatedAt;
+        const queued = await sendOrQueue(
+          {
+            kind: "update",
+            reminderId: editingId,
+            label: `Edit “${form.title}”`,
+            payload: { ...payload, ...(basedOn ? { basedOn } : {}) },
+          },
+          () => api.reminders.update(editingId, { ...payload, basedOn }),
+        );
+        if (queued) setNotice("Saved on this device. It'll sync when you're back online.");
+      } else {
+        // The id is minted here rather than by the server, so a create made offline can
+        // be replayed onto its own row instead of making a second reminder.
+        const id = mintReminderId();
+        const queued = await sendOrQueue(
+          {
+            kind: "create",
+            reminderId: id,
+            label: `Add “${form.title}”`,
+            payload,
+          },
+          () => api.reminders.create({ ...payload, id }),
+        );
+        if (queued) setNotice("Saved on this device. It'll sync when you're back online.");
+      }
       setFormOpen(false);
       setError(null);
       await load();
@@ -228,10 +274,24 @@ export default function RemindersPage() {
     if (!completing) return;
     setSaving(true);
     try {
-      await api.reminders.complete(completing.id, {
+      const body = {
         amount: completeAmount ? Number(completeAmount) : undefined,
         remarks: completeRemarks || undefined,
-      });
+        // Which cycle this settles. Carried so a completion replayed later settles the
+        // occurrence the user actually saw, not whichever one is due by then — and so
+        // the server can tell a replay from a second person paying the same bill.
+        cycleDueAt: completing.dueAt,
+      };
+      const queued = await sendOrQueue(
+        {
+          kind: "complete",
+          reminderId: completing.id,
+          label: `Complete “${completing.title}”`,
+          payload: body,
+        },
+        () => api.reminders.complete(completing.id, body),
+      );
+      if (queued) setNotice("Marked done on this device. It'll sync when you're online.");
       setCompleting(null);
       setCompleteAmount("");
       setCompleteRemarks("");
@@ -248,9 +308,21 @@ export default function RemindersPage() {
     if (!snoozing) return;
     setSaving(true);
     try {
-      await api.reminders.snooze(snoozing.id, minutes);
       const label = SNOOZE_OPTIONS.find((o) => o.minutes === minutes)?.label;
-      setNotice(`"${snoozing.title}" snoozed for ${label}.`);
+      const queued = await sendOrQueue(
+        {
+          kind: "snooze",
+          reminderId: snoozing.id,
+          label: `Snooze “${snoozing.title}” for ${label}`,
+          payload: { minutes },
+        },
+        () => api.reminders.snooze(snoozing.id, minutes),
+      );
+      setNotice(
+        queued
+          ? `"${snoozing.title}" snoozed on this device — it'll sync when you're online.`
+          : `"${snoozing.title}" snoozed for ${label}.`,
+      );
       setSnoozing(null);
       await load();
     } catch (e) {
@@ -263,7 +335,10 @@ export default function RemindersPage() {
   async function remove(r: Reminder) {
     if (!confirm(`Delete "${r.title}"? This cannot be undone.`)) return;
     try {
-      await api.reminders.remove(r.id);
+      await sendOrQueue(
+        { kind: "delete", reminderId: r.id, label: `Delete “${r.title}”` },
+        () => api.reminders.remove(r.id),
+      );
       await load();
       await syncBadge();
     } catch (e) {
@@ -487,11 +562,19 @@ export default function RemindersPage() {
                         )}
                       </div>
                     </div>
-                    <span
-                      className={`shrink-0 text-xs font-semibold ${st.className}`}
-                    >
-                      {st.label}
-                    </span>
+                    <div className="shrink-0 text-right">
+                      <span className={`text-xs font-semibold ${st.className}`}>
+                        {st.label}
+                      </span>
+                      {/* The row reflects a change that hasn't reached the server. Said
+                          plainly, because a row that merely *looks* done is how someone
+                          ends up believing a bill was paid when nothing was sent. */}
+                      {r.pendingKinds && (
+                        <span className="block text-[11px] font-normal text-muted-foreground">
+                          waiting to sync
+                        </span>
+                      )}
+                    </div>
                   </div>
 
                   <div className="mt-2 flex items-center justify-between gap-2 border-t border-border/50 pt-1">
@@ -538,6 +621,11 @@ export default function RemindersPage() {
                         {r.title}
                         {isSnoozed(r) && (
                           <span className="ml-2 text-xs text-amber-500">snoozed</span>
+                        )}
+                        {r.pendingKinds && (
+                          <span className="ml-2 text-xs font-normal text-muted-foreground">
+                            waiting to sync
+                          </span>
                         )}
                         {r.familyId && (
                           <span className="block text-xs font-normal text-muted-foreground">

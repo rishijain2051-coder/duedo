@@ -8,6 +8,8 @@ import { Modal } from "@/components/ui/modal";
 import { useApp } from "@/components/app-context";
 import { api, type ReminderComment } from "@/services/api";
 import { formatDateTime } from "@/lib/format";
+import { isOfflineError } from "@/lib/net";
+import { sendOrQueue, useOutbox } from "@/lib/offline";
 import type { Reminder } from "@/types";
 
 /**
@@ -42,8 +44,10 @@ export function ReminderThread({
    * nothing happened at all, and the explanation was under the sheet the whole time.
    */
   const [message, setMessage] = useState<{ text: string; bad: boolean } | null>(null);
+  const { items: queued } = useOutbox();
 
   const id = reminder?.id ?? null;
+  const queuedNotes = queued.filter((m) => m.kind === "comment" && m.reminderId === id);
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -51,7 +55,14 @@ export function ReminderThread({
     try {
       setComments(await api.reminders.comments(id));
     } catch (e) {
-      onError((e as Error).message);
+      // Emptied rather than left null. `null` is the loading state, so a failed fetch
+      // used to spin forever — which offline is every single time you open this sheet.
+      setComments([]);
+      if (isOfflineError(e)) {
+        setMessage({ text: "Notes can't be loaded while you're offline.", bad: false });
+      } else {
+        onError((e as Error).message);
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
@@ -147,8 +158,27 @@ export function ReminderThread({
                   disabled={busy !== null}
                   onClick={() =>
                     act("ack", async () => {
-                      const res = await api.reminders.acknowledge(reminder.id);
-                      onChanged(res);
+                      const queued = await sendOrQueue(
+                        {
+                          kind: "acknowledge",
+                          reminderId: reminder.id,
+                          label: `Claim “${reminder.title}”`,
+                        },
+                        async () => onChanged(await api.reminders.acknowledge(reminder.id)),
+                      );
+                      if (queued) {
+                        // Shown as claimed straight away. The route is first-wins and
+                        // idempotent, so if somebody beat you to it the replay is simply
+                        // dropped and the next read shows their name instead.
+                        onChanged({
+                          acknowledgedAt: new Date().toISOString(),
+                          acknowledgedById: user?.id ?? null,
+                        });
+                        setMessage({
+                          text: "Saved on this device — it'll sync when you're online.",
+                          bad: false,
+                        });
+                      }
                     })
                   }
                 >
@@ -203,7 +233,7 @@ export function ReminderThread({
             <div className="flex items-center py-4 text-muted-foreground">
               <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Loading…
             </div>
-          ) : comments.length === 0 ? (
+          ) : comments.length === 0 && queuedNotes.length === 0 ? (
             <p className="py-2 text-sm text-muted-foreground">Nothing yet.</p>
           ) : (
             <ul className="max-h-60 space-y-2 overflow-y-auto">
@@ -232,6 +262,23 @@ export function ReminderThread({
                   <p className="mt-0.5 whitespace-pre-wrap break-words">{c.body}</p>
                 </li>
               ))}
+              {/* Written offline and still in the queue. Shown in the thread so the note
+                  is visible where it was written, and labelled so it isn't mistaken for
+                  something the rest of the family can already read. */}
+              {queuedNotes.map((m) => (
+                <li
+                  key={m.id}
+                  className="rounded-md border border-dashed bg-muted/20 px-3 py-2 text-sm"
+                >
+                  <div className="flex items-baseline justify-between gap-2">
+                    <span className="font-medium">You</span>
+                    <span className="text-xs text-muted-foreground">waiting to sync</span>
+                  </div>
+                  <p className="mt-0.5 whitespace-pre-wrap break-words">
+                    {String((m.payload as { body?: string }).body ?? "")}
+                  </p>
+                </li>
+              ))}
             </ul>
           )}
 
@@ -248,9 +295,20 @@ export function ReminderThread({
               disabled={busy !== null || draft.trim().length === 0}
               onClick={() =>
                 act("say", async () => {
-                  await api.reminders.comment(reminder.id, draft.trim());
+                  const body = draft.trim();
+                  const queued = await sendOrQueue(
+                    {
+                      kind: "comment",
+                      reminderId: reminder.id,
+                      label: `Note on “${reminder.title}”`,
+                      payload: { body },
+                    },
+                    () => api.reminders.comment(reminder.id, body),
+                  );
                   setDraft("");
-                  await load();
+                  // Queued notes render from the outbox below, so there is nothing to
+                  // refetch — and the refetch would fail anyway.
+                  if (!queued) await load();
                 })
               }
             >

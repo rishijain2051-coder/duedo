@@ -25,9 +25,19 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       throw new HttpError(400, `Snooze must be one of: ${ALLOWED.join(", ")} minutes.`);
     }
 
-    await assertReminderAction(id, user.id, "complete");
+    const reminder = await assertReminderAction(id, user.id, "complete");
 
-    const until = new Date(Date.now() + minutes * 60_000);
+    const asked = new Date(Date.now() + minutes * 60_000);
+    // Whichever silence lasts longer wins.
+    //
+    // Two people can snooze the same shared reminder, and a snooze queued offline
+    // arrives long after it was asked for. Taking the later value means a shorter
+    // request can't cut short a longer one already granted, and a stale replay is
+    // simply a no-op rather than something that un-snoozes a reminder somebody else
+    // just put off until tomorrow. "Not now" is safe to honour generously.
+    const existing = reminder.snoozedUntil;
+    const until = existing && existing > asked ? existing : asked;
+
     return prisma.reminder.update({
       where: { id },
       // lastNaggedAt is advanced too, so the overdue interval restarts from the

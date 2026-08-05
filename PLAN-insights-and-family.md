@@ -1,23 +1,19 @@
-# Plan — offline read and write with sync
+# Plan — built, and where it diverged
 
-**Status, 4 August 2026.** Phases 1 and 2 are built, deployed and live. Phase 3 is
-**deliberately on hold** — the app is already a PWA with a localStorage-cached shell, so
-the remaining gap is data rather than the app failing to open.
-
-The delivered halves are documented in the code and the README; what follows is what is
-left, plus the handful of places the build deviated from the original plan and why.
+**Status, 5 August 2026.** All three phases are built and live.
 
 | Phase | Commit | State |
 | --- | --- | --- |
 | 1 — spending awareness | `55ab5d8` | live |
 | 2 — family accountability, packs, escalation | `eb66af7` | live |
-| 3 — offline read and write with sync | — | **on hold** |
+| 3a — open and read offline | `0aeb9ad` | live |
+| 3b — queue writes made offline | this commit | live |
+
+Kept as a record of the decisions, because none of it is obvious from the code alone.
 
 ---
 
-## Where phases 1 and 2 deviated from the plan
-
-Recorded because none of it is obvious from the code alone.
+## Where phases 1 and 2 diverged
 
 **Streaks became counters, not a query.** The plan had them computed. They can't be:
 history is pruned at three months, so a computed weekly streak could never exceed about
@@ -51,81 +47,60 @@ guessing, and folding it into `firedOverdue` would have made that impossible.
 
 ---
 
-## Phase 3 — offline read and write with sync
+## Where phase 3 diverged
 
-Last on purpose: phases 1 and 2 added acknowledge, comment, nudge, import and escalation
-edits, and an outbox built first would have been retrofitted five times. That set is now
-stable, which is the precondition this phase was waiting for.
+**The snapshot stayed in localStorage; only the outbox went to IndexedDB.** The plan
+had two IndexedDB stores. IndexedDB is asynchronous, and the reason `useCached` paints
+instantly is that it reads localStorage *synchronously in a layout effect, before the
+browser paints* — moving the snapshot there would have traded the feature's main
+benefit for nothing. A household's reminders are tens of kilobytes, nowhere near the
+localStorage budget. So: one store, for the thing that actually needs durability.
 
-**Recommended shape: two commits.** Snapshot reads and the offline badge first — most of
-the felt benefit for a fraction of the risk — then the outbox behind a flag, so a sync
-problem can be switched off without losing the reads.
+**Page documents are cached network-first, not cache-first.** The plan said cache-first
+for the shell. The worker's original comment was right that a stale HTML document is a
+worse bug than a slow cold load — which is an argument against cache-first, not against
+caching. Network-first cannot serve a stale document while there is a connection, and
+falls back to a stored one only when the fetch fails.
 
-### Storage
+**"Serve any cached page as a shell" was wrong and was removed.** It was the first
+version, on the theory that the router would re-route on hydration. It doesn't: an App
+Router document carries the render of its own route, so answering `/insights` with the
+stored `/reminders` document showed the reminders page under the `/insights` URL. Found
+by walking it. A route never opened on this device now says so.
 
-Hand-rolled IndexedDB wrapper (~120 lines, no dependency), two stores:
+**Immutability is read from the response, not the path.** `next dev` serves the same
+`/_next/static` paths unhashed and `no-store`, so a path-prefix rule would have pinned
+the first chunk ever fetched and broken every later edit. Only assets the server marks
+`immutable` are cached.
 
-- `snapshot` — last known reminders / categories / families, per scope
-- `outbox` — queued mutations
+**A replay stops at a refusal only for the same reminder.** The plan said stop the whole
+queue at the first hard failure. That lets one rejected edit strand five unrelated
+completions behind it. Ordering only matters within a reminder — a create must land
+before the completion of the thing it created — so a refusal holds back later writes on
+that reminder and nothing else. A lost connection or a lapsed session still stops
+everything, because neither is about the item being sent.
 
-`lib/cache.ts`'s account-owner rule extends to both. The reason it exists there applies
-with more force to a store that survives a browser restart: without it, signing in as
-somebody else on a shared laptop paints the previous person's reminders.
+**A unique index on `(reminderId, cycleDueAt)` was added.** Not in the plan, and it
+fixes a live bug rather than an offline one: two people tapping Complete on the same
+shared bill in the same second both wrote a history row and the money was counted
+twice. The route checks first so the loser gets a message naming who won; the index is
+what makes the race impossible rather than unlikely.
 
-### Creates work offline for free
+**`lib/reminder-logic.ts` no longer imports `lib/recipients.ts`.** It only wanted
+`isAudience`, which `recipients.ts` re-exports from `@/types` — but `recipients.ts`
+imports prisma, which made the whole file, including the recurrence arithmetic,
+unreachable from a client component. The offline projection needs `computeNextDueAt` to
+show a completed recurring reminder at its next date, and a second copy of that rule
+would be a second thing to keep in step.
 
-`Reminder.id` is `@default(uuid())`, so the client can mint the id. Replaying a queued
-create is then an upsert on a known id and is idempotent with no server-side dedupe token.
+**Sign-out and the idle auto-lock now differ.** They were one path. Pressing Logout is a
+handover: the queue is cleared with the cache, and the user is warned first if anything
+would be lost. An idle lock is the same person coming back in a minute with nobody there
+to answer a prompt, so it keeps the queue. Signing in as a different account drops it.
 
-### Conflict rules — decisions, not an algorithm
-
-| Mutation | Rule | Why |
-| --- | --- | --- |
-| Create | Upsert on the client's id | Replay-safe; a retry can't duplicate |
-| Complete | **First completion wins.** A later queued one is dropped and the client told who got there first | Two people paying the same bill isn't a conflict to merge — and the second person needs to know it's already paid |
-| Snooze | Both applied, `snoozedUntil` takes the **later** value | "Not now" is safe to honour generously |
-| Edit | Last-write-wins, **refused** if the server's `updatedAt` is newer than the version the edit was based on — surfaced with both values | Silently overwriting someone's edit is the one outcome nobody can detect afterwards |
-| Delete | Wins over a concurrent edit | An edit to something deleted has nowhere to land |
-| Acknowledge | First wins, like completion — the route already behaves this way | Added since the plan was written; the API is already idempotent here |
-| Comment | Append-only, replay by client id | Two people writing notes is not a conflict at all |
-
-Every mutation carries the `updatedAt` it was based on. That column already exists and
-already changes on every write, so it is the version token — no new column. `Reminder` in
-`types/index.ts` now declares `updatedAt` for exactly this.
-
-### Replay
-
-In order, stopping at the first hard failure (4xx) and surfacing it; network and 5xx retry
-with backoff. A stuck outbox must be **visible and individually discardable** — a queue
-silently holding someone's completions is worse than being told the write failed.
-
-### Service worker
-
-`public/sw.js` gains a fetch handler: cache-first for shell and static, network-first for
-`/api`. **API GET responses are not cached** — the account-scoped leak risk is real, and
-the IndexedDB snapshot already covers the same need under our own key with our own clearing
-rules.
-
-This is the sticky part of the phase and the reason for splitting the commits: a bad
-service worker can survive a deploy and keep serving old code. `lib/update.ts` and the
-update banner already exist to detect a stale build, and they should be exercised
-deliberately as part of this work rather than trusted.
-
-### Tests
-
-Extract the sync engine as a pure module taking a storage interface and a transport, so
-`scripts/smoke-offline.mjs` can drive it under Node with a fake network:
-
-- replay is idempotent
-- the double-completion race resolves to first-wins
-- a stale edit is refused rather than applied
-- the outbox survives a simulated restart
-- a queued mutation for a server-side-deleted reminder is discarded with a message rather
-  than retried forever
-
-### Risk
-
-High, and inherent rather than positional — the only phase of the three where that is true.
+**`unacknowledge` and deleting a note are not queued.** Both are corrections to an
+action taken seconds earlier, they are rare, and each would have added a conflict case
+to the table for no benefit. Offline they report that plainly instead.
 
 ---
 
@@ -140,6 +115,12 @@ High, and inherent rather than positional — the only phase of the three where 
 - **Assign directly from a notification.** Impossible rather than declined: action buttons
   are fixed when a push is sent, so no picker can live inside one. The Assign action
   deep-links to the picker instead.
+- **Caching API responses in the service worker.** Per-account data under a key the app
+  doesn't control, on a device that may be shared. The snapshot covers the same need
+  under the cache-owner rule, with clearing rules this app decides.
+- **Background Sync.** Would replay the queue with the app closed, and is Chromium-only
+  — so the foreground path has to exist and be correct regardless. Adding it would mean
+  a second replay path that no test can drive.
 
 ## Standing constraints
 
@@ -151,4 +132,8 @@ High, and inherent rather than positional — the only phase of the three where 
 - No new runtime dependency without a reason that survives the bundle cost.
 - Restart `next dev` after `prisma generate` — a running server holds the old client, and a
   new column then reads as undefined while writes fail silently.
+- `public/sw.js` has no build step, no types and no lint. `smoke-offline` parses it;
+  editing it without running that suite is how push delivery breaks silently.
+- Renaming a cache in `public/sw.js` is the only way a bad stored copy — including
+  `offline.html` — is abandoned on devices that already have it.
 - `D:\prosys for kashish` stays untouched.

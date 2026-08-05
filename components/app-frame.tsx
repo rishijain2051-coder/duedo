@@ -8,6 +8,7 @@ import { Header } from "@/components/header";
 import { PushPrompt } from "@/components/push-prompt";
 import { UpdateBanner } from "@/components/update-banner";
 import { OfflineBar } from "@/components/offline-bar";
+import { OutboxBar } from "@/components/outbox-bar";
 
 export function AppFrame({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -35,6 +36,7 @@ export function AppFrame({ children }: { children: React.ReactNode }) {
           {/* Above the page content on every screen — notifications are the point
               of the app, so setting them up shouldn't require finding Settings. */}
           <OfflineBar />
+          <OutboxBar />
           <UpdateBanner />
           <PushPrompt />
           {children}

@@ -34,6 +34,35 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
     const existing = await assertReminderAction(id, user.id, "edit");
 
     const body = await readJson(req);
+
+    /**
+     * Last-write-wins, unless the writer is working from a version that has since
+     * been overtaken.
+     *
+     * `basedOn` is the updatedAt the edit was composed against — sent by a client
+     * replaying an edit it queued while offline, where minutes or days may have
+     * passed. Every other conflict in this app is detectable after the fact: a
+     * double completion shows two rows, a lost snooze shows the alert arriving. A
+     * silently overwritten edit shows nothing at all, which is why this is the one
+     * that is refused rather than merged.
+     *
+     * updatedAt already exists and already changes on every write, so it is the
+     * version token; no column was added for this.
+     */
+    if (body.basedOn !== undefined && body.basedOn !== null) {
+      const basedOn = new Date(String(body.basedOn));
+      if (Number.isNaN(basedOn.getTime())) {
+        throw new HttpError(400, "basedOn was not a date.");
+      }
+      // Millisecond precision on both sides, so an unchanged row compares equal.
+      if (existing.updatedAt.getTime() > basedOn.getTime()) {
+        throw new HttpError(
+          409,
+          "This reminder changed on another device after you edited it, so nothing was overwritten. Open it again to see the current version.",
+        );
+      }
+    }
+
     const data = sanitizeReminderInput(body, false, user.timezone, user.defaultTime);
     assertReminderFields(data, false);
     await assertReminderDestination(data, user.id, existing.familyId);

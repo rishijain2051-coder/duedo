@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db";
-import { HttpError, json, readJson } from "@/lib/http";
+import { clientId, HttpError, json, readJson } from "@/lib/http";
 import { findVisibleReminder } from "@/lib/ownership";
 
 export const runtime = "nodejs";
@@ -65,8 +65,28 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       throw new HttpError(400, `Keep it under ${MAX_LENGTH} characters.`);
     }
 
+    // An id minted by the client, so a note written offline can be replayed without
+    // saying the same thing twice. Comments are append-only and two people writing
+    // notes is not a conflict at all — the only thing worth guarding against here is
+    // one person's single note arriving twice.
+    const commentId = clientId(body.id);
+    if (commentId) {
+      const mine = await prisma.reminderComment.findFirst({
+        // Scoped to this reminder and this author: an id is not permission to
+        // overwrite, and this path can only ever return something already theirs.
+        where: { id: commentId, reminderId: id, authorId: user.id },
+        select: { id: true, body: true, createdAt: true },
+      });
+      if (mine) return { ...mine, author: user.name, self: true };
+    }
+
     const created = await prisma.reminderComment.create({
-      data: { reminderId: id, authorId: user.id, body: text },
+      data: {
+        reminderId: id,
+        authorId: user.id,
+        body: text,
+        ...(commentId ? { id: commentId } : {}),
+      },
       select: { id: true, body: true, createdAt: true },
     });
 

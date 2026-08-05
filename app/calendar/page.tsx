@@ -6,6 +6,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useApp } from "@/components/app-context";
 import { useCached } from "@/lib/cache";
+import { projectReminders, useOutbox } from "@/lib/offline";
 import { api } from "@/services/api";
 import { formatCurrency, formatTime, toDateKey } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -31,7 +32,13 @@ export default function CalendarPage() {
   // Cached: flipping between months shouldn't re-spinner, and a repeat visit
   // paints the grid before the request lands.
   const { data, loading } = useCached("reminders", api.reminders.list);
-  const reminders = data ?? NO_REMINDERS;
+  // Projected like the reminders list, so a bill completed offline moves to its next
+  // date here too rather than the two pages disagreeing about the same reminder.
+  const { items: queued } = useOutbox();
+  const reminders = useMemo(
+    () => projectReminders(data ?? NO_REMINDERS, queued),
+    [data, queued],
+  );
   const [cursor, setCursor] = useState(() => {
     const now = new Date();
     return new Date(now.getFullYear(), now.getMonth(), 1);

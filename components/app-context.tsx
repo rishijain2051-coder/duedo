@@ -14,6 +14,13 @@ import { api } from "@/services/api";
 import { clearCache, readCache, setCacheOwner, writeCache } from "@/lib/cache";
 import { isOfflineError } from "@/lib/net";
 import {
+  adoptOutbox,
+  flush as flushOutbox,
+  forgetOutbox,
+  pending as pendingWrites,
+  useOutboxFlush,
+} from "@/lib/offline";
+import {
   ensurePushSubscribed,
   registerServiceWorker,
   setBadge,
@@ -84,7 +91,8 @@ interface AppContextValue {
   refreshFamilies: () => Promise<void>;
   /** Re-reads the due/overdue count and repaints the Home Screen icon badge. */
   syncBadge: () => Promise<void>;
-  logout: () => Promise<void>;
+  /** `silent` is the idle auto-lock: no prompt, and unsent writes are kept. */
+  logout: (opts?: { silent?: boolean }) => Promise<void>;
 
   themeMode: ThemeMode;
   accent: AccentId;
@@ -207,6 +215,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     const cached = readCache<BootstrapPayload>(BOOT_CACHE_KEY, BOOT_CACHE_MAX_AGE_MS);
     if (!cached) return;
+    // Adopted from the cached identity as well as the fresh one, because offline is
+    // exactly when the queue matters and the fresh payload may never arrive.
+    void adoptOutbox(cached.user.id);
     setUser(cached.user);
     setSettings(cached.settings);
     setFamilies(cached.families);
@@ -224,6 +235,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         // Bound to the account, so a cached shell can never paint for the next person
         // on a shared browser.
         setCacheOwner(boot.user.id);
+        // Same rule as the cache, and it matters more here: a queued write replayed
+        // under somebody else's session would put one person's completion on another
+        // person's list.
+        void adoptOutbox(boot.user.id);
         writeCache(BOOT_CACHE_KEY, boot);
         setUser(boot.user);
         setSettings(boot.settings);
@@ -270,6 +285,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     })();
   }, [refreshSettings, refreshFamilies, syncBadge, router]);
 
+  // Sends anything queued while offline, on reconnect and on foreground.
+  useOutboxFlush();
+
   // Coming back to the app is the moment the badge is most likely to be stale.
   useEffect(() => {
     const onVisible = () => {
@@ -279,18 +297,51 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return () => document.removeEventListener("visibilitychange", onVisible);
   }, [syncBadge]);
 
-  const logout = useCallback(async () => {
-    try {
-      await api.auth.logout();
-    } catch {
-      /* ignore */
-    }
-    // Reminders are private, so cached copies must not outlive the session for
-    // whoever sits down at this browser next.
-    clearCache();
-    router.replace("/login");
-    router.refresh();
-  }, [router]);
+  /**
+   * `silent` is the idle auto-lock rather than someone pressing Logout.
+   *
+   * The two differ in what happens to unsent writes. Pressing Logout is a handover:
+   * the queue is cleared like the cache, and the user is warned first if anything
+   * would be lost. An idle lock is the same person coming back in a minute, and there
+   * is nobody there to warn — so the queue is left alone and replays when they sign
+   * back in. adoptOutbox() drops it if a *different* account signs in instead.
+   */
+  const logout = useCallback(
+    async ({ silent = false } = {}) => {
+      // One last attempt while there is still a session, so a change made moments ago
+      // isn't thrown away for the sake of tidiness.
+      try {
+        await flushOutbox();
+      } catch {
+        /* nothing queued, or still no connection */
+      }
+
+      if (!silent) {
+        const stranded = pendingWrites().length;
+        if (
+          stranded > 0 &&
+          !confirm(
+            `${stranded} ${stranded === 1 ? "change hasn't" : "changes haven't"} been sent yet, and signing out discards ${stranded === 1 ? "it" : "them"}. Sign out anyway?`,
+          )
+        ) {
+          return;
+        }
+      }
+
+      try {
+        await api.auth.logout();
+      } catch {
+        /* ignore */
+      }
+      // Reminders are private, so cached copies must not outlive the session for
+      // whoever sits down at this browser next.
+      clearCache();
+      if (!silent) await forgetOutbox();
+      router.replace("/login");
+      router.refresh();
+    },
+    [router],
+  );
 
   // ------------------------------------------------------------ idle auto-lock
   // The server is the real enforcement point (it drops the session), but waiting
@@ -312,13 +363,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (document.visibilityState !== "visible") return;
       // Returning to a tab that sat in the background past the limit should lock
       // immediately rather than wait out another poll.
-      if (Date.now() - lastActivity.current > idleMins * 60_000) void logout();
-      else bump();
+      if (Date.now() - lastActivity.current > idleMins * 60_000) {
+        void logout({ silent: true });
+      } else bump();
     };
     document.addEventListener("visibilitychange", onVisible);
 
     const timer = setInterval(() => {
-      if (Date.now() - lastActivity.current > idleMins * 60_000) void logout();
+      // silent: nobody is at the screen to answer a prompt, and blocking the lock on
+      // one would leave the app sitting open — which is the thing it exists to prevent.
+      if (Date.now() - lastActivity.current > idleMins * 60_000) {
+        void logout({ silent: true });
+      }
     }, 15_000);
 
     return () => {

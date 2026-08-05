@@ -195,6 +195,40 @@ still leaves a trace.
   a single lock-screen notification; an inbox has no equivalent, and hourly mail
   about the same unpaid bill is how people learn to ignore an app.
 
+## Offline
+
+The app opens and works without a connection. Pages you have visited paint from the
+last copy saved on this device, and a strip at the top says so rather than each page
+showing its own failed-request error over data that is perfectly good.
+
+**Changes made offline are queued, not lost.** Add, edit, complete, snooze, delete,
+claim and comment all work with no signal; a row that is waiting says "waiting to
+sync", and the queue itself is visible with a discard button per item. It goes out on
+its own when the connection returns, when the app comes back to the foreground, or on
+a slow poll for the case where the network never technically went away.
+
+What happens when a queued change disagrees with the server is decided, not merged:
+
+| Change | Rule |
+| --- | --- |
+| Add | Replayed onto the id the client minted, so a lost response can't make a second reminder |
+| Complete | **First completion wins.** A later one is dropped and names who got there first — two people paying the same bill isn't a conflict to merge |
+| Snooze | Whichever silence lasts longer wins |
+| Edit | **Refused** if the reminder changed elsewhere after the edit was composed. Silently overwriting somebody's edit is the one outcome nobody can detect afterwards |
+| Delete | Beats a concurrent edit — an edit to something deleted has nowhere to land |
+| Claim | First wins, like completion |
+| Note | Append-only, replayed by its own id |
+
+Signing out sends anything queued first, and warns before discarding what it can't.
+An idle auto-lock keeps the queue instead — that is the same person coming back, not a
+handover. Signing in as somebody else drops it, because it could never be replayed
+under their session anyway.
+
+Reads are [`public/sw.js`](public/sw.js) + [`lib/net.ts`](lib/net.ts) +
+[`lib/cache.ts`](lib/cache.ts); writes are [`lib/sync.ts`](lib/sync.ts) (the decisions,
+pure and testable) + [`lib/idb.ts`](lib/idb.ts) + [`lib/offline.ts`](lib/offline.ts).
+Set `NEXT_PUBLIC_OFFLINE_WRITES=0` to turn queueing off and leave the reads alone.
+
 ## 📱 iPhone: install to the Home Screen first
 
 **iOS only delivers web push to an installed PWA, never to a Safari tab.** Open the
@@ -292,6 +326,19 @@ a scoreboard. The escalation section drives `?now=` time travel, since it change
 
 ```bash
 node --env-file=.env scripts/smoke-family.mjs
+```
+
+Offline sync — the only suite that tests decisions which cannot be reached by hand.
+Turning wifi off, tapping Complete and hoping exercises one ordering once; this drives
+`lib/sync.ts` under Node against a fake network, which is why that file has no React, no
+IndexedDB and no fetch in it. Then the same guarantees against the live routes, because
+idempotency the client believes in and the server doesn't have turns a retry into a
+duplicate. It also parses `public/sw.js`, which nothing else does — that file has no
+build step, no types and no lint, and a syntax error in it silently kills push delivery
+along with everything else:
+
+```bash
+node --env-file=.env scripts/smoke-offline.mjs
 ```
 
 Route contracts — the edges nobody exercises by hand. Every protected route refuses

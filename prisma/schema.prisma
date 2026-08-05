@@ -443,6 +443,17 @@ model ReminderHistory {
   status      String
   remarks     String?
 
+  /// One completion per cycle, enforced rather than merely checked.
+  ///
+  /// Two people tapping Complete on the same shared bill at the same moment used to
+  /// write two rows and count the money twice, and a completion replayed from an
+  /// offline queue would do the same on its own. The check in the route gives the
+  /// second one a message naming who got there first; this is what makes the race
+  /// impossible rather than unlikely.
+  ///
+  /// Rows predating cycleDueAt hold null, and Postgres does not consider two nulls
+  /// equal, so they neither collide with each other nor need backfilling.
+  @@unique([reminderId, cycleDueAt])
   @@index([reminderId])
   /// Spending queries and the monthly rollup both scan by date.
   @@index([completedOn])

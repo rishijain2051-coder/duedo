@@ -28,8 +28,16 @@
 const APP_ICON = "/icons/icon-192.png";
 const BADGE_ICON = "/icons/badge-96.png";
 
-/** Content-hashed assets. Immutable by construction, so cache-first is safe. */
-const STATIC_CACHE = "prosys-static-v1";
+/**
+ * Assets the server marks immutable, served cache-first.
+ *
+ * Bump the version whenever the *rule* for what goes in here changes, not just when
+ * the code around it does. A cache-first hit is returned before the network is
+ * consulted, so a device that stored something under a looser rule keeps being served
+ * it forever — changing the rule cannot heal what the old rule already saved. Renaming
+ * the cache is the only thing that abandons it.
+ */
+const STATIC_CACHE = "prosys-static-v2";
 /** Page documents, kept only as a fallback for when the network is gone. */
 const SHELL_CACHE = "prosys-shell-v1";
 // Precached at install, so editing that file alone is not enough to ship the change —

@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db";
-import { json, readJson } from "@/lib/http";
+import { clientId, HttpError, json, readJson } from "@/lib/http";
 import { sanitizeReminderInput } from "@/lib/reminder-logic";
 import { visibleReminderWhere } from "@/lib/ownership";
 import { assertReminderDestination, assertReminderFields } from "@/lib/reminder-scope";
@@ -51,12 +51,41 @@ export async function POST(req: NextRequest) {
     const body = await readJson(req);
     const data = sanitizeReminderInput(body, true, user.timezone, user.defaultTime);
     assertReminderFields(data, true);
+    // An id minted by the client, so a reminder created offline can be replayed
+    // safely: the second attempt finds its own row and returns it instead of making a
+    // near-duplicate nobody asked for. Sending one is optional and no client has to.
+    //
+    // It is not an ownership claim — userId below is still always the caller, so an id
+    // pointing at somebody else's reminder cannot reach the update path; it collides
+    // and 409s, which is the honest answer to "create this, with this id".
+    //
+    // Checked here with the other field validation rather than after the destination
+    // lookup below, so a malformed id reads as the client bug it is instead of taking
+    // whatever status the scope check happens to return first.
+    const id = clientId(body.id);
     await assertReminderDestination(data, user.id);
 
-    return prisma.reminder.create({
-      // userId is always the caller: ownership is never taken from the body.
-      data: { ...data, userId: user.id } as never,
-      include: INCLUDE,
-    });
+    if (id) {
+      const mine = await prisma.reminder.findFirst({
+        where: { id, userId: user.id },
+        include: INCLUDE,
+      });
+      // Already landed — a lost response, or a queue replayed twice. The reminder the
+      // caller asked for exists and is theirs, which is what they wanted to hear.
+      if (mine) return mine;
+    }
+
+    try {
+      return await prisma.reminder.create({
+        // userId is always the caller: ownership is never taken from the body.
+        data: { ...data, ...(id ? { id } : {}), userId: user.id } as never,
+        include: INCLUDE,
+      });
+    } catch (e) {
+      if ((e as { code?: string }).code === "P2002") {
+        throw new HttpError(409, "A reminder with that id already exists.");
+      }
+      throw e;
+    }
   }, 201);
 }

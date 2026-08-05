@@ -97,6 +97,28 @@ async function run<T>(fn: () => Promise<T>, okStatus: number) {
   }
 }
 
+/** A v4 uuid — the only shape of id any route accepts from a client. */
+export const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+/**
+ * An optional id minted by the client, for a write that may be replayed.
+ *
+ * A queued create replayed after a lost response has to be able to land on its own
+ * row rather than make a second one, and the id is what identifies it. Every route
+ * that accepts one still takes ownership from the session, never from the body — an
+ * id is a name for the thing being written, not a claim to it.
+ *
+ * Absent is fine and means "you pick one". Present but not a uuid is a 400 rather
+ * than something forwarded to Prisma, which would fail there as a 500.
+ */
+export function clientId(value: unknown): string | undefined {
+  if (value === undefined || value === null) return undefined;
+  const id = String(value);
+  if (!UUID_RE.test(id)) throw new HttpError(400, "id must be a uuid.");
+  return id;
+}
+
 /**
  * The caller, or null. Resolving also enforces expiry, the inactivity timeout
  * and account status, and refreshes lastSeenAt.
