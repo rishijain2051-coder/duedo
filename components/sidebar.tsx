@@ -19,8 +19,10 @@ import { cn } from "@/lib/utils";
 import { useApp } from "@/components/app-context";
 import { Credit } from "@/components/credit";
 
-// No "Family" entry any more: reminders are private per account, so there is
-// nothing shared to browse. Account approval lives in Settings, for admins only.
+// No "Family" entry: a family's shared list isn't a page of its own. Reminders and
+// Spending carry the Mine/family switcher (components/scope-tabs.tsx); Calendar and
+// Categories show every list at once and label which one each row belongs to. Family
+// administration lives in Settings, account approval in Admin.
 const NAV = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
   { href: "/reminders", label: "Reminders", icon: ListTodo },

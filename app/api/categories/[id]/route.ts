@@ -34,13 +34,47 @@ async function findWritable(id: string, userId: string) {
 export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   return json(async (user) => {
     const { id } = await ctx.params;
-    await findWritable(id, user.id);
+    const category = await findWritable(id, user.id);
     const body = await readJson(req);
+
+    // Renaming went straight to the database with whatever arrived. Three things came
+    // out of that, and POST already got all three right:
+    //
+    //   * an untrimmed name stored the spaces, so "Bills" and "Bills " sat side by side
+    //     as two categories that read identically;
+    //   * an empty string passed `?? undefined` — only null and undefined are caught —
+    //     and blanked the name outright;
+    //   * a name already taken in the same scope hit the unique index, and P2002 came
+    //     back as a 500 with a Prisma message in it. The user saw "Internal server
+    //     error" for the ordinary mistake of reusing a name.
+    let name: string | undefined;
+    if (body.name !== undefined) {
+      name = String(body.name).trim();
+      if (!name) throw new HttpError(400, "Name is required");
+
+      // Scoped exactly as POST scopes it: a category belongs to a person or a family,
+      // never both, so the clash is only ever within its own list.
+      const scope = category.familyId
+        ? { familyId: category.familyId }
+        : { userId: category.userId };
+      const clash = await prisma.category.findFirst({
+        where: { ...scope, name, id: { not: id } },
+        select: { id: true },
+      });
+      if (clash) {
+        throw new HttpError(
+          409,
+          category.familyId
+            ? "This family already has a category with that name."
+            : "You already have a category with that name.",
+        );
+      }
+    }
 
     return prisma.category.update({
       where: { id },
       data: {
-        name: body.name ?? undefined,
+        name,
         icon: body.icon ?? undefined,
         color: body.color ?? undefined,
       },

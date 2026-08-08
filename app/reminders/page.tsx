@@ -36,6 +36,7 @@ import {
   reminderStatus,
   toDateTimeInputValue,
 } from "@/lib/format";
+import { MAX_DESCRIPTION, MAX_REMARKS, MAX_TITLE } from "@/lib/reminder-logic";
 import { LEAD_OFFSET_OPTIONS } from "@/lib/time";
 import {
   AUDIENCE_OPTIONS,
@@ -81,7 +82,7 @@ function isSnoozed(r: Reminder): boolean {
 export default function RemindersPage() {
   // `scope` is shared app state, not local: picking a family here and then opening the
   // dashboard used to put you silently back on your personal list.
-  const { timeZone, syncBadge, families, scope } = useApp();
+  const { timeZone, syncBadge, families, scope, setScope } = useApp();
   const activeFamily = families.find((f) => f.id === scope) ?? null;
 
   // Cached per scope so switching tabs doesn't re-spinner, and a repeat visit
@@ -163,10 +164,28 @@ export default function RemindersPage() {
       shortcutHandled.current = true;
       const target = reminders.find((r) => r.id === assign);
       window.history.replaceState(null, "", "/reminders");
-      if (target) openEdit(target);
+      if (target) {
+        openEdit(target);
+      } else {
+        // The list on screen holds one scope, and the service worker only offers Assign
+        // on a *family* push — so the reminder it names is usually on a list the user
+        // isn't currently looking at. Finding nothing used to end here silently: the
+        // notification opened the app and then nothing happened, which is the common
+        // case rather than the edge one. Fetching it by id and switching to its list is
+        // what makes the button do what it says.
+        void (async () => {
+          try {
+            const one = await api.reminders.get(assign);
+            setScope(one.familyId ?? "mine");
+            openEdit(one);
+          } catch {
+            setError("That reminder isn't there any more — it may have been deleted.");
+          }
+        })();
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loading, categories.length, openCreate, reminders]);
+  }, [loading, categories.length, openCreate, reminders, setScope]);
 
   const visible = reminders.filter((r) =>
     filter === "all" ? true : r.status === filter,
@@ -678,10 +697,13 @@ export default function RemindersPage() {
       >
         <form onSubmit={submitForm} className="space-y-4">
           <Field label="Title *">
+            {/* Mirrors the server's cap (lib/reminder-logic.ts), so the field stops
+                accepting text instead of the save quietly shortening it. */}
             <Input
               value={form.title}
               onChange={(e) => setForm({ ...form, title: e.target.value })}
               placeholder="e.g. Car Insurance"
+              maxLength={MAX_TITLE}
               autoFocus
             />
           </Field>
@@ -835,6 +857,7 @@ export default function RemindersPage() {
               value={form.description}
               onChange={(e) => setForm({ ...form, description: e.target.value })}
               placeholder="Optional details…"
+              maxLength={MAX_DESCRIPTION}
             />
           </Field>
           <div className="flex justify-end gap-2 pt-2">
@@ -878,6 +901,7 @@ export default function RemindersPage() {
               value={completeRemarks}
               onChange={(e) => setCompleteRemarks(e.target.value)}
               placeholder="Optional"
+              maxLength={MAX_REMARKS}
             />
           </Field>
           <div className="flex justify-end gap-2 pt-2">

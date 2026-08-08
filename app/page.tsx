@@ -96,7 +96,10 @@ export default function DashboardPage() {
                   : "Nothing due right now"}
           </p>
         </div>
-        <Link href="/reminders" className="shrink-0">
+        {/* ?new=1 opens the form on arrival — the same shortcut the Home Screen icon
+            uses. Plain /reminders landed you on the list to press New a second time,
+            which is not what a button labelled "Add Reminder" says it does. */}
+        <Link href="/reminders?new=1" className="shrink-0">
           <Button>
             <span className="md:hidden">Add</span>
             <span className="hidden md:inline">Add Reminder</span>

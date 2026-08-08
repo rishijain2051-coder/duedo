@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db";
 import { HttpError, json, readJson } from "@/lib/http";
-import { computeNextDueAt } from "@/lib/reminder-logic";
+import { capText, computeNextDueAt, MAX_REMARKS } from "@/lib/reminder-logic";
 import { clearDispatchLedger } from "@/lib/dispatch";
 import { assertReminderAction } from "@/lib/ownership";
 
@@ -82,7 +82,12 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
               ? reminder.amount
               : Number(body.amount),
           status: "completed",
-          remarks: typeof body.remarks === "string" ? body.remarks : null,
+          // Capped like the other free text — remarks reach the family activity feed
+          // and the spending CSV.
+          remarks:
+            typeof body.remarks === "string"
+              ? capText(body.remarks, MAX_REMARKS) || null
+              : null,
         },
       });
     } catch (e) {

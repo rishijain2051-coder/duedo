@@ -313,6 +313,22 @@ try {
     2,
   );
 
+  console.log("\n   and a spreadsheet formula in it is defused");
+  // lib/csv.ts imports nothing, so Node runs the real file with its types stripped —
+  // no paraphrase to drift out of step. RFC 4180 quoting does not help here: Excel
+  // evaluates "=1+1" on open regardless of the quotes, and both CSVs this app produces
+  // carry text someone else typed. The audit dump mails every account's name to the
+  // install's owner.
+  const { csvCell } = await import("../lib/csv.ts");
+  check("a bare formula is prefixed", csvCell("=1+1"), `"'=1+1"`);
+  check("so is one that fetches a URL", csvCell('=IMPORTXML("http://x","//a")').startsWith(`"'=`), true);
+  check("and the other three lead characters", [csvCell("+x"), csvCell("-x"), csvCell("@x")], [`"'+x"`, `"'-x"`, `"'@x"`]);
+  // The exemption that stops the fix costing something: a negative amount has to stay a
+  // number the reader can total, not text with an apostrophe in front of it.
+  check("a negative amount stays a number", csvCell(-500), `"-500"`);
+  check("as does a decimal one", csvCell(-500.25), `"-500.25"`);
+  check("ordinary text is left exactly as it was", csvCell('Rent, flat 2 "B"'), `"Rent, flat 2 ""B"""`);
+
   // ──────────────────────────────────────────────────────────────────────────────
   console.log("\n8. Month close is idempotent");
   const first = await tick("?rollup=1");
@@ -460,6 +476,43 @@ try {
   check("the newest is this month", yr.months[11].spent, 14000.5);
   check("and the total covers the window", yr.total >= 13500.5, true);
   check("it says where detail stops", typeof yr.detailFrom, "string");
+
+  // ──────────────────────────────────────────────────────────────────────────────
+  // Last, and with amounts of 0, so nothing above has its totals moved by it.
+  console.log("\n12. A month-end recurrence rolls into the next month, not past it");
+  // `setUTCMonth` on its own overflows: 31 January plus a month is 31 February, which
+  // normalises to 3 March. February got no reminder at all and every roll afterwards
+  // sat on the 3rd, so a rent reminder dated the 31st quietly moved day. Rent and EMIs
+  // are precisely the things dated on the 31st.
+  const endOfMonth = async (dueAt, rule) => {
+    const made = await ann.call("POST", "/api/reminders", {
+      title: `Rolls from ${dueAt}`,
+      categoryId: annCat.id,
+      dueAt,
+      amount: 0,
+      recurrenceRule: rule,
+    });
+    const rolled = await ann.call("POST", `/api/reminders/${made.data.id}/complete`, {
+      amount: 0,
+    });
+    return String(rolled.data.dueAt);
+  };
+
+  const feb = await endOfMonth("2026-01-31T09:00", "Monthly");
+  check("31 January rolls into February", feb.slice(0, 7), "2026-02");
+  check("on the last day it has", new Date(feb).getUTCDate(), 28);
+
+  const nov = await endOfMonth("2026-08-31T09:00", "Quarterly");
+  check("31 August + 3 months is 30 November, not 1 December", nov.slice(0, 10), "2026-11-30");
+
+  const leap = await endOfMonth("2024-02-29T09:00", "Yearly");
+  check("29 February rolls to the 28th, not into March", leap.slice(0, 10), "2025-02-28");
+
+  const long = await endOfMonth("2026-01-15T09:00", "Monthly");
+  check("a day that exists in every month is untouched", long.slice(0, 10), "2026-02-15");
+
+  const daily = await endOfMonth("2026-02-28T09:00", "Daily");
+  check("and Daily still just adds a day, across a month boundary", daily.slice(0, 10), "2026-03-01");
 } finally {
   await cleanup();
   await prisma.$disconnect();

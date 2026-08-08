@@ -136,6 +136,10 @@ to the table for no benefit. Offline they report that plainly instead.
 - Every new mutation gets an isolation assertion in `smoke-security` or `smoke-family`
   before it ships.
 - No new runtime dependency without a reason that survives the bundle cost.
+- Any value a user typed goes through `escapeHtml` from `lib/html.ts` before it reaches
+  markup, and through `lib/csv.ts` before it reaches a file. There were four hand-rolled
+  copies of the escaper, two of them incomplete, and the one email pointed at people
+  *outside* the app — the external contact invitation — had none at all.
 - **`tsc --noEmit` is not the gate; `npm run build` is.** `tsc` passed clean on a JSX
   comment placed as the second child of a ternary branch — invalid JSX that SWC rejects
   outright — and the file stayed broken across three edits before a page 500'd and gave
@@ -145,6 +149,11 @@ to the table for no benefit. Offline they report that plainly instead.
 - Don't edit `lib/` while a suite is running against `next dev`. Fast Refresh recompiles
   mid-run, so a momentarily broken file fails whatever section is in flight — which reads
   exactly like a regression in the code under test.
+- Don't run `npm run build` while `next dev` is serving either, for a worse version of the
+  same reason: both write `.next`, and the build replaces the chunk files the running
+  server has already loaded. Requests then fail with `Cannot find module './1331.js'` and
+  a 500 — indistinguishable from a real fault in the route, and it does not heal until the
+  dev server restarts. Build first, or stop the server.
 - `public/sw.js` has no build step, no types and no lint. `smoke-offline` parses it;
   editing it without running that suite is how push delivery breaks silently.
 - Renaming a cache in `public/sw.js` is the only way a bad stored copy — including

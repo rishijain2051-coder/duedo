@@ -14,6 +14,31 @@ import {
 } from "@/types";
 
 /**
+ * Caps on the free-text fields.
+ *
+ * Nothing bounded these — `title` and `description` are unbounded Postgres text and the
+ * only handling was `.trim()`. The reason it matters is not storage:
+ *
+ *   * a web push payload carries the title, and the service's limit is about 4 kB. Over
+ *     that, every push for that reminder failed — and a failure used to count against
+ *     the *device*, so five nags about one long-titled reminder retired the subscription
+ *     and silenced every other reminder too (see lib/push.ts);
+ *   * the title is also the email subject line, and the notification feed's title.
+ *
+ * Truncated rather than refused, deliberately. These are generous enough that no real
+ * reminder reaches them, so a 400 here would only ever be a wall someone hit by pasting,
+ * losing the whole save over a field the app could simply have shortened.
+ */
+export const MAX_TITLE = 200;
+export const MAX_DESCRIPTION = 2000;
+export const MAX_REMARKS = 500;
+
+/** Trims, then caps. Used for every free-text field a client can write. */
+export function capText(value: unknown, max: number): string {
+  return String(value).trim().slice(0, max);
+}
+
+/**
  * Keeps a value only if it is one of the ones the app knows about.
  *
  * Unrecognised values are dropped rather than rejected, matching how `audience`
@@ -49,9 +74,11 @@ export function sanitizeReminderInput(
   defaultTime: string,
 ) {
   const out: Record<string, unknown> = {};
-  if (data.title !== undefined) out.title = String(data.title).trim();
+  if (data.title !== undefined) out.title = capText(data.title, MAX_TITLE);
   if (data.description !== undefined)
-    out.description = data.description ? String(data.description) : null;
+    out.description = data.description
+      ? capText(data.description, MAX_DESCRIPTION)
+      : null;
   // Forced to a string so a number or an object in the body can't reach a Prisma
   // `where` clause, which would throw a validation error and surface as a 500.
   if (data.categoryId !== undefined)
@@ -126,6 +153,35 @@ export function sanitizeReminderInput(
 }
 
 /**
+ * Adds whole months, clamping to the end of the target month.
+ *
+ * `setUTCMonth` alone overflows, and the overflow is not a rounding detail — it skips a
+ * month. 31 January plus one month is 31 February, which JavaScript normalises to 3
+ * March: February never gets a reminder at all, and every roll after that sits on the
+ * 3rd, so a rent reminder dated the 31st quietly moves to the 3rd for good. Quarterly
+ * was worse (31 August → 1 December) and Yearly broke on leap days (29 February 2024 →
+ * 1 March 2025).
+ *
+ * Clamping to the last day of the target month keeps the reminder in the month it
+ * belongs to. It does not restore the original day afterwards — 31 January becomes 28
+ * February and then 28 March — because the only anchor available here is the previous
+ * due date. Holding the intended day-of-month would mean storing it on the reminder;
+ * that is a schema change, and skipping a month was the actual defect.
+ */
+function addMonths(from: Date, months: number): Date {
+  const day = from.getUTCDate();
+  const d = new Date(from);
+  // To the 1st first, so the month arithmetic itself can never overflow.
+  d.setUTCDate(1);
+  d.setUTCMonth(d.getUTCMonth() + months);
+  const lastDayOfMonth = new Date(
+    Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0),
+  ).getUTCDate();
+  d.setUTCDate(Math.min(day, lastDayOfMonth));
+  return d;
+}
+
+/**
  * Rolls a due instant forward by one recurrence step, preserving the time of day.
  * Returns null for one-off reminders.
  */
@@ -140,17 +196,15 @@ export function computeNextDueAt(from: Date, rule: string | null): Date | null {
       d.setUTCDate(d.getUTCDate() + 7);
       return d;
     case "Monthly":
-      d.setUTCMonth(d.getUTCMonth() + 1);
-      return d;
+      return addMonths(from, 1);
     case "Quarterly":
-      d.setUTCMonth(d.getUTCMonth() + 3);
-      return d;
+      return addMonths(from, 3);
     case "Half-Yearly":
-      d.setUTCMonth(d.getUTCMonth() + 6);
-      return d;
+      return addMonths(from, 6);
     case "Yearly":
-      d.setUTCFullYear(d.getUTCFullYear() + 1);
-      return d;
+      // Twelve months rather than +1 year, so 29 February lands on the 28th instead
+      // of stepping into March.
+      return addMonths(from, 12);
     default:
       return null;
   }

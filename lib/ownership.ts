@@ -102,10 +102,3 @@ export async function assertCategoryInScope(
   });
   if (!found) throw new HttpError(404, "Category not found");
 }
-
-/** The caller's own category, or 404 — used by the category routes. */
-export async function findOwnedCategory(id: string, userId: string) {
-  const category = await prisma.category.findFirst({ where: { id, userId } });
-  if (!category) throw new HttpError(404, "Category not found");
-  return category;
-}

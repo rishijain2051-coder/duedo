@@ -1,4 +1,5 @@
 import { prisma } from "./db";
+import { escapeHtml } from "./html";
 import { sendPushToUser, isPushConfigured } from "./push";
 import { sendMail, isMailConfigured } from "./mail";
 import { buildReminderEmail, type AlertKind } from "./reminder-email";
@@ -1008,8 +1009,8 @@ export async function sendTestEmail(
     subject: `${appName}: test email`,
     html: `
       <div style="font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;max-width:520px;margin:0 auto;">
-        <h2 style="margin:0 0 8px;">${appName}</h2>
-        <p>Hi ${userName}, email reminders are working — this is a test.</p>
+        <h2 style="margin:0 0 8px;">${escapeHtml(appName)}</h2>
+        <p>Hi ${escapeHtml(userName)}, email reminders are working — this is a test.</p>
         <p style="color:#6b7280;font-size:13px;">
           Real reminders arrive when something is due, plus any advance alerts you
           tick on the reminder itself.

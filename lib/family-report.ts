@@ -1,5 +1,6 @@
 import type { Prisma } from "@prisma/client";
 import { prisma } from "./db";
+import { escapeHtml } from "./html";
 import { isMailConfigured, sendMail } from "./mail";
 import { memberStats, orderMembers } from "./scoreboard";
 import { zonedMonthStart, zonedMonthStartOffset } from "./time";
@@ -180,12 +181,4 @@ function mark(familyId: string, detail: Prisma.InputJsonValue) {
   return prisma.activityLog.create({
     data: { action: MARKER, entity: "family", entityId: familyId, detail },
   });
-}
-
-function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
 }

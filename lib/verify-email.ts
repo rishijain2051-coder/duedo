@@ -1,5 +1,6 @@
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { prisma } from "./db";
+import { escapeHtml } from "./html";
 import { sendMail, isMailConfigured } from "./mail";
 
 // Email verification, which is what activates a self-registered account.
@@ -79,8 +80,8 @@ export async function sendVerificationEmail(user: {
     to: user.email,
     subject: `Confirm your email for ${appName}`,
     html: `
-      <p>Hi ${user.name},</p>
-      <p>Confirm this address to finish setting up your ${appName} account:</p>
+      <p>Hi ${escapeHtml(user.name)},</p>
+      <p>Confirm this address to finish setting up your ${escapeHtml(appName)} account:</p>
       <p><a href="${link}"
             style="display:inline-block;padding:12px 20px;background:#2563eb;color:#fff;
                    border-radius:8px;text-decoration:none;font-weight:600">

@@ -142,6 +142,11 @@ to set up. It answers "roughly what have I been spending, and what's about to la
 Older months are kept as monthly totals only, and deleting a reminder removes its
 history — the download says so.
 
+Both CSVs this app writes — the download and the daily audit dump — put an apostrophe in
+front of any cell starting `=`, `+`, `-`, `@`, tab or return, because a spreadsheet treats
+those as a formula to run and the text in them was typed by someone else. Plain numbers
+are exempt, so amounts still add up ([`lib/csv.ts`](lib/csv.ts)).
+
 ## Escalation
 
 Per reminder, up to two steps: **if this still isn't done N hours late, tell someone
@@ -165,6 +170,12 @@ After that it **keeps nagging** on an interval (hourly by default) until you hit
 
 Recurring reminders (Daily → Yearly) roll their due date forward on completion,
 preserving the time of day, and their alerts re-arm automatically.
+
+A monthly reminder dated the **29th, 30th or 31st** lands on the last day of any month
+too short for it — the 31st of January becomes the 28th of February — rather than
+overflowing into the month after and skipping one. It then stays on that shorter day:
+the roll works from the previous due date, so restoring the 31st afterwards would mean
+storing the day you originally picked, which is a column this schema doesn't have.
 
 Engine: [`lib/dispatch.ts`](lib/dispatch.ts) + [`lib/push.ts`](lib/push.ts) +
 [`lib/mail.ts`](lib/mail.ts) + [`public/sw.js`](public/sw.js).

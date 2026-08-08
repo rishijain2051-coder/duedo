@@ -1,5 +1,6 @@
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { prisma } from "./db";
+import { escapeHtml } from "./html";
 import { isMailConfigured, sendMail } from "./mail";
 
 // Sending reminders to somebody who never signed up.
@@ -89,11 +90,16 @@ export async function contactSendable(
   const sent = await sendMail({
     to: contact.email,
     subject: `${context.requesterName} wants to send you reminders`,
+    // Both interpolated values are typed by a user — an account name and a reminder
+    // title — and this is the one email in the app that goes to somebody outside it.
+    // Unescaped, a title was arbitrary HTML in a stranger's inbox, sent from this
+    // install's own mail account and carrying its branding: a working phishing link
+    // anybody with an account could address to anybody they liked.
     html: `
       <p>Hello,</p>
-      <p><strong>${context.requesterName}</strong> uses ${appName} to keep track of things that
-      are due, and has asked it to let you know when <em>${context.reminderTitle}</em> is
-      overdue.</p>
+      <p><strong>${escapeHtml(context.requesterName)}</strong> uses ${escapeHtml(appName)} to keep
+      track of things that are due, and has asked it to let you know when
+      <em>${escapeHtml(context.reminderTitle)}</em> is overdue.</p>
       <p>Nothing has been sent to you yet, and nothing will be unless you say yes.</p>
       <p>
         <a href="${base}&answer=yes"

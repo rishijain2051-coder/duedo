@@ -624,6 +624,29 @@ try {
     })).status,
     400,
   );
+  // Nothing capped the free text. The title travels in the web push payload, whose
+  // limit is about 4 kB, and an oversized push came back 413 — which the code counted
+  // against the *device*, so five nags about one long-titled reminder retired the
+  // subscription and took push for every other reminder with it.
+  const longTitle = await member("POST", "/api/reminders", {
+    title: "T".repeat(5000),
+    dueAt: "2026-09-01",
+    categoryId: catId,
+  });
+  check("an over-long title is accepted, not refused", longTitle.status, 201);
+  check("and capped at 200", longTitle.data?.title?.length, 200);
+  const longNotes = await member("PATCH", `/api/reminders/${longTitle.data.id}`, {
+    description: "D".repeat(9000),
+  });
+  check("notes are capped at 2000", longNotes.data?.description?.length, 2000);
+  const longRemarks = await member(
+    "POST",
+    `/api/reminders/${longTitle.data.id}/complete`,
+    { remarks: "R".repeat(4000) },
+  );
+  check("and remarks at 500", longRemarks.status, 200);
+  await member("DELETE", `/api/reminders/${longTitle.data.id}`);
+
   check(
     "a reminder needs a category",
     (await member("POST", "/api/reminders", { title: "No category", dueAt: "2026-09-01" }))
@@ -1015,6 +1038,32 @@ try {
     (await outsider("DELETE", `/api/categories/${cat.data.id}`)).status,
     404,
   );
+  // Renaming used to go straight to the database with whatever arrived, so the three
+  // rules POST already enforced were all missing from PATCH.
+  const second = await member("POST", "/api/categories", { name: "Route Smoke Two" });
+  check(
+    "renaming onto an existing name is refused, not a 500",
+    (await member("PATCH", `/api/categories/${second.data.id}`, { name: "Route Smoke Cat" }))
+      .status,
+    409,
+  );
+  check(
+    "renaming to blank is refused",
+    (await member("PATCH", `/api/categories/${second.data.id}`, { name: "   " })).status,
+    400,
+  );
+  const trimmed = await member("PATCH", `/api/categories/${second.data.id}`, {
+    name: "  Route Smoke Trimmed  ",
+  });
+  check("and a name is trimmed on the way in", trimmed.data?.name, "Route Smoke Trimmed");
+  check(
+    "renaming to its own name is still fine",
+    (await member("PATCH", `/api/categories/${second.data.id}`, {
+      name: "Route Smoke Trimmed",
+    })).status,
+    200,
+  );
+  await member("DELETE", `/api/categories/${second.data.id}`);
   const filed = await member("POST", "/api/reminders", {
     title: "Filed",
     dueAt: "2026-09-03",

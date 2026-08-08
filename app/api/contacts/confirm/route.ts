@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { confirmContact } from "@/lib/external-contacts";
+import { escapeHtml } from "@/lib/html";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -55,7 +56,7 @@ function page(appName: string, heading: string, body: string, status = 200) {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="robots" content="noindex">
-<title>${escape(heading)} · ${escape(appName)}</title>
+<title>${escapeHtml(heading)} · ${escapeHtml(appName)}</title>
 <style>
   body{font:16px/1.6 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#111827;
        margin:0;display:grid;place-items:center;min-height:100vh;padding:24px;background:#f9fafb}
@@ -65,20 +66,12 @@ function page(appName: string, heading: string, body: string, status = 200) {
   small{display:block;margin-top:20px;color:#9ca3af}
 </style>
 </head><body><main>
-<h1>${escape(heading)}</h1>
-<p>${escape(body)}</p>
-<small>${escape(appName)}</small>
+<h1>${escapeHtml(heading)}</h1>
+<p>${escapeHtml(body)}</p>
+<small>${escapeHtml(appName)}</small>
 </main></body></html>`;
   return new NextResponse(html, {
     status,
     headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" },
   });
-}
-
-function escape(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
 }

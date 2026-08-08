@@ -105,7 +105,14 @@ export async function sendPushToUser(
         result.failed++;
         const status = (err as WebPushError)?.statusCode;
         const gone = status === 404 || status === 410;
-        if (gone || sub.failures + 1 >= MAX_CONSECUTIVE_FAILURES) {
+        // 413 is the *message* being too large for the push service, which says nothing
+        // about the device. Counting it as a device failure was the dangerous part: the
+        // payload carries the reminder's title, so one reminder with a very long title
+        // failed on every nag, and five nags retired a perfectly good subscription —
+        // taking push for every *other* reminder with it. Text is capped on the way in
+        // now (lib/reminder-logic.ts), and this makes the accounting right regardless.
+        const tooBig = status === 413;
+        if (gone || (!tooBig && sub.failures + 1 >= MAX_CONSECUTIVE_FAILURES)) {
           await prisma.pushSubscription
             .delete({ where: { id: sub.id } })
             .then(() => {
@@ -114,7 +121,7 @@ export async function sendPushToUser(
             .catch(() => {
               /* already removed by a concurrent run */
             });
-        } else {
+        } else if (!tooBig) {
           await prisma.pushSubscription.update({
             where: { id: sub.id },
             data: { failures: { increment: 1 } },

@@ -1,3 +1,4 @@
+import { escapeHtml } from "./html";
 import { formatInZone, humanizeMinutes } from "./time";
 
 // Email bodies for a single reminder alert.
@@ -23,15 +24,6 @@ export interface ReminderEmailInput {
   kind: AlertKind;
   /** Minutes until due — negative once overdue. */
   minutesUntilDue: number;
-}
-
-function escapeHtml(str: string): string {
-  return str
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
 }
 
 function formatAmount(amount: number | null | undefined): string {
