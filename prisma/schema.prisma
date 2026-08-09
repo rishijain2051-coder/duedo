@@ -59,6 +59,20 @@ model User {
   verifyTokenHash   String?
   verifyTokenSentAt DateTime? @db.Timestamptz
 
+  /// HMAC of this account's API token, for the Siri / Apple Shortcuts capture path.
+  ///
+  /// A bearer credential like the two above, and the longest-lived of them, so it is
+  /// stored the same way: HMAC of a CSPRNG value, never the value itself, compared in
+  /// constant time. One at a time — generating a new one invalidates the old, which is
+  /// also how it is revoked.
+  ///
+  /// It authenticates one endpoint (POST /api/ingest/reminder) and nothing else. It
+  /// cannot read a reminder, cannot sign in, and cannot reach any other route: a token
+  /// that has to live in a phone shortcut should be able to add a reminder and no more.
+  apiTokenHash      String?
+  apiTokenCreatedAt DateTime? @db.Timestamptz
+  apiTokenLastUsedAt DateTime? @db.Timestamptz
+
   /// Declared intent: `solo` hides every family surface in the UI. Actual
   /// membership lives in FamilyMember, so this only controls what is offered —
   /// which is what makes converting either way a one-field change.

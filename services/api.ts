@@ -431,6 +431,20 @@ export const api = {
         "/settings/test-email",
         { method: "POST" },
       ),
+    /**
+     * The Siri / Shortcuts token. `create` returns the plain value once and only
+     * once — the server keeps a hash, so there is nothing to fetch it back from.
+     */
+    apiToken: {
+      status: () =>
+        request<{ exists: boolean; createdAt: string | null; lastUsedAt: string | null }>(
+          "/settings/api-token",
+        ),
+      create: () =>
+        request<{ token: string }>("/settings/api-token", { method: "POST" }),
+      revoke: () =>
+        request<{ revoked: boolean }>("/settings/api-token", { method: "DELETE" }),
+    },
   },
   /** Families the caller belongs to, plus join/administration actions. */
   families: {

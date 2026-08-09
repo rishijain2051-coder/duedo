@@ -198,6 +198,58 @@ still leaves a trace.
   a single lock-screen notification; an inbox has no equivalent, and hourly mail
   about the same unpaid bill is how people learn to ignore an app.
 
+## Add by voice
+
+"Hey Siri, add reminder" → speak → it is in. No screen, no tap.
+
+Apple Shortcuts supplies the speech-to-text (on device, free). The app supplies one
+endpoint, `POST /api/ingest/reminder`, authenticated by a key you generate in
+**Settings → Add by voice**. The key is shown once — it is stored as an HMAC, so there
+is nothing to show it from a second time.
+
+**What the key can do:** add a reminder. That is the whole list. It cannot read a
+reminder, cannot sign in, and cannot reach any other route. There is one per account,
+so generating a new one is also how you revoke the old.
+
+### Building the shortcut
+
+1. Settings → **Add by voice** → **Create key**, and copy it.
+2. Shortcuts app → **+** → add these three actions in order:
+   - **Dictate Text** (set Language to yours; Stop Listening: *After Pause*)
+   - **Get Contents of URL**
+     - URL: `https://<your-app>/api/ingest/reminder`
+     - Method: **POST**
+     - Headers: `Authorization` = `Bearer <the key you copied>`
+     - Request Body: **JSON**, one field `text` (Text) = the **Dictated Text** variable
+   - **Show Result** with `Contents of URL` → `spoken`, or **Speak Text** if you'd
+     rather hear it
+3. Rename the shortcut to what you want to say — "Add reminder" makes the phrase
+   "Hey Siri, add reminder".
+
+### What it understands
+
+Say it however you like. Only what you actually say is filled in — nothing is inferred:
+
+| You say | It sets |
+|---|---|
+| "remind me to **pay the water bill**" | title; today, at your default time |
+| "…**tomorrow**", "**on the 15th**", "**next friday**", "**15 September**", "**15/9**", "**in 3 days**", "**end of the month**" | the date |
+| "…**at 6pm**", "**at 6:30 pm**", "**at noon**", "**in the evening**" | the time |
+| "…**18000 rupees**", "**₹18,500.50**", "**rs 900**" | the amount |
+| "…**every month**", "**weekly**", "**quarterly**", "**at the end of every month**" | the recurrence |
+| "…**urgent**" / "**low priority**" | the priority |
+| "…**under Utility Bills**" | the category, matched by name |
+| "…**note the meter reading is 4321**" | the notes |
+
+Anything it does not recognise stays in the title, where you can see it — a reminder
+on the wrong day is worse than one with no date, because the wrong day looks handled.
+Two deliberate refusals to guess: **"end of the month" is a date, "end of every month"
+is a schedule**; and a category is only used when you name it as one, so "pay the
+vehicle insurance" is *not* filed under Vehicle.
+
+With no date said it lands **today** and the reply says so, so you hear the assumption
+rather than discover it.
+
 ## Offline
 
 The app opens and works without a connection. Pages you have visited paint from the
@@ -360,6 +412,17 @@ here — it means a bad request reached code that assumed a good one:
 
 ```bash
 node --env-file=.env scripts/smoke-routes.mjs
+```
+
+Voice capture — the dictation parser and the token endpoint behind it. Every rule in
+`lib/dictation.ts` is a judgement about ambiguous English, and the only other way to
+try one is to talk at a phone and see what happens, which tests one wording once. That
+file imports nothing so Node runs the real one. The half that matters most is what it
+refuses to guess: "pay the vehicle insurance" must **not** be filed under Vehicle, and
+"end of the month" is a date while "end of every month" is a schedule:
+
+```bash
+node --env-file=.env scripts/smoke-dictation.mjs
 ```
 
 They all seed throwaway accounts with **both channels switched off** and delete them

@@ -8,6 +8,7 @@ import {
   Clock,
   Loader2,
   Mail,
+  Mic,
   Monitor,
   Moon,
   Palette,
@@ -168,6 +169,15 @@ export default function SettingsPage() {
   const [currentPin, setCurrentPin] = useState("");
   const [newPin, setNewPin] = useState("");
 
+  /** Whether a Shortcuts key exists, and when it last spoke to us. Never the key. */
+  const [tokenStatus, setTokenStatus] = useState<{
+    exists: boolean;
+    createdAt: string | null;
+    lastUsedAt: string | null;
+  } | null>(null);
+  /** Held only until the page is left: the server cannot show it a second time. */
+  const [newToken, setNewToken] = useState<string | null>(null);
+
   const [deployedBuild, setDeployedBuild] = useState<string | null>(null);
   const [updateAvailable, setUpdateAvailable] = useState(false);
 
@@ -177,14 +187,18 @@ export default function SettingsPage() {
   }
 
   const refreshLists = useCallback(async () => {
-    const [pk, dev, ses] = await Promise.all([
+    const [pk, dev, ses, tok] = await Promise.all([
       api.passkeys.list().catch(() => [] as PasskeySummary[]),
       api.push.devices().catch(() => [] as PushDevice[]),
       api.sessions.list().catch(() => [] as ActiveLogin[]),
+      api.settings.apiToken
+        .status()
+        .catch(() => ({ exists: false, createdAt: null, lastUsedAt: null })),
     ]);
     setPasskeys(pk);
     setDevices(dev);
     setLogins(ses);
+    setTokenStatus(tok);
   }, []);
 
   useEffect(() => {
@@ -271,6 +285,38 @@ export default function SettingsPage() {
     try {
       const res = await api.settings.testEmail();
       flash(res.message);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function createToken() {
+    setBusy("token");
+    setError(null);
+    setNotice(null);
+    try {
+      const { token } = await api.settings.apiToken.create();
+      setNewToken(token);
+      setTokenStatus(await api.settings.apiToken.status());
+      flash("Key created. Copy it now — it is not shown again.");
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function revokeToken() {
+    if (!confirm("Revoke the voice key? Any shortcut using it stops working.")) return;
+    setBusy("token");
+    setError(null);
+    try {
+      await api.settings.apiToken.revoke();
+      setNewToken(null);
+      setTokenStatus(await api.settings.apiToken.status());
+      flash("Key revoked.");
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -1025,6 +1071,77 @@ export default function SettingsPage() {
       )}
 
       {/* ---------------- Version ---------------- */}
+      {/* Siri capture. Sits above App version because it is something to set up once,
+          not something to check. */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Mic className="h-5 w-5" /> Add by voice
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <p className="text-sm text-muted-foreground">
+            An Apple Shortcut can dictate a reminder straight into this account — “Hey
+            Siri, add reminder”, then say it. Setup is in the README under{" "}
+            <span className="font-medium">Add by voice</span>.
+          </p>
+
+          {tokenStatus?.exists ? (
+            <p className="text-sm">
+              A key is active
+              {tokenStatus.lastUsedAt
+                ? ` · last used ${formatDateTime(tokenStatus.lastUsedAt, true, settings?.timezone)}`
+                : " · not used yet"}
+              .
+            </p>
+          ) : (
+            <p className="text-sm text-muted-foreground">No key yet.</p>
+          )}
+
+          {newToken && (
+            <div className="space-y-2 rounded-md border border-primary/40 bg-primary/5 p-3">
+              <p className="text-xs font-medium">
+                Copy this into the Shortcut now — it is not shown again.
+              </p>
+              <p className="break-all font-mono text-xs">{newToken}</p>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  void navigator.clipboard?.writeText(newToken);
+                  setNotice("Key copied.");
+                }}
+              >
+                Copy
+              </Button>
+            </div>
+          )}
+
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" onClick={createToken} disabled={busy !== null}>
+              {busy === "token" && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              {tokenStatus?.exists ? "Replace key" : "Create key"}
+            </Button>
+            {tokenStatus?.exists && (
+              <Button
+                variant="outline"
+                className="text-destructive"
+                onClick={revokeToken}
+                disabled={busy !== null}
+              >
+                Revoke
+              </Button>
+            )}
+          </div>
+          {tokenStatus?.exists && (
+            <p className="text-xs text-muted-foreground">
+              Replacing stops the old key working. The key can only add reminders — it
+              cannot read them, sign in, or reach anything else.
+            </p>
+          )}
+        </CardContent>
+      </Card>
+
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">

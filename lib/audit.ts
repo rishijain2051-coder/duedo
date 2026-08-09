@@ -23,6 +23,13 @@ export type AuditAction =
   | "user.root.transfer"
   /** Someone claimed a shared reminder. The one accountability act worth a trail. */
   | "reminder.acknowledge"
+  /**
+   * The Shortcuts token issued or withdrawn. Worth a line for the same reason a PIN
+   * change is: it is the creation of a credential that can act on the account later,
+   * and the only record that it exists at all is a hash nobody can read back.
+   */
+  | "user.api-token.create"
+  | "user.api-token.revoke"
   // families
   | "family.create"
   | "family.rename"
