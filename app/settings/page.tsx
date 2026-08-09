@@ -6,6 +6,7 @@ import {
   Bell,
   BellRing,
   Clock,
+  Download,
   Loader2,
   Mail,
   Mic,
@@ -30,6 +31,7 @@ import { useApp } from "@/components/app-context";
 import { Credit } from "@/components/credit";
 import { FamilySettings } from "@/components/family-settings";
 import { ExternalContactsCard } from "@/components/external-contacts";
+import { buildShortcut, KEY_PLACEHOLDER, SHORTCUT_FILENAME } from "@/lib/shortcut";
 import {
   api,
   type ActiveLogin,
@@ -306,6 +308,40 @@ export default function SettingsPage() {
     } finally {
       setBusy(null);
     }
+  }
+
+  /**
+   * Builds the .shortcut file here and hands it to the browser.
+   *
+   * Built client-side rather than fetched, because the key only exists in plain form
+   * for as long as this page holds it — the server keeps an HMAC, so an endpoint that
+   * embedded the key would have nothing to embed. When there is no key in hand the
+   * file carries a placeholder, which is still the four actions built for you.
+   */
+  function downloadShortcut() {
+    const file = buildShortcut({
+      key: newToken ?? KEY_PLACEHOLDER,
+      baseUrl: window.location.origin,
+      uuid:
+        typeof crypto !== "undefined" && crypto.randomUUID
+          ? crypto.randomUUID().toUpperCase()
+          : `${Date.now()}-0000-4000-8000-000000000000`,
+    });
+    const url = URL.createObjectURL(new Blob([file], { type: "application/octet-stream" }));
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = SHORTCUT_FILENAME;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    // Revoked on the next tick: Safari cancels an in-flight download if the object URL
+    // goes before it has started reading it.
+    setTimeout(() => URL.revokeObjectURL(url), 10_000);
+    flash(
+      newToken
+        ? "Shortcut downloaded, with your key in it. Open it on your iPhone."
+        : "Shortcut downloaded. Replace the placeholder key in the Get Contents of URL action.",
+    );
   }
 
   async function revokeToken() {
@@ -1122,6 +1158,9 @@ export default function SettingsPage() {
               {busy === "token" && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               {tokenStatus?.exists ? "Replace key" : "Create key"}
             </Button>
+            <Button variant="outline" onClick={downloadShortcut}>
+              <Download className="mr-2 h-4 w-4" /> Add shortcut
+            </Button>
             {tokenStatus?.exists && (
               <Button
                 variant="outline"
@@ -1133,6 +1172,13 @@ export default function SettingsPage() {
               </Button>
             )}
           </div>
+          <p className="text-xs text-muted-foreground">
+            {newToken
+              ? "Add shortcut downloads a file with the key above already in it — open it on your iPhone and it is ready."
+              : "Add shortcut downloads the file with a placeholder key, since a key is only readable the moment it is made. Create one first to have it filled in."}{" "}
+            iOS refuses unsigned shortcuts until Settings → Shortcuts → Allow Untrusted
+            Shortcuts is on.
+          </p>
           {tokenStatus?.exists && (
             <p className="text-xs text-muted-foreground">
               Replacing stops the old key working. The key can only add reminders — it

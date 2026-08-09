@@ -211,25 +211,34 @@ is nothing to show it from a second time.
 reminder, cannot sign in, and cannot reach any other route. There is one per account,
 so generating a new one is also how you revoke the old.
 
-### Building the shortcut
+### Getting the shortcut
 
-There is a generator, and there is the by-hand version. Try the generator; the four
-actions below are the fallback and do not depend on it.
+**On the iPhone, in the app:** Settings → **Add by voice** → **Create key**, then
+**Add shortcut**. The file downloads with that key already in it and opens in
+Shortcuts. Add it, and say "Hey Siri, add reminder".
 
-```bash
-node scripts/make-shortcut.mjs --key prosys_your_key_here --url https://your-app.vercel.app
-```
-
-It writes `prosys-add-reminder.shortcut`. AirDrop that to the phone, or mail it to
-yourself and open the attachment. Omit `--key` and the file carries a placeholder to
-replace in the Shortcuts app instead.
+Press **Add shortcut** without making a key first and the file still has all four
+actions, just with a placeholder key to replace — the key is only readable at the
+moment it is created, so there is nothing to fill in afterwards.
 
 **iOS will refuse it until untrusted shortcuts are allowed.** Run any shortcut once,
 then Settings → Shortcuts → **Allow Untrusted Shortcuts**. Apple's signing is a service
 call tied to an Apple ID, not something a file can be given offline, so an unsigned
 shortcut has no other route in.
 
+The same file from a computer, if that is easier than tapping through the phone:
+
+```bash
+node scripts/make-shortcut.mjs --key prosys_your_key_here --url https://your-app.vercel.app
+```
+
+Both call `buildShortcut` in [`lib/shortcut.ts`](lib/shortcut.ts) — one builder, so the
+button and the script cannot drift apart.
+
 #### Or build it by hand
+
+If an import is ever refused, these four actions are the whole shortcut and depend on
+none of the above.
 
 1. Settings → **Add by voice** → **Create key**, and copy it.
 2. Shortcuts app → **+** → add these three actions in order:

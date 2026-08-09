@@ -272,7 +272,42 @@ try {
     400,
   );
 
-  console.log("\n10. A revoked token stops working");
+  console.log("\n10. The generated shortcut file");
+  // Same builder the Add shortcut button and the CLI script both call. What is worth
+  // asserting is the linkage, because a wrong UUID posts an empty body and the failure
+  // only shows up on a phone.
+  const { buildShortcut, KEY_PLACEHOLDER } = await import("../lib/shortcut.ts");
+  const file = buildShortcut({
+    key: "prosys_sample",
+    baseUrl: "https://example.test/",
+    uuid: "AAAA-BBBB",
+  });
+  check(
+    "four actions, in order",
+    [...file.matchAll(/is\.workflow\.actions\.([a-z]+)/g)].map((m) => m[1]),
+    ["dictatetext", "downloadurl", "getvalueforkey", "speaktext"],
+  );
+  check("the key is embedded as a bearer header", /Bearer prosys_sample/.test(file), true);
+  check(
+    "the body reads the dictate action's output",
+    /<key>OutputUUID<\/key><string>AAAA-BBBB<\/string>/.test(file),
+    true,
+  );
+  check(
+    "and the variable placeholder occupies the whole field",
+    /<string>￼<\/string>[\s\S]*?\{0, 1\}/.test(file),
+    true,
+  );
+  check("a trailing slash on the url is not doubled", /example\.test\/api\/ingest/.test(file), true);
+  check(
+    "with no key it carries the placeholder instead",
+    buildShortcut({ key: KEY_PLACEHOLDER, baseUrl: "https://example.test", uuid: "X" }).includes(
+      "Bearer REPLACE_WITH_YOUR_KEY",
+    ),
+    true,
+  );
+
+  console.log("\n11. A revoked token stops working");
   await prisma.user.update({ where: { id: user.id }, data: { apiTokenHash: null } });
   check("revoked", (await post({ text: "should not land" }, auth)).status, 401);
   check(
