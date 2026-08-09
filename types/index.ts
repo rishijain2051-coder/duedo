@@ -234,6 +234,11 @@ export const RECURRENCE_OPTIONS = [
   'Quarterly',
   'Half-Yearly',
   'Yearly',
+  // Anchored to the month rather than to the day you happened to pick. 'Monthly' on
+  // the 31st keeps landing near the 31st; these two always land on the 1st and on the
+  // last day, whatever length the month is. Rent and salary-day bills want the latter.
+  'Beginning of the month',
+  'End of the month',
 ] as const;
 
 export const PRIORITY_OPTIONS = ['low', 'normal', 'high'] as const;

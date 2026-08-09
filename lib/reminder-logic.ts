@@ -174,11 +174,37 @@ function addMonths(from: Date, months: number): Date {
   // To the 1st first, so the month arithmetic itself can never overflow.
   d.setUTCDate(1);
   d.setUTCMonth(d.getUTCMonth() + months);
-  const lastDayOfMonth = new Date(
-    Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0),
-  ).getUTCDate();
-  d.setUTCDate(Math.min(day, lastDayOfMonth));
+  d.setUTCDate(Math.min(day, lastDayOf(d)));
   return d;
+}
+
+/** Last day number of the month `d` falls in. Day 0 of the next month is it. */
+function lastDayOf(d: Date): number {
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate();
+}
+
+/**
+ * The next 1st, and the next last-day, keeping the time of day.
+ *
+ * Both are anchored to the month rather than carried forward from whichever date the
+ * reminder was first given, which is what separates them from `Monthly`. The step is
+ * always strictly forward: an "End of the month" reminder already sitting on the last
+ * day rolls to the end of *next* month rather than to itself.
+ */
+function startOfNextMonth(from: Date): Date {
+  const d = new Date(from);
+  d.setUTCDate(1);
+  d.setUTCMonth(d.getUTCMonth() + 1);
+  return d;
+}
+
+function endOfMonthAfter(from: Date): Date {
+  const thisMonthEnd = new Date(from);
+  thisMonthEnd.setUTCDate(lastDayOf(from));
+  if (thisMonthEnd.getTime() > from.getTime()) return thisMonthEnd;
+  const next = startOfNextMonth(from);
+  next.setUTCDate(lastDayOf(next));
+  return next;
 }
 
 /**
@@ -205,6 +231,10 @@ export function computeNextDueAt(from: Date, rule: string | null): Date | null {
       // Twelve months rather than +1 year, so 29 February lands on the 28th instead
       // of stepping into March.
       return addMonths(from, 12);
+    case "Beginning of the month":
+      return startOfNextMonth(from);
+    case "End of the month":
+      return endOfMonthAfter(from);
     default:
       return null;
   }

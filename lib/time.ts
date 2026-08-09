@@ -171,10 +171,12 @@ export function formatInZone(
   timeZone: string,
   withTime = true,
 ): string {
+  // dd/mm/yyyy, matching formatDate in lib/format.ts — the same reminder must not read
+  // one way in the app and another way in the email about it.
   return new Intl.DateTimeFormat("en-GB", {
     timeZone,
-    day: "numeric",
-    month: "short",
+    day: "2-digit",
+    month: "2-digit",
     year: "numeric",
     ...(withTime ? { hour: "numeric", minute: "2-digit", hour12: true } : {}),
   }).format(instant);

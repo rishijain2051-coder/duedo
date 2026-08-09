@@ -513,6 +513,35 @@ try {
 
   const daily = await endOfMonth("2026-02-28T09:00", "Daily");
   check("and Daily still just adds a day, across a month boundary", daily.slice(0, 10), "2026-03-01");
+
+  console.log("\n13. Month-anchored recurrence lands on the 1st and the last day");
+  // Unlike Monthly, these ignore the day the reminder was first given and go to the
+  // edge of the month every time.
+  check(
+    "mid-month, Beginning of the month goes to the 1st of next month",
+    (await endOfMonth("2026-03-17T09:00", "Beginning of the month")).slice(0, 10),
+    "2026-04-01",
+  );
+  check(
+    "already on the 1st, it moves on rather than staying put",
+    (await endOfMonth("2026-03-01T09:00", "Beginning of the month")).slice(0, 10),
+    "2026-04-01",
+  );
+  check(
+    "mid-month, End of the month goes to the end of that month",
+    (await endOfMonth("2026-03-17T09:00", "End of the month")).slice(0, 10),
+    "2026-03-31",
+  );
+  check(
+    "already on the last day, it goes to the end of the next",
+    (await endOfMonth("2026-03-31T09:00", "End of the month")).slice(0, 10),
+    "2026-04-30",
+  );
+  check(
+    "and it knows February is short",
+    (await endOfMonth("2026-01-31T09:00", "End of the month")).slice(0, 10),
+    "2026-02-28",
+  );
 } finally {
   await cleanup();
   await prisma.$disconnect();

@@ -108,3 +108,46 @@ export const DEFAULT_CATEGORIES = [
   { name: "Health / Medicine", icon: "HeartPulse", color: "#10b981" },
   { name: "Birthdays", icon: "Cake", color: "#f97316" },
 ];
+
+/** Where a reminder goes when nobody picked a category. */
+export const OTHERS_CATEGORY = "Others";
+
+/**
+ * The scope's "Others" category, created the first time it is needed.
+ *
+ * Picking a category is no longer part of adding a reminder — most of them don't want
+ * one, and making it required meant a second decision before the thing could be saved.
+ * `Reminder.categoryId` is still a required column with a real relation, though, so
+ * "no category" has to be a category. Making the column nullable instead would put an
+ * `if` on every read that groups or totals by category, and Spending is built entirely
+ * out of those.
+ *
+ * Not seeded with the eight defaults: a list that opens with an empty "Others" in it
+ * invites people to file things there deliberately, which is not what it is for.
+ */
+export async function ensureOthersCategory(
+  scope: { userId: string } | { familyId: string },
+): Promise<string> {
+  const existing = await prisma.category.findFirst({
+    where: { ...scope, name: OTHERS_CATEGORY },
+    select: { id: true },
+  });
+  if (existing) return existing.id;
+
+  try {
+    const made = await prisma.category.create({
+      data: { ...scope, name: OTHERS_CATEGORY, icon: "Folder", color: "#94a3b8" },
+      select: { id: true },
+    });
+    return made.id;
+  } catch {
+    // Two reminders saved at once both found nothing and both inserted; the unique
+    // index on (scope, name) refused the second. The winner's row is the answer.
+    const raced = await prisma.category.findFirst({
+      where: { ...scope, name: OTHERS_CATEGORY },
+      select: { id: true },
+    });
+    if (raced) return raced.id;
+    throw new HttpError(500, "Could not file this under a category.");
+  }
+}

@@ -63,7 +63,7 @@ export async function POST(req: NextRequest) {
     // lookup below, so a malformed id reads as the client bug it is instead of taking
     // whatever status the scope check happens to return first.
     const id = clientId(body.id);
-    await assertReminderDestination(data, user.id);
+    await assertReminderDestination(data, user.id, null, true);
 
     if (id) {
       const mine = await prisma.reminder.findFirst({

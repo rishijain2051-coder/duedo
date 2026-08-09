@@ -16,10 +16,12 @@ export function formatCurrency(amount?: number | null): string {
  */
 export function formatDate(value: string | Date, timeZone?: string): string {
   const d = typeof value === "string" ? new Date(value) : value;
+  // dd/mm/yyyy, zero-padded. Numeric rather than "3 Aug 2026" so every date is the
+  // same width in a list and reads the way dates are written here.
   return d.toLocaleDateString("en-GB", {
     timeZone,
-    day: "numeric",
-    month: "short",
+    day: "2-digit",
+    month: "2-digit",
     year: "numeric",
   });
 }

@@ -34,6 +34,7 @@ import {
   formatCurrency,
   formatDateTime,
   reminderStatus,
+  toDateKey,
   toDateTimeInputValue,
 } from "@/lib/format";
 import { MAX_DESCRIPTION, MAX_REMARKS, MAX_TITLE } from "@/lib/reminder-logic";
@@ -55,7 +56,10 @@ type StatusFilter = (typeof STATUS_FILTERS)[number];
 const emptyForm = {
   title: "",
   categoryId: "",
-  dueAt: "",
+  /** Split from a single datetime-local: the date is nearly always today, the time
+      nearly never is, and one control made you re-pick both every time. */
+  dueDate: "",
+  dueTime: "",
   amount: "",
   recurrenceRule: "One Time",
   priority: "normal",
@@ -82,7 +86,7 @@ function isSnoozed(r: Reminder): boolean {
 export default function RemindersPage() {
   // `scope` is shared app state, not local: picking a family here and then opening the
   // dashboard used to put you silently back on your personal list.
-  const { timeZone, syncBadge, families, scope, setScope } = useApp();
+  const { timeZone, settings, syncBadge, families, scope, setScope } = useApp();
   const activeFamily = families.find((f) => f.id === scope) ?? null;
 
   // Cached per scope so switching tabs doesn't re-spinner, and a repeat visit
@@ -134,7 +138,13 @@ export default function RemindersPage() {
     setEditingId(null);
     setForm({
       ...emptyForm,
-      categoryId: categories[0]?.id ?? "",
+      // No category pre-selected. Leaving it blank files the reminder under "Others",
+      // so the common case is one less decision rather than a wrong guess to correct.
+      categoryId: "",
+      // Today, and your default time. Almost every reminder is added for today or
+      // later today, so the date is the field you would have retyped unchanged.
+      dueDate: toDateKey(new Date(), timeZone),
+      dueTime: settings?.defaultTime ?? "",
       leadOffsets: DEFAULT_LEADS,
       // New reminders land on whichever list you're looking at, and a family one
       // defaults to telling the whole family — the common case for a shared bill.
@@ -142,13 +152,17 @@ export default function RemindersPage() {
       audience: scope === "mine" ? "owner" : "family",
     });
     setFormOpen(true);
-  }, [categories, scope]);
+  }, [scope, timeZone, settings?.defaultTime]);
 
   // Home Screen shortcut: /reminders?new=1 opens the form directly. Read straight
   // off the URL rather than via useSearchParams, which would force this whole page
   // behind a Suspense boundary just for a client-only nicety.
   useEffect(() => {
-    if (shortcutHandled.current || loading || categories.length === 0) return;
+    // No longer waits on categories: they are optional, so a scope with none must
+    // still be able to open the form. It does wait for settings, because this is the
+    // cold-launch path — the Home Screen shortcut — and opening before they arrive
+    // gives the form a blank time where the user's default belongs.
+    if (shortcutHandled.current || loading || !settings) return;
     const params = new URLSearchParams(window.location.search);
     if (params.get("new") === "1") {
       shortcutHandled.current = true;
@@ -185,7 +199,7 @@ export default function RemindersPage() {
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loading, categories.length, openCreate, reminders, setScope]);
+  }, [loading, settings, openCreate, reminders, setScope]);
 
   const visible = reminders.filter((r) =>
     filter === "all" ? true : r.status === filter,
@@ -196,7 +210,9 @@ export default function RemindersPage() {
     setForm({
       title: r.title,
       categoryId: r.categoryId,
-      dueAt: toDateTimeInputValue(r.dueAt, timeZone),
+      // "yyyy-mm-ddThh:mm" split back into the two controls.
+      dueDate: toDateKey(r.dueAt, timeZone),
+      dueTime: r.hasTime === false ? "" : toDateTimeInputValue(r.dueAt, timeZone).slice(11),
       amount: r.amount ? String(r.amount) : "",
       recurrenceRule: r.recurrenceRule ?? "One Time",
       priority: r.priority ?? "normal",
@@ -221,8 +237,8 @@ export default function RemindersPage() {
 
   async function submitForm(e: React.FormEvent) {
     e.preventDefault();
-    if (!form.title || !form.categoryId || !form.dueAt) {
-      setError("Title, category and due date are required.");
+    if (!form.title || !form.dueDate) {
+      setError("A title and a due date are required.");
       return;
     }
     setSaving(true);
@@ -231,8 +247,12 @@ export default function RemindersPage() {
       // fills in your default time when none was picked.
       const payload = {
         title: form.title,
-        categoryId: form.categoryId,
-        dueAt: form.dueAt,
+        // null, not "", when nothing was picked: the server reads null as "file it
+        // under Others" and would treat an empty string as a malformed id.
+        categoryId: form.categoryId || null,
+        // Recombined into the wall-clock text the server already parses. No time
+        // given means the date alone, which it fills with your default.
+        dueAt: form.dueTime ? `${form.dueDate}T${form.dueTime}` : form.dueDate,
         amount: form.amount ? Number(form.amount) : 0,
         recurrenceRule: form.recurrenceRule,
         priority: form.priority,
@@ -696,6 +716,30 @@ export default function RemindersPage() {
         title={editingId ? "Edit Reminder" : "New Reminder"}
       >
         <form onSubmit={submitForm} className="space-y-4">
+          {/* Save sits at the top, not after the optional half of the form. Everything
+              below Time is optional, so the old bottom-anchored button meant scrolling
+              past six fields you had already decided to skip in order to reach it.
+              Sticky, so it stays reachable once the form is long enough to scroll. */}
+          <div className="sticky top-0 z-10 -mx-1 flex items-center justify-end gap-2 border-b border-border bg-card px-1 pb-3">
+            <Button type="button" variant="outline" onClick={() => setFormOpen(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={saving} aria-label={editingId ? "Save changes" : "Create reminder"}>
+              {saving ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <>
+                  {/* Icon-only on a phone, where the words cost a line of width the
+                      title field needs more. */}
+                  <Plus className="h-4 w-4 sm:hidden" />
+                  <span className="hidden sm:inline">
+                    {editingId ? "Save changes" : "Create reminder"}
+                  </span>
+                </>
+              )}
+            </Button>
+          </div>
+
           <Field label="Title *">
             {/* Mirrors the server's cap (lib/reminder-logic.ts), so the field stops
                 accepting text instead of the save quietly shortening it. */}
@@ -708,12 +752,29 @@ export default function RemindersPage() {
             />
           </Field>
           <div className="grid sm:grid-cols-2 gap-4">
-            <Field label="Category *">
+            <Field label="Due date *">
+              <Input
+                type="date"
+                value={form.dueDate}
+                onChange={(e) => setForm({ ...form, dueDate: e.target.value })}
+              />
+            </Field>
+            <Field label="Time">
+              <Input
+                type="time"
+                value={form.dueTime}
+                onChange={(e) => setForm({ ...form, dueTime: e.target.value })}
+              />
+            </Field>
+          </div>
+
+          <div className="grid sm:grid-cols-2 gap-4">
+            <Field label="Category">
               <Select
                 value={form.categoryId}
                 onChange={(e) => setForm({ ...form, categoryId: e.target.value })}
               >
-                <option value="">Select…</option>
+                <option value="">Others</option>
                 {categories.map((c) => (
                   <option key={c.id} value={c.id}>
                     {c.name}
@@ -731,14 +792,6 @@ export default function RemindersPage() {
               />
             </Field>
           </div>
-
-          <Field label="Due date & time *">
-            <Input
-              type="datetime-local"
-              value={form.dueAt}
-              onChange={(e) => setForm({ ...form, dueAt: e.target.value })}
-            />
-          </Field>
 
           <div>
             <p className="text-sm font-medium mb-1.5">Remind me before</p>
@@ -860,15 +913,6 @@ export default function RemindersPage() {
               maxLength={MAX_DESCRIPTION}
             />
           </Field>
-          <div className="flex justify-end gap-2 pt-2">
-            <Button type="button" variant="outline" onClick={() => setFormOpen(false)}>
-              Cancel
-            </Button>
-            <Button type="submit" disabled={saving}>
-              {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              {editingId ? "Save changes" : "Create reminder"}
-            </Button>
-          </div>
         </form>
       </Modal>
 

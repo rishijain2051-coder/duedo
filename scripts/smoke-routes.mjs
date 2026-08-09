@@ -647,12 +647,34 @@ try {
   check("and remarks at 500", longRemarks.status, 200);
   await member("DELETE", `/api/reminders/${longTitle.data.id}`);
 
-  check(
-    "a reminder needs a category",
-    (await member("POST", "/api/reminders", { title: "No category", dueAt: "2026-09-01" }))
-      .status,
-    400,
-  );
+  // Category is optional now. It used to be a 400, which meant a second decision
+  // before a reminder could be saved at all; anything without one is filed under
+  // "Others", created on first use.
+  const noCat = await member("POST", "/api/reminders", {
+    title: "No category",
+    dueAt: "2026-09-01",
+  });
+  check("a reminder does not need a category", noCat.status, 201);
+  check("and is filed under Others", noCat.data?.category?.name, "Others");
+
+  const noCat2 = await member("POST", "/api/reminders", {
+    title: "Also no category",
+    dueAt: "2026-09-02",
+  });
+  check("a second one reuses that same Others", noCat2.data?.categoryId, noCat.data?.categoryId);
+
+  const nulled = await member("PATCH", `/api/reminders/${noCat2.data.id}`, {
+    categoryId: null,
+  });
+  check("clearing the category on an edit lands there too", nulled.data?.categoryId, noCat.data?.categoryId);
+
+  const othersCount = (await member("GET", "/api/categories?scope=mine")).data.filter(
+    (c) => c.name === "Others",
+  ).length;
+  check("and only one Others is ever made", othersCount, 1);
+  await member("DELETE", `/api/reminders/${noCat.data.id}`);
+  await member("DELETE", `/api/reminders/${noCat2.data.id}`);
+
   check(
     "a personal reminder cannot be assigned to anyone",
     (await member("POST", "/api/reminders", {

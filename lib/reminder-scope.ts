@@ -1,7 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "./db";
 import { HttpError } from "./http";
-import { assertMember } from "./families";
+import { assertMember, ensureOthersCategory } from "./families";
 import { assertCategoryInScope } from "./ownership";
 import { assertContactsOwned, parseEscalation } from "./escalation";
 
@@ -45,9 +45,8 @@ export function assertReminderFields(
     throw new HttpError(400, "That due date could not be read.");
   }
 
-  if (isCreate && !data.categoryId) {
-    throw new HttpError(400, "Pick a category for the reminder.");
-  }
+  // No category check. Picking one is optional now; anything without one is filed
+  // under "Others" in assertReminderDestination, once membership has been proved.
 }
 
 /**
@@ -62,6 +61,7 @@ export async function assertReminderDestination(
   data: Destination & Record<string, unknown>,
   userId: string,
   currentFamilyId: string | null = null,
+  isCreate = false,
 ): Promise<void> {
   const familyId =
     data.familyId === undefined ? currentFamilyId : (data.familyId as string | null);
@@ -69,6 +69,19 @@ export async function assertReminderDestination(
   if (familyId) {
     // Membership is the gate on writing to a family list at all.
     await assertMember(userId, familyId);
+  }
+
+  // "No category" is still a category, because the column is required — see
+  // ensureOthersCategory. Deliberately after the membership check above: resolving it
+  // first would let a familyId the caller doesn't belong to create a category on that
+  // family's list, which is a write to a list they can't even read.
+  //
+  // An explicit null clears the field on an update as well as a create; undefined on an
+  // update means "leave it alone" and is left alone.
+  if (data.categoryId === null || (isCreate && data.categoryId === undefined)) {
+    data.categoryId = await ensureOthersCategory(
+      familyId ? { familyId } : { userId },
+    );
   }
 
   if (data.assignedToId) {
