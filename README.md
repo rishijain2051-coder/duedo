@@ -213,6 +213,24 @@ so generating a new one is also how you revoke the old.
 
 ### Building the shortcut
 
+There is a generator, and there is the by-hand version. Try the generator; the four
+actions below are the fallback and do not depend on it.
+
+```bash
+node scripts/make-shortcut.mjs --key prosys_your_key_here --url https://your-app.vercel.app
+```
+
+It writes `prosys-add-reminder.shortcut`. AirDrop that to the phone, or mail it to
+yourself and open the attachment. Omit `--key` and the file carries a placeholder to
+replace in the Shortcuts app instead.
+
+**iOS will refuse it until untrusted shortcuts are allowed.** Run any shortcut once,
+then Settings → Shortcuts → **Allow Untrusted Shortcuts**. Apple's signing is a service
+call tied to an Apple ID, not something a file can be given offline, so an unsigned
+shortcut has no other route in.
+
+#### Or build it by hand
+
 1. Settings → **Add by voice** → **Create key**, and copy it.
 2. Shortcuts app → **+** → add these three actions in order:
    - **Dictate Text** (set Language to yours; Stop Listening: *After Pause*)
