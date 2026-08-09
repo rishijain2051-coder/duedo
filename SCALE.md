@@ -8,40 +8,66 @@ otherwise.
 
 ## How much storage a row actually costs
 
-Measured by filling temp tables that mirror the live schema — including their indexes
-— with 20,000 synthetic rows each and reading `pg_total_relation_size`.
+Measured by building temp tables with `CREATE TEMP TABLE … (LIKE public."X" INCLUDING
+ALL)`, filling them with 20,000 synthetic rows and reading `pg_total_relation_size`.
+
+`LIKE … INCLUDING ALL` matters, and is the correction to an earlier pass. That pass
+wrote the probe tables by hand and used short integer-ish ids, which made every figure
+here about **half** what the schema really costs:
 
 | table | bytes/row (incl. indexes) | grows with |
 |---|---|---|
-| `Reminder` | 448 | what people create |
-| `ReminderDispatch` | 290 | every alert sent |
-| `Notification` | 281 | every alert sent |
-| `ActivityLog` | 224 | admin/account actions |
+| `ReminderDispatch` | **664** | every alert sent |
+| `Reminder` | **565** | what people create |
+| `Notification` | **487** | every alert sent |
+| `ReminderHistory` | **474** | every completion |
+| `ActivityLog` | **452** | admin/account actions |
 
-**One alert to one person costs 571 bytes** — a `ReminderDispatch` row to stop it
-being sent twice, plus a `Notification` row for the in-app feed.
+**One alert to one person costs 1,151 bytes** — a `ReminderDispatch` row to stop it
+being sent twice, plus a `Notification` row for the in-app feed. The earlier figure of
+571 was wrong by a factor of two.
 
-Current usage: **1.27 MB** in the `public` schema, 12.6 MB for the whole database
-(the rest is Postgres' own catalogs and extensions). The Supabase free tier allows
-500 MB, so roughly **487 MB is available**.
+### Why it was wrong: uuids are text here
+
+`String @id @default(uuid())` stores a 36-character string, not Postgres' 16-byte
+`uuid` type. That text sits in the heap *and* again in every index over the column —
+and `ReminderDispatch` indexes its id, its reminderId, its userId, and a five-column
+unique key across most of them.
+
+Isolated rather than assumed. The same table, same row count, only the ids changed:
+
+| `ReminderDispatch` | bytes/row |
+|---|---|
+| with real uuid strings | **664** |
+| with short ids | 217 |
+
+Three times the cost, from the id type alone. Every projection below uses the measured
+number.
+
+Current usage: **1.99 MB** in the `public` schema, 17.8 MB for the whole database — of
+which **4 MB is pg_cron's own run log**, not this app. See the section on it below.
 
 ## What that means in practice
 
-A reminder with two lead alerts fires 3 times per cycle (2 lead + 1 due), so:
+A reminder with two lead alerts fires 3 times per cycle (2 lead + 1 due). At 1,151
+bytes an alert, before the retention rules below take rows back out:
 
-| scenario | storage per year |
-|---|---|
-| One person, 20 monthly reminders | ~0.4 MB |
-| Household of 4, 30 shared monthly reminders | ~2.5 MB |
-| 50 households of 4 | ~125 MB |
+| scenario | alerts per year | before retention |
+|---|---|---|
+| One person, 20 monthly reminders | ~720 | ~0.8 MB |
+| Household of 4, 30 shared monthly reminders | ~4,300 | ~5 MB |
+| 50 households of 4 | ~216,000 | ~250 MB |
 
-**On the free tier, ~200 household-years fit in the available space.** Put another
-way: 50 families using it properly would take about four years to fill it, and a few
-hundred solo users would take longer than that.
+Those are the *gross* figures, and they are the reason the retention work below
+exists rather than a curiosity: with nothing swept, 50 households would reach the free
+tier's limit in about two years. With the sweeps in place almost none of it is
+retained — dispatch rows fall to "open cycles only" and read notifications to a
+fortnight — so the steady state is a small multiple of the number of reminders that
+exist, not a function of how long the install has run.
 
-Steady-state growth is not the thing to worry about. Two other things were.
+Steady-state growth was never the thing to worry about. Three other things were.
 
-## The two problems this analysis found, and the fixes
+## The three problems this analysis found, and the fixes
 
 **Overdue nagging was unbounded.** `offsetMin` on an overdue alert is
 minutes-since-due, so it increases forever and every nag was therefore a *new*
@@ -85,12 +111,12 @@ how many reminders people abandon, not by how long the install has run. Capping 
 fire at 14 days would have made a window safe instead, but it would also silence a
 legitimately backdated reminder, and unlike leads the due alert has no no-back-fill rule
 to lean on. Retained rows now mean "cycles still open" rather than "the last three
-months": for a household of four with 30 shared monthly reminders, 692 kB → ~230 kB.
+months": for a household of four with 30 shared monthly reminders, 1.6 MB → ~530 kB.
 
 **The feed is the bigger app-side lever, and it is a product choice.** Read
 notifications are kept **14 days** — once somebody has read the entry it has done its
 job of leaving a trace — and unread ones the full **90**, because an unread alert might
-still be news. Same household: 476 kB → ~79 kB.
+still be news. Same household: 825 kB → ~137 kB.
 
 **Expired logins were never swept at all.** `resolveSession` deletes an expired row when
 that exact session is next presented, so a device that never comes back left its row for
@@ -105,7 +131,7 @@ the onset survives, so does the current state, and the table cannot exceed 40 ro
 however long the outage lasts.
 
 **`MonthlyRollup` had no ceiling of any kind.** The year view reads twelve months, so it
-is capped at 24. Roughly 49 kB a year per household — tidiness rather than savings.
+is capped at 24. Well under 100 kB a year per household — tidiness rather than savings.
 
 It also had the orphan problem in a worse form than the feed. `scopeKey` is a composite
 string, `"u:<userId>"` or `"f:<familyId>"`, so no foreign key can cascade: deleting an
@@ -126,6 +152,44 @@ outlive everything and the app re-registers a deleted subscription on the next l
 **The audit log** is separately handled — it is emailed to the owner daily and then
 trimmed to its 50 most recent entries, so it holds at a fixed few kB rather than
 growing (`lib/audit-rotate.ts`).
+
+## The biggest consumer was never this app
+
+`cron.job_run_details` gets one row per pg_cron run, and pg_cron never removes any of
+them. The dispatcher runs every minute, so that is 1,440 rows a day, forever, whether
+anybody uses the app or not.
+
+Measured on the live project:
+
+| | |
+|---|---|
+| rows | 8,587 over 6.0 days |
+| size | **4.05 MB** |
+| growth | **695 kB/day = 248 MB/year** |
+| the entire `public` schema, for comparison | 1.99 MB |
+
+So pg_cron's own bookkeeping was already **twice the size of the application**, and on
+its own would fill the 500 MB free tier in **about two years** — with no users, no
+reminders and nothing to show for it. Every app-side saving in this document is worth
+less than this one line.
+
+It now has a retention policy, scheduled in pg_cron itself:
+
+```sql
+select cron.schedule(
+  'prune-cron-log',
+  '17 3 * * *',
+  $$delete from cron.job_run_details where end_time < now() - interval '7 days'$$
+);
+```
+
+Seven days holds it at roughly **4.9 MB** in perpetuity, and still answers the two
+questions that table is ever opened for: did the dispatcher run overnight, and when did
+it start failing. `vacuum` is what returns the space after the delete — the first run
+marks the tuples dead, autovacuum reclaims them.
+
+Left alone: `net._http_response`, from pg_net. It looks like the same problem and is
+not — pg_net applies its own TTL and it self-limits under a megabyte (848 kB measured).
 
 ## The dispatcher was writing thousands of ERROR lines a day
 
@@ -233,10 +297,16 @@ number to watch on the admin health page, where `Took` is recorded for every run
 
 | limit | current | headroom |
 |---|---|---|
-| Database, 500 MB free tier | 12.6 MB | ~200 household-years |
+| Database, 500 MB free tier | 17.8 MB total, of which 1.99 MB is this app | large, now that the cron log is bounded |
+| `cron.job_run_details` | 4.05 MB, capped at 7 days ≈ 4.9 MB | fixed, not growing |
 | Dispatch tick, 60 s | 2–15 s (over a trans-Pacific link) | large; watch `Took` |
 | Vercel Hobby function invocations | 1 tick/min = ~44k/month | comfortable |
 
-The free tier's real constraint is not size — it is that a project **pauses after 7
-days of inactivity**, which stops pg_cron and therefore all reminders. An install in
+Two things about that first row. The app's own share grows with use and is held down by
+the retention rules above; the rest is Postgres' catalogs, extensions and pg_cron, which
+grow whether anybody signs in or not — and until the retention policy above, that second
+group was the one heading for the ceiling.
+
+The free tier's real constraint is not size at all — it is that a project **pauses after
+7 days of inactivity**, which stops pg_cron and therefore all reminders. An install in
 regular use never hits it.

@@ -121,7 +121,13 @@ Open the Supabase **SQL Editor** and run
 placeholders with your deployed domain and your `CRON_SECRET`. One call covers every
 account.
 
-Verify:
+That script schedules **two** jobs: `prosys-dispatch` every minute, and
+`prune-cron-log` once a day. The second one is not optional housekeeping — pg_cron
+writes a row per run to `cron.job_run_details` and never deletes any, which measured
+248 MB a year on this install and would fill the free tier in about two years with no
+users at all. See [SCALE.md](SCALE.md).
+
+Verify — both jobs should be listed and active:
 
 ```sql
 select jobid, jobname, schedule, active from cron.job;

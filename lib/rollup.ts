@@ -35,7 +35,7 @@ const MAX_ROWS_PER_MONTH = 10_000;
  * lookup. This one has to enumerate every scope before it can tell whether there is
  * anything to do, so a per-minute run would be hundreds of queries a minute to discover
  * that mid-month there is nothing to close. Sampling deterministically off the epoch
- * minute is the same trick pruneRetention already uses in lib/dispatch.ts.
+ * minute is the same trick sweepRetention already uses in lib/dispatch.ts.
  *
  * Missing a day costs nothing: closing is idempotent, and CLOSE_LOOKBACK means a month
  * skipped today is picked up tomorrow.
