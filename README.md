@@ -267,7 +267,7 @@ Say it however you like. Only what you actually say is filled in — nothing is 
 
 | You say | It sets |
 |---|---|
-| "remind me to **pay the water bill**" | title; today, at your default time |
+| "remind me to **pay the water bill**" | title; today, ten minutes from now |
 | "…**tomorrow**", "**on the 15th**", "**next friday**", "**15 September**", "**15/9**", "**in 3 days**", "**end of the month**" | the date |
 | "…**at 6pm**", "**at 6:30 pm**", "**at noon**", "**in the evening**" | the time |
 | "…**18000 rupees**", "**₹18,500.50**", "**rs 900**" | the amount |

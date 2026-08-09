@@ -11,6 +11,7 @@ import {
 } from "@/lib/idb";
 import { isOffline, isOfflineError, markOffline, markOnline } from "@/lib/net";
 import { computeNextDueAt } from "@/lib/reminder-logic";
+import { parseDueAt } from "@/lib/time";
 import { replay, type Mutation, type MutationKind, type ReplayReport } from "@/lib/sync";
 import type { Reminder } from "@/types";
 
@@ -277,7 +278,16 @@ export interface Projected extends Reminder {
   pendingKinds?: MutationKind[];
 }
 
-export function projectReminders(list: Reminder[], queued: Mutation[]): Projected[] {
+export function projectReminders(
+  list: Reminder[],
+  queued: Mutation[],
+  /**
+   * The viewer's zone, so an offline create is placed exactly where the server will
+   * place it. Optional only so a caller without it still works — Intl then falls back
+   * to the device's own zone, which is nearly always the same thing.
+   */
+  timeZone?: string,
+): Projected[] {
   if (queued.length === 0) return list;
 
   const byId = new Map<string, Projected>(list.map((r) => [r.id, { ...r }]));
@@ -292,12 +302,20 @@ export function projectReminders(list: Reminder[], queued: Mutation[]): Projecte
       // than guessed at, which is right for a date with no time on it anyway.
       const p = m.payload as Record<string, unknown>;
       const raw = String(p.dueAt ?? "");
-      // The form submits wall-clock text and the server resolves it in the user's zone,
-      // filling in their default time when none was given. Neither of those is knowable
-      // here, so a date with no time is read as local noon and marked hasTime: false —
-      // the UI then shows the date alone, which is what was actually chosen. Reading it
-      // as midnight instead would land on the previous day for anyone west of UTC.
-      const hasTime = raw.includes("T");
+      // Resolved with the very function the route uses, rather than approximated here.
+      // It used to read a date with no time as local noon, which was close enough while
+      // the server filled in a fixed default hour — but the server now places an
+      // untimed reminder ten minutes out, so the optimistic row said midday and the
+      // real one said quarter past four. Two implementations of one rule, and this was
+      // the copy nobody would think to update.
+      let resolved: { dueAt: Date; hasTime: boolean };
+      try {
+        resolved = parseDueAt(raw, timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone);
+      } catch {
+        // Unparseable text is the server's 400 to give, not a reason to drop the row
+        // from the list it was just added to.
+        resolved = { dueAt: new Date(), hasTime: false };
+      }
       const created: Projected = {
         id: m.reminderId,
         userId: m.owner,
@@ -305,8 +323,8 @@ export function projectReminders(list: Reminder[], queued: Mutation[]): Projecte
         categoryId: String(p.categoryId ?? ""),
         priority: (p.priority as Reminder["priority"]) ?? "normal",
         status: "active",
-        dueAt: new Date(hasTime ? raw : `${raw}T12:00`).toISOString(),
-        hasTime,
+        dueAt: resolved.dueAt.toISOString(),
+        hasTime: resolved.hasTime,
         leadOffsets: Array.isArray(p.leadOffsets) ? (p.leadOffsets as number[]) : [],
         recurrenceRule: (p.recurrenceRule as string) ?? "One Time",
         amount: typeof p.amount === "number" ? p.amount : 0,

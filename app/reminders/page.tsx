@@ -117,14 +117,14 @@ export default function RemindersPage() {
   const { items: queued } = useOutbox();
   const categories = data?.cats ?? NO_CATEGORIES;
   const reminders = useMemo(() => {
-    const projected = projectReminders(data?.rem ?? NO_REMINDERS, queued);
+    const projected = projectReminders(data?.rem ?? NO_REMINDERS, queued, timeZone);
     // A reminder created offline holds only the categoryId it was filed under — the
     // joined category comes back with the server's copy. Resolved from the list already
     // on screen so a new row shows "Bills" rather than an em dash.
     return projected.map((r) =>
       r.category ? r : { ...r, category: categories.find((c) => c.id === r.categoryId) },
     );
-  }, [data?.rem, categories, queued]);
+  }, [data?.rem, categories, queued, timeZone]);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [filter, setFilter] = useState<StatusFilter>("active");
@@ -251,8 +251,8 @@ export default function RemindersPage() {
     }
     setSaving(true);
     try {
-      // dueAt is sent as wall-clock text; the server resolves it in your zone and
-      // fills in your default time when none was picked.
+      // dueAt is sent as wall-clock text; the server resolves it in your zone, and
+      // places it ten minutes out when no time was picked.
       const payload = {
         title: form.title,
         // null, not "", when nothing was picked: the server reads null as "file it

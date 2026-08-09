@@ -182,7 +182,6 @@ export default function SettingsPage() {
 
   const [name, setName] = useState("");
   const [timezone, setTimezone] = useState("Asia/Kolkata");
-  const [defaultTime, setDefaultTime] = useState("05:30");
   const [overdueRepeatMins, setOverdueRepeatMins] = useState(60);
   const [idleTimeoutMins, setIdleTimeoutMins] = useState(0);
   const [currentPin, setCurrentPin] = useState("");
@@ -224,7 +223,6 @@ export default function SettingsPage() {
     if (settings) {
       setName(settings.name);
       setTimezone(settings.timezone);
-      setDefaultTime(settings.defaultTime);
       setOverdueRepeatMins(settings.overdueRepeatMins);
       setIdleTimeoutMins(settings.idleTimeoutMins);
     }
@@ -875,7 +873,7 @@ export default function SettingsPage() {
             onClick={() =>
               save(
                 "defaults",
-                { timezone, defaultTime, overdueRepeatMins },
+                { timezone, overdueRepeatMins },
                 "Reminder defaults saved.",
               )
             }

@@ -36,8 +36,8 @@ export default function CalendarPage() {
   // date here too rather than the two pages disagreeing about the same reminder.
   const { items: queued } = useOutbox();
   const reminders = useMemo(
-    () => projectReminders(data ?? NO_REMINDERS, queued),
-    [data, queued],
+    () => projectReminders(data ?? NO_REMINDERS, queued, timeZone),
+    [data, queued, timeZone],
   );
   const [cursor, setCursor] = useState(() => {
     const now = new Date();

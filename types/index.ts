@@ -57,7 +57,8 @@ export interface Settings {
   role: 'admin' | 'member';
   accountType: AccountType;
   timezone: string;
-  defaultTime: string; // "HH:mm"
+  /** "HH:mm". No longer used for reminders — see UNTIMED_LEAD_MINUTES in lib/time.ts. */
+  defaultTime: string;
   overdueRepeatMins: number;
   /** Sign out after this many minutes idle. 0 = never. */
   idleTimeoutMins: number;
@@ -164,7 +165,7 @@ export interface Reminder {
   category?: Category;
   priority: 'low' | 'normal' | 'high';
   status: 'draft' | 'active' | 'completed' | 'archived';
-  /** ISO instant. Always concrete — the user's default time is applied server-side. */
+  /** ISO instant. Always concrete — an omitted time becomes ten minutes from saving. */
   dueAt: string;
   /** False when no time was chosen and the default was filled in. */
   hasTime: boolean;

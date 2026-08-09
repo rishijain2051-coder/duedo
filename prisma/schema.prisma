@@ -83,7 +83,10 @@ model User {
   // ---------------------------------------------------------- preferences
   /// Every instant is stored UTC and rendered in this zone.
   timezone          String @default("Asia/Kolkata")
-  /// HH:mm local, applied when a reminder carries no explicit time.
+  /// HH:mm local. No longer read: a reminder with no explicit time is placed
+  /// UNTIMED_LEAD_MINUTES from when it was saved instead of at a fixed hour, which
+  /// left nothing for this to decide. Kept because dropping a column is destructive
+  /// and this one costs nothing; the settings route still accepts it.
   defaultTime       String @default("05:30")
   /// While overdue, re-notify this often until completed or snoozed.
   overdueRepeatMins Int    @default(60)
@@ -326,10 +329,13 @@ model Reminder {
   priority    String   @default("normal") // low, normal, high
   status      String   @default("active") // draft, active, completed, archived
 
-  /// Absolute instant the reminder is due. Always concrete — when the user omits
-  /// a time we apply their defaultTime in their timezone before saving.
+  /// Absolute instant the reminder is due. Always concrete — when the user omits a
+  /// time we place it UNTIMED_LEAD_MINUTES from the moment it was saved, in their
+  /// timezone. See parseDueAt in lib/time.ts.
   dueAt   DateTime @db.Timestamptz
-  /// False when the user never picked a time (we filled in the default). Display-only.
+  /// Display-only, and now always true on new rows: a filled-in time is ten minutes
+  /// out rather than a placeholder hour, so there is nothing left to hide from the
+  /// list. Rows written before that change keep whatever they stored.
   hasTime Boolean  @default(true)
 
   /// Minutes before dueAt to send an advance alert. One alert per entry.

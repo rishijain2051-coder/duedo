@@ -40,8 +40,8 @@ export default function DashboardPage() {
   // computed — so they stay as last read, which the offline strip already accounts for.
   const { items: queued } = useOutbox();
   const upcoming: Reminder[] = useMemo(
-    () => projectReminders(data?.upcoming ?? NO_REMINDERS, queued),
-    [data?.upcoming, queued],
+    () => projectReminders(data?.upcoming ?? NO_REMINDERS, queued, timeZone),
+    [data?.upcoming, queued, timeZone],
   );
 
   const kpis = [

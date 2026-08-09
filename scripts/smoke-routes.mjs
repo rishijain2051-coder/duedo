@@ -210,6 +210,12 @@ try {
     ["GET", "/api/settings"],
     ["PATCH", "/api/settings", { timezone: "Asia/Kolkata" }],
     ["POST", "/api/settings/test-email"],
+    // Added late and not swept with the rest until this was noticed. POST here mints a
+    // bearer credential, which makes it the worst one on this list to have left
+    // unasserted — the behaviour was right, but nothing was proving it.
+    ["GET", "/api/settings/api-token"],
+    ["POST", "/api/settings/api-token"],
+    ["DELETE", "/api/settings/api-token"],
     ["GET", "/api/webauthn/passkeys"],
     ["DELETE", "/api/webauthn/passkeys", { id: GHOST }],
     ["POST", "/api/webauthn/register-options"],
@@ -239,6 +245,11 @@ try {
     ["GET", `/api/reminders/${GHOST}/nudge`],
     ["POST", `/api/families/${GHOST}/activity`],
     ["POST", "/api/insights/export"],
+    ["PATCH", "/api/settings/api-token"],
+    // The voice endpoint declares GET only so a shortcut wired to the wrong method
+    // gets a sentence explaining itself rather than a bare 405 nobody can hear.
+    ["PUT", "/api/ingest/reminder"],
+    ["DELETE", "/api/ingest/reminder"],
   ];
   for (const [method, path] of NOT_ALLOWED) {
     check(`${method} ${path} not allowed`, (await anon(method, path)).status, 405);
