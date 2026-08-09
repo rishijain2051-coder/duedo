@@ -71,7 +71,8 @@ export function sanitizeReminderInput(
   data: Record<string, unknown>,
   isCreate: boolean,
   timeZone: string,
-  defaultTime: string,
+  /** Injectable so a suite can pin "ten minutes from now" to a known instant. */
+  now: Date = new Date(),
 ) {
   const out: Record<string, unknown> = {};
   if (data.title !== undefined) out.title = capText(data.title, MAX_TITLE);
@@ -115,7 +116,7 @@ export function sanitizeReminderInput(
   // of truth.
   if (data.dueAt !== undefined && data.dueAt !== null && data.dueAt !== "") {
     try {
-      const { dueAt, hasTime } = parseDueAt(String(data.dueAt), timeZone, defaultTime);
+      const { dueAt, hasTime } = parseDueAt(String(data.dueAt), timeZone, now);
       out.dueAt = dueAt;
       out.hasTime = hasTime;
     } catch {

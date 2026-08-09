@@ -64,7 +64,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
       }
     }
 
-    const data = sanitizeReminderInput(body, false, user.timezone, user.defaultTime);
+    const data = sanitizeReminderInput(body, false, user.timezone);
     assertReminderFields(data, false);
     await assertReminderDestination(data, user.id, existing.familyId);
 

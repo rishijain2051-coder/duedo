@@ -49,7 +49,7 @@ export async function POST(req: NextRequest) {
   return json(async (user) => {
     // A body that isn't JSON is the client's mistake, not a server fault.
     const body = await readJson(req);
-    const data = sanitizeReminderInput(body, true, user.timezone, user.defaultTime);
+    const data = sanitizeReminderInput(body, true, user.timezone);
     assertReminderFields(data, true);
     // An id minted by the client, so a reminder created offline can be replayed
     // safely: the second attempt finds its own row and returns it instead of making a

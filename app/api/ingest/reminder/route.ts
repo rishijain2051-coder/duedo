@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { bearerFrom, userForApiToken } from "@/lib/api-token";
 import { parseDictation } from "@/lib/dictation";
 import { HttpError } from "@/lib/http";
+import { formatTimeInZone } from "@/lib/time";
 import { sanitizeReminderInput } from "@/lib/reminder-logic";
 import { assertReminderDestination, assertReminderFields } from "@/lib/reminder-scope";
 
@@ -105,7 +106,6 @@ export async function POST(req: NextRequest) {
     text,
     now: new Date(),
     timeZone: user.timezone,
-    defaultTime: user.defaultTime,
     categories,
   });
 
@@ -131,7 +131,6 @@ export async function POST(req: NextRequest) {
       },
       true,
       user.timezone,
-      user.defaultTime,
     );
     assertReminderFields(data, true);
     await assertReminderDestination(data, user.id, null, true);
@@ -149,7 +148,14 @@ export async function POST(req: NextRequest) {
       dueAt: reminder.dueAt.toISOString(),
       understood: parsed.understood,
       dateAssumed: parsed.dateAssumed,
-      spoken: speak(parsed.title, parsed.understood),
+      // The time comes from the saved row, not from what was heard. With no time
+      // spoken the reminder lands ten minutes out, and a reply that said only "today"
+      // would leave the one fact worth hearing unsaid.
+      spoken: speak(
+        parsed.title,
+        `${parsed.datePhrase} at ${formatTimeInZone(reminder.dueAt, user.timezone)}`,
+        parsed.understood,
+      ),
     });
   } catch (err) {
     if (err instanceof HttpError) {
@@ -164,8 +170,7 @@ export async function POST(req: NextRequest) {
 }
 
 /** A sentence Siri can read back. Only mentions what was actually recognised. */
-function speak(title: string, understood: string[]): string {
-  const [when, ...extras] = understood;
+function speak(title: string, when: string, extras: string[]): string {
   const tail = extras.length > 0 ? `, ${extras.join(", ")}` : "";
   return `Added ${title}, ${when}${tail}.`;
 }

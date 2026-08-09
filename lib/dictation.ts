@@ -27,8 +27,6 @@ export interface DictationInput {
   now: Date;
   /** The speaker's zone; every date word is resolved in it. */
   timeZone: string;
-  /** HH:mm, used when a day was named but no time was. */
-  defaultTime: string;
   /** The scope's categories, matched by name when one is named aloud. */
   categories?: DictationCategory[];
 }
@@ -43,8 +41,17 @@ export interface DictationResult {
   priority?: string;
   description?: string;
   /**
-   * Each thing actually recognised, phrased for reading back aloud. The Shortcut
-   * speaks this, which is the only feedback there is when the screen stays dark.
+   * The day, phrased as it was said — "tomorrow", "the 15", "next friday".
+   *
+   * Kept apart from `understood` because the *time* half of that sentence cannot be
+   * decided here: with no time spoken the reminder lands ten minutes out, and only
+   * parseDueAt knows what that came to. The caller joins the two.
+   */
+  datePhrase: string;
+  /**
+   * Everything else actually recognised — amount, recurrence, priority, category —
+   * phrased for reading back aloud. The Shortcut speaks this, which is the only
+   * feedback there is when the screen stays dark.
    */
   understood: string[];
   /** True when no date word was found and today was assumed. */
@@ -214,19 +221,16 @@ export function parseDictation(input: DictationInput): DictationResult {
 
   // --------------------------------------------------------------------- time
   let time: string | undefined;
-  let timeSaid: string | undefined;
 
   const clock = take(rest, /\b(?:at\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b/);
   if (clock.match) {
     rest = clock.text;
     time = to24(Number(clock.match[1]), Number(clock.match[2] ?? 0), clock.match[3]);
-    timeSaid = time;
   } else {
     const military = take(rest, /\bat\s+(\d{1,2}):(\d{2})\b/);
     if (military.match) {
       rest = military.text;
       time = to24(Number(military.match[1]), Number(military.match[2]));
-      timeSaid = time;
     } else {
       // Named times. noon and midnight are exact; the four vague ones are stated
       // approximations — documented here and read back aloud, so a wrong guess is
@@ -244,7 +248,6 @@ export function parseDictation(input: DictationInput): DictationResult {
         if (r.match) {
           rest = r.text;
           time = at;
-          timeSaid = at;
           break;
         }
       }
@@ -314,7 +317,6 @@ export function parseDictation(input: DictationInput): DictationResult {
           const p = addDays(today.y, today.m, today.d, Math.floor(total / 1440));
           const mins = ((total % 1440) + 1440) % 1440;
           time = `${pad(Math.floor(mins / 60))}:${pad(mins % 60)}`;
-          timeSaid = time;
           setDate(p, half ? "in half an hour" : `in ${n} ${unit}${n === 1 ? "" : "s"}`);
         } else {
           const p =
@@ -462,13 +464,10 @@ export function parseDictation(input: DictationInput): DictationResult {
 
   const dueAt = time ? `${iso(resolved)}T${time}` : iso(resolved);
 
-  // Read back in the order a person would say it.
-  const spokenDate = dateSaid ?? "today";
-  understood.unshift(timeSaid ? `${spokenDate} at ${timeSaid}` : spokenDate);
-
   return {
     title,
     dueAt,
+    datePhrase: dateSaid ?? "today",
     categoryId,
     amount,
     recurrenceRule,

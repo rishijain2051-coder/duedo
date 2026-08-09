@@ -80,21 +80,65 @@ export function parseLocalDateTime(
 }
 
 /**
- * Accepts what the reminder form sends and returns the absolute instant.
- * `value` is either "YYYY-MM-DDTHH:mm" (datetime-local) or a bare "YYYY-MM-DD",
- * in which case `fallbackTime` ("HH:mm") is applied — that's how a reminder with
- * no explicit time ends up at the user's default time.
+ * How far ahead a reminder lands when no time was given.
+ *
+ * It used to take the account's `defaultTime`, which was 05:30. Saying "remind me to
+ * close the door" at half past three in the afternoon therefore booked it for half past
+ * five the next morning — long after the door mattered, and with nothing on screen to
+ * suggest that had happened. A time nobody chose has to be a time that is soon, because
+ * "no time" said out loud means "shortly", never "at my usual hour".
+ *
+ * Ten minutes rather than one: enough to still be useful if you are mid-sentence when
+ * it saves, short enough that "close the door" is not stale.
+ */
+export const UNTIMED_LEAD_MINUTES = 10;
+
+const two = (n: number) => String(n).padStart(2, "0");
+const dateKey = (w: Wall) => `${w.year}-${two(w.month)}-${two(w.day)}`;
+
+/**
+ * Accepts what the reminder form and the dictation parser send, and returns the
+ * absolute instant.
+ *
+ * `value` is either "YYYY-MM-DDTHH:mm" or a bare "YYYY-MM-DD". Without a time, the
+ * reminder is placed UNTIMED_LEAD_MINUTES from now on the clock in `timeZone`.
+ *
+ * When the date given is today and adding those minutes crosses midnight, the date
+ * moves with it — otherwise "close the door" at 23:55 would be booked for five past
+ * midnight *this morning*, which is in the past and would fire immediately.
+ *
+ * A date further out keeps its own day and takes only the clock time. There is nothing
+ * better to use: no time was chosen, so any hour is invented, and the hour it was
+ * written at is at least one the person was awake for.
+ *
+ * `hasTime` comes back true either way. It exists to hide a placeholder hour from the
+ * list, and there is no longer a placeholder to hide: ten minutes from now is a real
+ * moment, and hiding it would leave "close the door" showing a bare date while it
+ * quietly fired that afternoon. Rows written before this keep whatever they stored.
  */
 export function parseDueAt(
   value: string,
   timeZone: string,
-  fallbackTime: string,
+  now: Date = new Date(),
 ): { dueAt: Date; hasTime: boolean } {
   const trimmed = value.trim();
   const [datePart, timePart] = trimmed.split("T");
   const hasTime = Boolean(timePart && /^\d{2}:\d{2}/.test(timePart));
-  const time = hasTime ? timePart.slice(0, 5) : fallbackTime;
-  return { dueAt: parseLocalDateTime(datePart, time, timeZone), hasTime };
+
+  if (hasTime) {
+    return {
+      dueAt: parseLocalDateTime(datePart, timePart.slice(0, 5), timeZone),
+      hasTime: true,
+    };
+  }
+
+  const soon = wallClock(new Date(now.getTime() + UNTIMED_LEAD_MINUTES * 60_000), timeZone);
+  const askedForToday = datePart === dateKey(wallClock(now, timeZone));
+  const day = askedForToday ? dateKey(soon) : datePart;
+  return {
+    dueAt: parseLocalDateTime(day, `${two(soon.hour)}:${two(soon.minute)}`, timeZone),
+    hasTime: true,
+  };
 }
 
 /**

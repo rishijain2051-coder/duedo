@@ -853,13 +853,11 @@ export default function SettingsPage() {
                 ))}
               </Select>
             </Field>
-            <Field label="Default time (when you don't pick one)">
-              <Input
-                type="time"
-                value={defaultTime}
-                onChange={(e) => setDefaultTime(e.target.value)}
-              />
-            </Field>
+            {/* "Default time" used to live here. A reminder saved without a time now
+                lands ten minutes from the moment it was saved (UNTIMED_LEAD_MINUTES in
+                lib/time.ts), so there is no fixed hour left to configure — and a
+                control that no longer decides anything is worse than none. The column
+                and the settings route still accept it; nothing reads it. */}
             <Field label="While overdue, remind me (push only)">
               <Select
                 value={String(overdueRepeatMins)}

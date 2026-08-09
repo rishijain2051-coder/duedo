@@ -60,7 +60,9 @@ const NOW = new Date("2026-08-10T06:00:00Z"); // Monday 10 August 2026, 11:30 IS
 const TZ = "Asia/Kolkata";
 
 const say = (text, categories = []) =>
-  parseDictation({ text, now: NOW, timeZone: TZ, defaultTime: "05:30", categories });
+  parseDictation({ text, now: NOW, timeZone: TZ, categories });
+
+const { parseDueAt, UNTIMED_LEAD_MINUTES } = await import("../lib/time.ts");
 
 try {
   // ────────────────────────────────────────────────────────────────────────────
@@ -80,7 +82,7 @@ try {
   );
   check(
     "a month name is capitalised when read back",
-    say("renew passport 15 September").understood[0],
+    say("renew passport 15 September").datePhrase,
     "15 September 2026",
   );
 
@@ -146,19 +148,61 @@ try {
   check("abbreviated", say("check the oven in 90 mins").dueAt, "2026-08-10T13:00");
   check(
     "it reads back as it was said",
-    say("close the door in half an hour").understood[0],
-    "in half an hour at 12:00",
+    say("close the door in half an hour").datePhrase,
+    "in half an hour",
   );
   // 23:30 local, so this has to roll into tomorrow rather than wrap to 00:15 today.
   const lateNight = parseDictation({
     text: "take the pasta off in 45 minutes",
     now: new Date("2026-08-10T18:00:00Z"),
     timeZone: TZ,
-    defaultTime: "05:30",
     categories: [],
   });
   check("past midnight it rolls into the next day", lateNight.dueAt, "2026-08-11T00:15");
   check("days and weeks are untouched by all this", say("call mum in 3 days").dueAt, "2026-08-13");
+
+  // ────────────────────────────────────────────────────────────────────────────
+  console.log("\n3c. No time said at all lands ten minutes out, not at 05:30");
+  // The old rule was the account's default time. "Remind me to close the door", said
+  // at half past three in the afternoon, was therefore booked for half past five the
+  // next morning — long after the door mattered, with nothing on screen saying so.
+  const at1530 = new Date("2026-08-10T10:00:00Z"); // 15:30 IST
+  check("the lead is ten minutes", UNTIMED_LEAD_MINUTES, 10);
+  check(
+    "a bare date is placed ten minutes from now",
+    parseDueAt("2026-08-10", TZ, at1530).dueAt.toISOString(),
+    "2026-08-10T10:10:00.000Z",
+  );
+  check(
+    "and is shown rather than hidden as a placeholder hour",
+    parseDueAt("2026-08-10", TZ, at1530).hasTime,
+    true,
+  );
+  check(
+    "a time that was given is untouched",
+    parseDueAt("2026-08-10T21:15", TZ, at1530).dueAt.toISOString(),
+    "2026-08-10T15:45:00.000Z",
+  );
+  // 23:55 IST. Ten minutes on is 00:05 *tomorrow*; keeping today's date would book it
+  // for this morning, which is in the past and fires the instant it is saved.
+  const nearMidnight = new Date("2026-08-10T18:25:00Z");
+  check(
+    "past midnight the date moves with the clock",
+    parseDueAt("2026-08-10", TZ, nearMidnight).dueAt.toISOString(),
+    "2026-08-10T18:35:00.000Z",
+  );
+  check(
+    "which is tomorrow where the user is",
+    new Intl.DateTimeFormat("en-CA", { timeZone: TZ }).format(
+      parseDueAt("2026-08-10", TZ, nearMidnight).dueAt,
+    ),
+    "2026-08-11",
+  );
+  check(
+    "a future date keeps its own day and takes only the clock",
+    parseDueAt("2026-09-15", TZ, at1530).dueAt.toISOString(),
+    "2026-09-15T10:10:00.000Z",
+  );
 
   // ────────────────────────────────────────────────────────────────────────────
   console.log("\n4. Amounts");
@@ -237,7 +281,8 @@ try {
   check("amount", full.amount, 18000);
   check("recurrence", full.recurrenceRule, "Monthly");
   check("priority", full.priority, "high");
-  check("and it can say what it heard", full.understood[0], "the 15 at 09:00");
+  check("and it can say what it heard", full.datePhrase, "the 15");
+  check("with the extras kept apart", full.understood, ["every month", "₹18,000", "high priority"]);
 
   // ────────────────────────────────────────────────────────────────────────────
   console.log("\n8. The endpoint refuses anything but a live token");

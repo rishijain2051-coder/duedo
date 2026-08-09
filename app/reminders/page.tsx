@@ -38,7 +38,7 @@ import {
   toDateTimeInputValue,
 } from "@/lib/format";
 import { MAX_DESCRIPTION, MAX_REMARKS, MAX_TITLE } from "@/lib/reminder-logic";
-import { LEAD_OFFSET_OPTIONS } from "@/lib/time";
+import { LEAD_OFFSET_OPTIONS, UNTIMED_LEAD_MINUTES } from "@/lib/time";
 import {
   AUDIENCE_OPTIONS,
   PRIORITY_OPTIONS,
@@ -79,6 +79,13 @@ const NO_CATEGORIES: Category[] = [];
 /** Default lead times for a brand-new reminder: a day ahead and an hour ahead. */
 const DEFAULT_LEADS = [1440, 60];
 
+/** The instant a reminder saved right now with no time chosen would land on. */
+const soon = () => new Date(Date.now() + UNTIMED_LEAD_MINUTES * 60_000);
+
+/** "HH:mm" in the user's zone, for <input type="time">. */
+const toClockValue = (d: Date, timeZone?: string) =>
+  toDateTimeInputValue(d, timeZone).slice(11);
+
 function isSnoozed(r: Reminder): boolean {
   return Boolean(r.snoozedUntil && new Date(r.snoozedUntil) > new Date());
 }
@@ -86,7 +93,7 @@ function isSnoozed(r: Reminder): boolean {
 export default function RemindersPage() {
   // `scope` is shared app state, not local: picking a family here and then opening the
   // dashboard used to put you silently back on your personal list.
-  const { timeZone, settings, syncBadge, families, scope, setScope } = useApp();
+  const { timeZone, syncBadge, families, scope, setScope } = useApp();
   const activeFamily = families.find((f) => f.id === scope) ?? null;
 
   // Cached per scope so switching tabs doesn't re-spinner, and a repeat visit
@@ -141,10 +148,12 @@ export default function RemindersPage() {
       // No category pre-selected. Leaving it blank files the reminder under "Others",
       // so the common case is one less decision rather than a wrong guess to correct.
       categoryId: "",
-      // Today, and your default time. Almost every reminder is added for today or
-      // later today, so the date is the field you would have retyped unchanged.
-      dueDate: toDateKey(new Date(), timeZone),
-      dueTime: settings?.defaultTime ?? "",
+      // Today, and ten minutes from now — the same rule the server applies when no
+      // time is given, so what the form shows is what would happen if you left it
+      // alone. It used to prefill 05:30, which meant a reminder added mid-afternoon
+      // and saved without a thought was booked for the small hours.
+      dueDate: toDateKey(soon(), timeZone),
+      dueTime: toClockValue(soon(), timeZone),
       leadOffsets: DEFAULT_LEADS,
       // New reminders land on whichever list you're looking at, and a family one
       // defaults to telling the whole family — the common case for a shared bill.
@@ -152,17 +161,16 @@ export default function RemindersPage() {
       audience: scope === "mine" ? "owner" : "family",
     });
     setFormOpen(true);
-  }, [scope, timeZone, settings?.defaultTime]);
+  }, [scope, timeZone]);
 
   // Home Screen shortcut: /reminders?new=1 opens the form directly. Read straight
   // off the URL rather than via useSearchParams, which would force this whole page
   // behind a Suspense boundary just for a client-only nicety.
   useEffect(() => {
-    // No longer waits on categories: they are optional, so a scope with none must
-    // still be able to open the form. It does wait for settings, because this is the
-    // cold-launch path — the Home Screen shortcut — and opening before they arrive
-    // gives the form a blank time where the user's default belongs.
-    if (shortcutHandled.current || loading || !settings) return;
+    // Waits on neither categories nor settings any more: categories are optional, and
+    // the default time is now computed from the clock rather than read from the
+    // account, so there is nothing left to arrive first.
+    if (shortcutHandled.current || loading) return;
     const params = new URLSearchParams(window.location.search);
     if (params.get("new") === "1") {
       shortcutHandled.current = true;
@@ -199,7 +207,7 @@ export default function RemindersPage() {
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loading, settings, openCreate, reminders, setScope]);
+  }, [loading, openCreate, reminders, setScope]);
 
   const visible = reminders.filter((r) =>
     filter === "all" ? true : r.status === filter,

@@ -160,8 +160,15 @@ to strangers is what gets a sender throttled.
 
 ## Reminders
 
-Each reminder has an explicit **date and time**. Omit the time and it lands on your
-default (**05:30** in your timezone, both configurable in Settings).
+Each reminder has an explicit **date and time**. Omit the time and it lands **ten
+minutes from when you saved it** — on the day you chose, or today if you chose no day.
+
+That used to be a configurable default hour, set to 05:30. Saying "remind me to close
+the door" at half past three in the afternoon therefore booked it for half past five the
+next morning, long after the door mattered, with nothing on screen to say so. A time
+nobody picked has to be a time that is soon: "no time" means "shortly", never "at my
+usual hour". The setting is gone, since there is no fixed hour left to choose
+(`UNTIMED_LEAD_MINUTES` in [`lib/time.ts`](lib/time.ts)).
 
 Per reminder you tick which **advance alerts** you want — 1 week, 1 day, 4 hours,
 1 hour, 30 minutes, 10 minutes before. You always also get one **at the due time**.
