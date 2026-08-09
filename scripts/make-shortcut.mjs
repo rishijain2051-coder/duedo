@@ -21,7 +21,8 @@ const baseUrl = flag("url", "https://pro-sys-by-rishi.vercel.app");
 const out = flag("out", SHORTCUT_FILENAME);
 const name = flag("name", "Add reminder");
 
-writeFileSync(out, buildShortcut({ key, baseUrl, name, uuid: randomUUID().toUpperCase() }), "utf8");
+// Bytes, not text — the file is a binary property list.
+writeFileSync(out, buildShortcut({ key, baseUrl, name, uuid: randomUUID().toUpperCase() }));
 
 console.log(`Wrote ${out}`);
 console.log(`  name : ${name}`);

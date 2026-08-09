@@ -60,14 +60,20 @@ const WEEKDAYS = [
   "thursday", "friday", "saturday",
 ];
 
-/** Today's wall-clock parts in `timeZone`, as plain numbers. */
-function todayIn(now: Date, timeZone: string): { y: number; m: number; d: number; weekday: number } {
+/** The current wall clock in `timeZone`, as plain numbers. */
+function todayIn(
+  now: Date,
+  timeZone: string,
+): { y: number; m: number; d: number; weekday: number; hour: number; minute: number } {
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone,
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
     weekday: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
   }).formatToParts(now);
   const get = (type: string) => parts.find((p) => p.type === type)?.value ?? "";
   const shortDays = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
@@ -76,6 +82,8 @@ function todayIn(now: Date, timeZone: string): { y: number; m: number; d: number
     m: Number(get("month")),
     d: Number(get("day")),
     weekday: shortDays.indexOf(get("weekday").toLowerCase().slice(0, 3)),
+    hour: Number(get("hour")),
+    minute: Number(get("minute")),
   };
 }
 
@@ -275,23 +283,47 @@ export function parseDictation(input: DictationInput): DictationResult {
   }
 
   if (!date) {
-    // "in 3 days", "in two weeks", "in a month"
-    const rel = take(rest, /\bin\s+(a|an|\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s+(day|week|month|year)s?\b/);
+    // "in 5 minutes", "in two hours", "in half an hour", "in 3 days", "in a month".
+    //
+    // Minutes and hours are the ones people actually say to a phone — "remind me to
+    // take the pasta off in ten minutes" — and they set the *time* as well as the day,
+    // which is why this sits here rather than with the other date rules. Left out
+    // originally, they were not recognised at all: the words stayed in the title and
+    // the reminder quietly landed at today's default time, which is no reminder.
+    const rel = take(
+      rest,
+      /\bin\s+(half an|a|an|\d+|one|two|three|four|five|six|seven|eight|nine|ten|fifteen|twenty|thirty|forty[- ]?five|sixty|ninety)\s+(min|minute|hour|hr|day|week|month|year)s?\b/,
+    );
     if (rel.match) {
       const words: Record<string, number> = {
         a: 1, an: 1, one: 1, two: 2, three: 3, four: 4, five: 5,
         six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
+        fifteen: 15, twenty: 20, thirty: 30, "forty-five": 45, "forty five": 45,
+        sixty: 60, ninety: 90,
       };
-      const n = words[rel.match[1]] ?? Number(rel.match[1]);
+      const raw = rel.match[1];
+      const unit = rel.match[2].replace(/^min$/, "minute").replace(/^hr$/, "hour");
+      // "half an hour" is 30 minutes, not half of one.
+      const half = raw === "half an";
+      const n = half ? 0.5 : (words[raw] ?? Number(raw));
       if (Number.isFinite(n)) {
         rest = rel.text;
-        const unit = rel.match[2];
-        const p =
-          unit === "day" ? addDays(today.y, today.m, today.d, n)
-          : unit === "week" ? addDays(today.y, today.m, today.d, n * 7)
-          : unit === "month" ? addMonths(today.y, today.m, today.d, n)
-          : addMonths(today.y, today.m, today.d, n * 12);
-        setDate(p, `in ${n} ${unit}${n === 1 ? "" : "s"}`);
+        if (unit === "minute" || unit === "hour") {
+          const added = Math.round(unit === "hour" ? n * 60 : n);
+          const total = today.hour * 60 + today.minute + added;
+          const p = addDays(today.y, today.m, today.d, Math.floor(total / 1440));
+          const mins = ((total % 1440) + 1440) % 1440;
+          time = `${pad(Math.floor(mins / 60))}:${pad(mins % 60)}`;
+          timeSaid = time;
+          setDate(p, half ? "in half an hour" : `in ${n} ${unit}${n === 1 ? "" : "s"}`);
+        } else {
+          const p =
+            unit === "day" ? addDays(today.y, today.m, today.d, n)
+            : unit === "week" ? addDays(today.y, today.m, today.d, n * 7)
+            : unit === "month" ? addMonths(today.y, today.m, today.d, n)
+            : addMonths(today.y, today.m, today.d, n * 12);
+          setDate(p, `in ${n} ${unit}${n === 1 ? "" : "s"}`);
+        }
       }
     }
   }

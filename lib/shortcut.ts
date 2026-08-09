@@ -1,4 +1,4 @@
-// The Apple Shortcuts file, as a string.
+// The Apple Shortcuts file, as bytes.
 //
 // No imports and no globals — `uuid` is passed in rather than read from crypto — so the
 // same function builds the file in the browser (the Add shortcut button in Settings)
@@ -6,12 +6,18 @@
 // them ends up a version behind the endpoint it posts to, which is the same reason
 // lib/csv.ts and lib/html.ts exist.
 //
-// A .shortcut is a property list, so writing one is straightforward. *Signing* one is
-// not, and cannot be: Apple issues the signature against an Apple ID, so there is no
-// keypair to hold the way there is for an app or an installer. An unsigned file still
-// imports — iOS 17 replaced the old global "Allow Untrusted Shortcuts" switch with a
-// per-import prompt that lists every action and puts the Add button below them.
-// Nothing here can change that, so the UI explains where the button is instead.
+// **Binary, not XML.** The first version emitted an XML property list. It parsed
+// perfectly — Python's plistlib read it and found every action — and Shortcuts opened
+// on the file and did nothing at all: no preview, no Add button, no error. Apple's own
+// tooling writes binary plists, so that is what this writes now. There is no way to
+// verify the app's acceptance from here, but "valid XML plist" was already proved not
+// to be sufficient, which leaves the encoding as the thing to change.
+//
+// *Signing* is a separate matter and cannot be done at all: Apple issues the signature
+// against an Apple ID, so there is no keypair to hold the way there is for an app or an
+// installer. An unsigned file still imports — iOS 17 replaced the old global "Allow
+// Untrusted Shortcuts" switch with a per-import prompt that lists every action and puts
+// the Add button below them.
 
 export const SHORTCUT_FILENAME = "prosys-add-reminder.shortcut";
 
@@ -31,36 +37,176 @@ export interface ShortcutOptions {
   language?: string;
 }
 
-/** XML-escapes a value going into a plist <string>. */
-function esc(value: string): string {
-  return String(value)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
+// ───────────────────────────────────────────────────────────── binary plist
+
+/** What a plist can hold, narrowed to what this file needs. */
+type PlistValue =
+  | string
+  | number
+  | boolean
+  | PlistValue[]
+  | { [key: string]: PlistValue };
+
+/**
+ * Encodes a `bplist00` document.
+ *
+ * The format is an object table, then a table of offsets into it, then a 32-byte
+ * trailer saying how wide those numbers are and where everything starts. Written by
+ * hand because the alternative is a runtime dependency for one file, and this subset —
+ * dictionaries, arrays, strings, integers, booleans — is the whole of what a shortcut
+ * needs.
+ *
+ * Objects are de-duplicated by value. Keys like `WFWorkflowActionIdentifier` repeat in
+ * every action, and a plist stores each distinct object once with the table referring
+ * to it, so skipping that would be writing a deliberately wrong-looking file.
+ */
+function encodeBplist(root: PlistValue): Uint8Array {
+  /** Each entry is one object's encoded bytes; its index is its reference number. */
+  const objects: number[][] = [];
+  /** value-key → reference, so an identical string is stored once. */
+  const seen = new Map<string, number>();
+
+  const bytes = (...values: number[]) => values;
+
+  /** Big-endian integer in `size` bytes. */
+  const be = (value: number, size: number): number[] => {
+    const out: number[] = [];
+    for (let i = size - 1; i >= 0; i--) out.push(Math.floor(value / 2 ** (8 * i)) & 0xff);
+    return out;
+  };
+
+  /**
+   * A marker byte whose low nibble is a length, with lengths of 15 or more spilling
+   * into an integer object that follows it.
+   */
+  const marker = (type: number, count: number): number[] => {
+    if (count < 15) return bytes((type << 4) | count);
+    return [(type << 4) | 0x0f, ...intBody(count)];
+  };
+
+  /** An integer *inline*, as the length-overflow form needs it. */
+  const intBody = (n: number): number[] => {
+    if (n < 0x100) return [0x10, ...be(n, 1)];
+    if (n < 0x10000) return [0x11, ...be(n, 2)];
+    if (n < 0x100000000) return [0x12, ...be(n, 4)];
+    return [0x13, ...be(n, 8)];
+  };
+
+  const push = (encoded: number[], key?: string): number => {
+    if (key !== undefined) {
+      const hit = seen.get(key);
+      if (hit !== undefined) return hit;
+    }
+    const ref = objects.length;
+    objects.push(encoded);
+    if (key !== undefined) seen.set(key, ref);
+    return ref;
+  };
+
+  const encodeString = (value: string): number => {
+    // ASCII gets the compact form; anything else has to go UTF-16 big-endian. The
+    // object-replacement character U+FFFC that marks a variable is exactly the case
+    // that makes this matter.
+    let ascii = true;
+    for (let i = 0; i < value.length; i++) {
+      if (value.charCodeAt(i) > 0x7f) {
+        ascii = false;
+        break;
+      }
+    }
+    if (ascii) {
+      const body: number[] = [];
+      for (let i = 0; i < value.length; i++) body.push(value.charCodeAt(i));
+      return push([...marker(0x5, value.length), ...body], `s:${value}`);
+    }
+    // Length is in UTF-16 code units, which is what `value.length` already is.
+    const body: number[] = [];
+    for (let i = 0; i < value.length; i++) body.push(...be(value.charCodeAt(i), 2));
+    return push([...marker(0x6, value.length), ...body], `u:${value}`);
+  };
+
+  const encode = (value: PlistValue): number => {
+    if (typeof value === "boolean") return push([value ? 0x09 : 0x08], `b:${value}`);
+    if (typeof value === "number") return push(intBody(value), `i:${value}`);
+    if (typeof value === "string") return encodeString(value);
+
+    if (Array.isArray(value)) {
+      // Children first: an object may only refer to one already in the table.
+      const refs = value.map(encode);
+      return push([...marker(0xa, refs.length), ...refs.map((r) => refSized(r))].flat());
+    }
+
+    const keys = Object.keys(value);
+    const keyRefs = keys.map(encodeString);
+    const valueRefs = keys.map((k) => encode(value[k]));
+    return push(
+      [
+        ...marker(0xd, keys.length),
+        ...keyRefs.map((r) => refSized(r)),
+        ...valueRefs.map((r) => refSized(r)),
+      ].flat(),
+    );
+  };
+
+  /**
+   * References are written at a fixed width decided by the total object count, which
+   * is not known until every object exists. Every file this builds is far under 256
+   * objects, so one byte is provably enough — and the assertion below is what keeps
+   * that a fact rather than an assumption.
+   */
+  const refSized = (ref: number): number[] => [ref & 0xff];
+
+  const rootRef = encode(root);
+
+  if (objects.length > 0xff) {
+    throw new Error(
+      `bplist: ${objects.length} objects needs wider references than this encoder writes`,
+    );
+  }
+
+  // Header, then every object in table order, recording where each began.
+  const out: number[] = [];
+  for (const c of "bplist00") out.push(c.charCodeAt(0));
+  const offsets: number[] = [];
+  for (const obj of objects) {
+    offsets.push(out.length);
+    out.push(...obj);
+  }
+
+  const offsetTableStart = out.length;
+  const offsetSize = offsetTableStart < 0x100 ? 1 : offsetTableStart < 0x10000 ? 2 : 4;
+  for (const off of offsets) out.push(...be(off, offsetSize));
+
+  // Trailer: six unused bytes, the two widths, then three 8-byte numbers.
+  out.push(0, 0, 0, 0, 0, 0);
+  out.push(offsetSize);
+  out.push(1); // reference width, matching refSized above
+  out.push(...be(objects.length, 8));
+  out.push(...be(rootRef, 8));
+  out.push(...be(offsetTableStart, 8));
+
+  return Uint8Array.from(out);
 }
 
-/** One entry of a Shortcuts dictionary field — headers and JSON bodies share it. */
-function dictItem(key: string, valueXml: string): string {
-  return `
-        <dict>
-          <key>WFItemType</key><integer>0</integer>
-          <key>WFKey</key>
-          <dict>
-            <key>Value</key>
-            <dict><key>string</key><string>${esc(key)}</string></dict>
-            <key>WFSerializationType</key><string>WFTextTokenString</string>
-          </dict>
-          <key>WFValue</key>
-${valueXml}
-        </dict>`;
+// ─────────────────────────────────────────────────────────────── the shortcut
+
+/** A dictionary field entry — headers and JSON bodies share this shape. */
+function dictItem(key: string, value: PlistValue): PlistValue {
+  return {
+    WFItemType: 0,
+    WFKey: {
+      Value: { string: key },
+      WFSerializationType: "WFTextTokenString",
+    },
+    WFValue: value,
+  };
 }
 
-function plainValue(text: string): string {
-  return `          <dict>
-            <key>Value</key>
-            <dict><key>string</key><string>${esc(text)}</string></dict>
-            <key>WFSerializationType</key><string>WFTextTokenString</string>
-          </dict>`;
+function plainValue(text: string): PlistValue {
+  return {
+    Value: { string: text },
+    WFSerializationType: "WFTextTokenString",
+  };
 }
 
 /**
@@ -71,124 +217,89 @@ function plainValue(text: string): string {
  * stores a variable dropped into a text field, and the UUID here has to be the one on
  * the Dictate action or the body posts empty.
  */
-function variableValue(outputName: string, uuid: string): string {
-  return `          <dict>
-            <key>Value</key>
-            <dict>
-              <key>string</key><string>￼</string>
-              <key>attachmentsByRange</key>
-              <dict>
-                <key>{0, 1}</key>
-                <dict>
-                  <key>OutputName</key><string>${esc(outputName)}</string>
-                  <key>OutputUUID</key><string>${esc(uuid)}</string>
-                  <key>Type</key><string>ActionOutput</string>
-                </dict>
-              </dict>
-            </dict>
-            <key>WFSerializationType</key><string>WFTextTokenString</string>
-          </dict>`;
+function variableValue(outputName: string, uuid: string): PlistValue {
+  return {
+    Value: {
+      string: "￼",
+      attachmentsByRange: {
+        "{0, 1}": {
+          OutputName: outputName,
+          OutputUUID: uuid,
+          Type: "ActionOutput",
+        },
+      },
+    },
+    WFSerializationType: "WFTextTokenString",
+  };
 }
 
+const fieldValue = (items: PlistValue[]): PlistValue => ({
+  Value: { WFDictionaryFieldValueItems: items },
+  WFSerializationType: "WFDictionaryFieldValue",
+});
+
 /**
- * Four actions: dictate, post, read the spoken field, say it.
+ * Three actions: dictate, post, speak the reply.
  *
- * Actions 3 and 4 set no input. Shortcuts feeds each action the previous result when
- * none is given, which is what the app itself produces when you chain them by hand —
- * one less serialised reference to get wrong.
+ * There was a fourth — Get Dictionary Value, to pull `spoken` out of the JSON. It is
+ * gone because the endpoint now answers plain text to `Accept: text/plain`, so Speak
+ * Text can take the response directly. That action was the one step people wired to
+ * the wrong input, and wrong there means silence with the screen off.
+ *
+ * Actions 2 and 3 set no input. Shortcuts feeds each action the previous result when
+ * none is given, which is what the app itself produces when you chain them by hand.
  */
-export function buildShortcut(options: ShortcutOptions): string {
+export function buildShortcut(options: ShortcutOptions): Uint8Array {
   const { key, uuid } = options;
   const baseUrl = options.baseUrl.replace(/\/+$/, "");
   const name = options.name ?? "Add reminder";
   const language = options.language ?? "en-IN";
 
-  return `<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>WFWorkflowClientVersion</key><string>2605.0.5</string>
-  <key>WFWorkflowMinimumClientVersion</key><integer>900</integer>
-  <key>WFWorkflowMinimumClientVersionString</key><string>900</string>
-  <key>WFWorkflowHasOutputFallback</key><false/>
-  <key>WFWorkflowHasShortcutInputVariables</key><false/>
-  <key>WFWorkflowIcon</key>
-  <dict>
-    <key>WFWorkflowIconGlyphNumber</key><integer>59511</integer>
-    <key>WFWorkflowIconStartColor</key><integer>2071128575</integer>
-  </dict>
-  <key>WFWorkflowImportQuestions</key><array/>
-  <key>WFWorkflowTypes</key>
-  <array><string>NCWidget</string><string>WatchKit</string></array>
-  <key>WFWorkflowInputContentItemClasses</key>
-  <array><string>WFStringContentItem</string></array>
-  <key>WFWorkflowActions</key>
-  <array>
-
-    <!-- 1. Dictate Text -->
-    <dict>
-      <key>WFWorkflowActionIdentifier</key><string>is.workflow.actions.dictatetext</string>
-      <key>WFWorkflowActionParameters</key>
-      <dict>
-        <key>UUID</key><string>${esc(uuid)}</string>
-        <key>WFSpeechLanguage</key><string>${esc(language)}</string>
-        <key>WFDictateTextStopListening</key><string>After Pause</string>
-      </dict>
-    </dict>
-
-    <!-- 2. Get Contents of URL -->
-    <dict>
-      <key>WFWorkflowActionIdentifier</key><string>is.workflow.actions.downloadurl</string>
-      <key>WFWorkflowActionParameters</key>
-      <dict>
-        <key>WFURL</key><string>${esc(baseUrl)}/api/ingest/reminder</string>
-        <key>WFHTTPMethod</key><string>POST</string>
-        <key>WFHTTPBodyType</key><string>JSON</string>
-        <key>ShowHeaders</key><true/>
-        <key>WFHTTPHeaders</key>
-        <dict>
-          <key>Value</key>
-          <dict>
-            <key>WFDictionaryFieldValueItems</key>
-            <array>${dictItem("Authorization", plainValue(`Bearer ${key}`))}
-            </array>
-          </dict>
-          <key>WFSerializationType</key><string>WFDictionaryFieldValue</string>
-        </dict>
-        <key>WFJSONValues</key>
-        <dict>
-          <key>Value</key>
-          <dict>
-            <key>WFDictionaryFieldValueItems</key>
-            <array>${dictItem("text", variableValue("Dictated Text", uuid))}
-            </array>
-          </dict>
-          <key>WFSerializationType</key><string>WFDictionaryFieldValue</string>
-        </dict>
-      </dict>
-    </dict>
-
-    <!-- 3. Get Dictionary Value: spoken -->
-    <dict>
-      <key>WFWorkflowActionIdentifier</key><string>is.workflow.actions.getvalueforkey</string>
-      <key>WFWorkflowActionParameters</key>
-      <dict>
-        <key>WFDictionaryKey</key><string>spoken</string>
-      </dict>
-    </dict>
-
-    <!-- 4. Speak Text -->
-    <dict>
-      <key>WFWorkflowActionIdentifier</key><string>is.workflow.actions.speaktext</string>
-      <key>WFWorkflowActionParameters</key>
-      <dict>
-        <key>WFSpeakTextWait</key><true/>
-      </dict>
-    </dict>
-
-  </array>
-  <key>WFWorkflowName</key><string>${esc(name)}</string>
-</dict>
-</plist>
-`;
+  return encodeBplist({
+    WFWorkflowClientVersion: "2605.0.5",
+    WFWorkflowMinimumClientVersion: 900,
+    WFWorkflowMinimumClientVersionString: "900",
+    WFWorkflowHasOutputFallback: false,
+    WFWorkflowHasShortcutInputVariables: false,
+    WFWorkflowIcon: {
+      WFWorkflowIconGlyphNumber: 59511,
+      WFWorkflowIconStartColor: 2071128575,
+    },
+    WFWorkflowImportQuestions: [],
+    WFWorkflowTypes: ["NCWidget", "WatchKit"],
+    WFWorkflowInputContentItemClasses: ["WFStringContentItem"],
+    WFWorkflowName: name,
+    WFWorkflowActions: [
+      {
+        WFWorkflowActionIdentifier: "is.workflow.actions.dictatetext",
+        WFWorkflowActionParameters: {
+          UUID: uuid,
+          WFSpeechLanguage: language,
+          WFDictateTextStopListening: "After Pause",
+        },
+      },
+      {
+        WFWorkflowActionIdentifier: "is.workflow.actions.downloadurl",
+        WFWorkflowActionParameters: {
+          WFURL: `${baseUrl}/api/ingest/reminder`,
+          WFHTTPMethod: "POST",
+          WFHTTPBodyType: "JSON",
+          ShowHeaders: true,
+          WFHTTPHeaders: fieldValue([
+            dictItem("Authorization", plainValue(`Bearer ${key}`)),
+            // Asks for the sentence rather than the JSON, which is what lets Speak
+            // Text take this action's output with nothing in between.
+            dictItem("Accept", plainValue("text/plain")),
+          ]),
+          WFJSONValues: fieldValue([
+            dictItem("text", variableValue("Dictated Text", uuid)),
+          ]),
+        },
+      },
+      {
+        WFWorkflowActionIdentifier: "is.workflow.actions.speaktext",
+        WFWorkflowActionParameters: { WFSpeakTextWait: true },
+      },
+    ],
+  });
 }

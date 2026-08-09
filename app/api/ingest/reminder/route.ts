@@ -15,6 +15,35 @@ const INCLUDE = {
 } as const;
 
 /**
+ * JSON, or just the sentence when the caller asks for text.
+ *
+ * A Shortcut speaks the reply, and digging the sentence out of a JSON field needs an
+ * extra action whose input is easy to wire wrong — and wrong there means silence, with
+ * the screen off and no way to tell a failed capture from a quiet one. `Accept:
+ * text/plain` makes the body the sentence itself, so Speak Text can take the response
+ * directly and the shortcut is three actions instead of four.
+ *
+ * Errors answer the same way. An error nobody can hear is the exact failure this
+ * endpoint exists to avoid.
+ */
+function reply(
+  req: NextRequest,
+  status: number,
+  body: Record<string, unknown> & { spoken: string },
+): NextResponse {
+  if ((req.headers.get("accept") ?? "").includes("text/plain")) {
+    return new NextResponse(body.spoken, {
+      status,
+      headers: {
+        "Content-Type": "text/plain; charset=utf-8",
+        "Cache-Control": "no-store",
+      },
+    });
+  }
+  return NextResponse.json(body, { status });
+}
+
+/**
  * PUBLIC by token — one spoken sentence in, one reminder out.
  *
  * Built for Apple Shortcuts: Dictate Text feeds `text`, and the reply is read back
@@ -38,28 +67,25 @@ export async function POST(req: NextRequest) {
 
   const user = await userForApiToken(token);
   if (!user) {
-    return NextResponse.json(
-      { message: "Not authorised", spoken: "That shortcut isn't linked to an account any more." },
-      { status: 401 },
-    );
+    return reply(req, 401, {
+      message: "Not authorised",
+      spoken: "That shortcut isn't linked to an account any more.",
+    });
   }
 
   let body: Record<string, unknown>;
   try {
     body = (await req.json()) as Record<string, unknown>;
   } catch {
-    return NextResponse.json(
-      { message: "Body was not valid JSON", spoken: "I couldn't read that." },
-      { status: 400 },
-    );
+    return reply(req, 400, {
+      message: "Body was not valid JSON",
+      spoken: "I couldn't read that.",
+    });
   }
 
   const text = typeof body.text === "string" ? body.text.trim() : "";
   if (!text) {
-    return NextResponse.json(
-      { message: "Nothing to add", spoken: "I didn't catch that." },
-      { status: 400 },
-    );
+    return reply(req, 400, { message: "Nothing to add", spoken: "I didn't catch that." });
   }
 
   // Which list. `scope` is optional and defaults to personal, so the common shortcut
@@ -84,13 +110,10 @@ export async function POST(req: NextRequest) {
   });
 
   if (!parsed.title) {
-    return NextResponse.json(
-      {
-        message: "No title in that",
-        spoken: "I heard a date but nothing to be reminded about.",
-      },
-      { status: 400 },
-    );
+    return reply(req, 400, {
+      message: "No title in that",
+      spoken: "I heard a date but nothing to be reminded about.",
+    });
   }
 
   try {
@@ -120,29 +143,23 @@ export async function POST(req: NextRequest) {
       include: INCLUDE,
     });
 
-    return NextResponse.json(
-      {
-        id: reminder.id,
-        title: reminder.title,
-        dueAt: reminder.dueAt,
-        understood: parsed.understood,
-        dateAssumed: parsed.dateAssumed,
-        spoken: speak(parsed.title, parsed.understood),
-      },
-      { status: 201 },
-    );
+    return reply(req, 201, {
+      id: reminder.id,
+      title: reminder.title,
+      dueAt: reminder.dueAt.toISOString(),
+      understood: parsed.understood,
+      dateAssumed: parsed.dateAssumed,
+      spoken: speak(parsed.title, parsed.understood),
+    });
   } catch (err) {
     if (err instanceof HttpError) {
-      return NextResponse.json(
-        { message: err.message, spoken: err.message },
-        { status: err.status },
-      );
+      return reply(req, err.status, { message: err.message, spoken: err.message });
     }
     console.error("[ingest] could not add:", err);
-    return NextResponse.json(
-      { message: "Could not add that", spoken: "Something went wrong saving that." },
-      { status: 500 },
-    );
+    return reply(req, 500, {
+      message: "Could not add that",
+      spoken: "Something went wrong saving that.",
+    });
   }
 }
 
@@ -169,12 +186,9 @@ async function peekToken(req: NextRequest): Promise<string> {
 }
 
 /** Kept unused-method-safe: anything but POST is a mistake worth naming. */
-export async function GET() {
-  return NextResponse.json(
-    {
-      message: "POST a JSON body of { text } with your API token.",
-      spoken: "That shortcut is set up wrong.",
-    },
-    { status: 405 },
-  );
+export async function GET(req: NextRequest) {
+  return reply(req, 405, {
+    message: "POST a JSON body of { text } with your API token.",
+    spoken: "That shortcut is set up wrong.",
+  });
 }

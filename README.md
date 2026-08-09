@@ -244,7 +244,11 @@ node scripts/make-shortcut.mjs --key prosys_your_key_here --url https://your-app
 ```
 
 Both call `buildShortcut` in [`lib/shortcut.ts`](lib/shortcut.ts) — one builder, so the
-button and the script cannot drift apart.
+button and the script cannot drift apart. It writes a **binary** property list, encoded
+by hand rather than by a dependency. The first version wrote XML, which every plist
+reader accepted and Shortcuts silently ignored — the app opened on the file and did
+nothing at all, no preview and no error. `smoke-dictation` round-trips the bytes through
+Python's `plistlib` to prove a real reader accepts them.
 
 #### Or build it by hand
 
@@ -256,13 +260,19 @@ none of the above.
    - **Dictate Text** (set Language to yours; Stop Listening: *After Pause*)
    - **Get Contents of URL**
      - URL: `https://<your-app>/api/ingest/reminder`
-     - Method: **POST**
-     - Headers: `Authorization` = `Bearer <the key you copied>`
+     - **Method: POST first.** Shortcuts hides every body option while the method is
+       GET, which makes the next two steps look like they do not exist
+     - Headers: `Authorization` = `Bearer <the key you copied>`, and
+       `Accept` = `text/plain`
      - Request Body: **JSON**, one field `text` (Text) = the **Dictated Text** variable
-   - **Show Result** with `Contents of URL` → `spoken`, or **Speak Text** if you'd
-     rather hear it
+   - **Speak Text**, taking **Contents of URL** directly
 3. Rename the shortcut to what you want to say — "Add reminder" makes the phrase
    "Hey Siri, add reminder".
+
+The `Accept: text/plain` header is what keeps this to three actions. Without it the
+reply is JSON and the sentence has to be dug out with a fourth action, whose input is
+easy to attach to the wrong thing — and wrong there is silence, with the screen off and
+no way to tell a failed capture from a quiet one.
 
 ### What it understands
 

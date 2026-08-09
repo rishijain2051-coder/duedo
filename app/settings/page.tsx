@@ -327,7 +327,12 @@ export default function SettingsPage() {
           ? crypto.randomUUID().toUpperCase()
           : `${Date.now()}-0000-4000-8000-000000000000`,
     });
-    const url = URL.createObjectURL(new Blob([file], { type: "application/octet-stream" }));
+    // A binary property list, so the Blob takes the bytes as they are. The first
+    // version wrote an XML plist, which parsed correctly everywhere except in
+    // Shortcuts, where it opened the app and did nothing at all.
+    const url = URL.createObjectURL(
+      new Blob([file as BlobPart], { type: "application/octet-stream" }),
+    );
     const a = document.createElement("a");
     a.href = url;
     a.download = SHORTCUT_FILENAME;

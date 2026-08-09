@@ -133,6 +133,33 @@ try {
   check("date and time together", say("pay rent on the 15th at 9am").dueAt, "2026-08-15T09:00");
   check("no time said leaves the date bare", say("pay rent on the 15th").dueAt, "2026-08-15");
 
+  console.log("\n3b. Minutes and hours from now — what people actually say to a phone");
+  // NOW is 11:30 in Asia/Kolkata. These set the time as well as the day, which is why
+  // they are not just another date rule. Missing them entirely meant "close the door in
+  // five minutes" kept those words in the title and landed at the default time, which
+  // is not a reminder at all — found by reading a real one back out of the database.
+  check("in five minutes", say("close the door in five minutes").dueAt, "2026-08-10T11:35");
+  check("and the words do not stay in the title", say("close the door in five minutes").title, "Close the door");
+  check("in 5 minutes, as digits", say("close the door in 5 minutes").dueAt, "2026-08-10T11:35");
+  check("in two hours", say("check the oven in two hours").dueAt, "2026-08-10T13:30");
+  check("in half an hour", say("check the oven in half an hour").dueAt, "2026-08-10T12:00");
+  check("abbreviated", say("check the oven in 90 mins").dueAt, "2026-08-10T13:00");
+  check(
+    "it reads back as it was said",
+    say("close the door in half an hour").understood[0],
+    "in half an hour at 12:00",
+  );
+  // 23:30 local, so this has to roll into tomorrow rather than wrap to 00:15 today.
+  const lateNight = parseDictation({
+    text: "take the pasta off in 45 minutes",
+    now: new Date("2026-08-10T18:00:00Z"),
+    timeZone: TZ,
+    defaultTime: "05:30",
+    categories: [],
+  });
+  check("past midnight it rolls into the next day", lateNight.dueAt, "2026-08-11T00:15");
+  check("days and weeks are untouched by all this", say("call mum in 3 days").dueAt, "2026-08-13");
+
   // ────────────────────────────────────────────────────────────────────────────
   console.log("\n4. Amounts");
   check("rupees after", say("pay rent 18000 rupees").amount, 18000);
@@ -265,6 +292,28 @@ try {
   check("with no category named, it lands in Others", saved?.category?.name, "Others");
   check("and the amount came through", saved?.amount, 610);
 
+  console.log("\n   and answers plain text when the shortcut asks for it");
+  const spoken = await fetch(`${BASE}/api/ingest/reminder`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Accept: "text/plain", ...auth },
+    body: JSON.stringify({ text: "buy milk tomorrow" }),
+  });
+  check("served as text", spoken.headers.get("content-type")?.startsWith("text/plain"), true);
+  const sentence = await spoken.text();
+  check("the body is the sentence itself, not JSON", sentence.startsWith("Added Buy milk"), true);
+  check("with nothing to unwrap", sentence.includes("{"), false);
+
+  const refusedText = await fetch(`${BASE}/api/ingest/reminder`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Accept: "text/plain" },
+    body: JSON.stringify({ text: "no token here" }),
+  });
+  check(
+    "an error is speakable too — silence is the failure this avoids",
+    (await refusedText.text()).includes("isn't linked to an account"),
+    true,
+  );
+
   check("empty dictation is refused", (await post({ text: "   " }, auth)).status, 400);
   check(
     "a date with nothing to be reminded about is refused",
@@ -273,37 +322,90 @@ try {
   );
 
   console.log("\n10. The generated shortcut file");
-  // Same builder the Add shortcut button and the CLI script both call. What is worth
-  // asserting is the linkage, because a wrong UUID posts an empty body and the failure
-  // only shows up on a phone.
+  // Same builder the Add shortcut button and the CLI script both call.
   const { buildShortcut, KEY_PLACEHOLDER } = await import("../lib/shortcut.ts");
   const file = buildShortcut({
     key: "prosys_sample",
     baseUrl: "https://example.test/",
     uuid: "AAAA-BBBB",
   });
+
   check(
-    "four actions, in order",
-    [...file.matchAll(/is\.workflow\.actions\.([a-z]+)/g)].map((m) => m[1]),
-    ["dictatetext", "downloadurl", "getvalueforkey", "speaktext"],
+    "it is a binary property list",
+    Buffer.from(file.slice(0, 8)).toString("latin1"),
+    "bplist00",
   );
-  check("the key is embedded as a bearer header", /Bearer prosys_sample/.test(file), true);
-  check(
-    "the body reads the dictate action's output",
-    /<key>OutputUUID<\/key><string>AAAA-BBBB<\/string>/.test(file),
-    true,
-  );
-  check(
-    "and the variable placeholder occupies the whole field",
-    /<string>￼<\/string>[\s\S]*?\{0, 1\}/.test(file),
-    true,
-  );
-  check("a trailing slash on the url is not doubled", /example\.test\/api\/ingest/.test(file), true);
+  check("with a 32-byte trailer", (file.length - 8) > 32, true);
+
+  // The bytes are only worth anything if a real plist reader accepts them, and this
+  // encoder is hand-written, so the verification is a round trip through one. Python
+  // is not a dependency of this project — when it is absent the checks are skipped
+  // out loud rather than passing quietly, because a silent skip is a green suite that
+  // proves nothing.
+  const { writeFileSync: write, mkdtempSync } = await import("node:fs");
+  const { join } = await import("node:path");
+  const { tmpdir } = await import("node:os");
+  const { spawnSync } = await import("node:child_process");
+
+  const dir = mkdtempSync(join(tmpdir(), "prosys-shortcut-"));
+  const path = join(dir, "test.shortcut");
+  write(path, file);
+
+  const probe = spawnSync("python", ["-c", "import plistlib"], { encoding: "utf8" });
+  if (probe.status !== 0) {
+    console.log("  SKIP plistlib round trip — python not on PATH");
+  } else {
+    const script = `
+import plistlib, json, sys
+d = plistlib.load(open(sys.argv[1], 'rb'))
+a = d['WFWorkflowActions']
+p = a[1]['WFWorkflowActionParameters']
+h = {i['WFKey']['Value']['string']: i['WFValue']['Value']['string']
+     for i in p['WFHTTPHeaders']['Value']['WFDictionaryFieldValueItems']}
+j = p['WFJSONValues']['Value']['WFDictionaryFieldValueItems'][0]
+att = j['WFValue']['Value']['attachmentsByRange']['{0, 1}']
+print(json.dumps({
+  'actions': [x['WFWorkflowActionIdentifier'] for x in a],
+  'url': p['WFURL'], 'method': p['WFHTTPMethod'], 'bodyType': p['WFHTTPBodyType'],
+  'headers': h, 'bodyKey': j['WFKey']['Value']['string'],
+  'placeholder': [ord(c) for c in j['WFValue']['Value']['string']],
+  'uuidLinked': att['OutputUUID'] == a[0]['WFWorkflowActionParameters']['UUID'],
+  'showHeaders': p['ShowHeaders'], 'minVersion': d['WFWorkflowMinimumClientVersion'],
+  'iconColor': d['WFWorkflowIcon']['WFWorkflowIconStartColor'],
+  'name': d['WFWorkflowName'], 'types': d['WFWorkflowTypes'],
+}))`;
+    const run = spawnSync("python", ["-c", script, path], { encoding: "utf8" });
+    check("a real plist reader accepts it", run.status, 0);
+    if (run.status !== 0) {
+      console.log("    " + (run.stderr || "").trim().split("\n").slice(-1)[0]);
+    } else {
+      const got = JSON.parse(run.stdout);
+      check(
+        "three actions, in order",
+        got.actions.map((s) => s.replace("is.workflow.actions.", "")),
+        ["dictatetext", "downloadurl", "speaktext"],
+      );
+      check("posts to the ingest route, no doubled slash", got.url, "https://example.test/api/ingest/reminder");
+      check("as a POST with a JSON body", [got.method, got.bodyType], ["POST", "JSON"]);
+      check("carrying the key and asking for text", got.headers, {
+        Authorization: "Bearer prosys_sample",
+        Accept: "text/plain",
+      });
+      check("the body field is text", got.bodyKey, "text");
+      // The one that can only fail on a phone: a wrong UUID posts an empty body.
+      check("whose value is the dictate action's own output", got.uuidLinked, true);
+      check("marked by U+FFFC alone", got.placeholder, [0xfffc]);
+      check("booleans survived the encoding", got.showHeaders, true);
+      check("so did a small int", got.minVersion, 900);
+      check("and one needing four bytes", got.iconColor, 2071128575);
+      check("strings too", [got.name, got.types], ["Add reminder", ["NCWidget", "WatchKit"]]);
+    }
+  }
+
+  const bare = buildShortcut({ key: KEY_PLACEHOLDER, baseUrl: "https://example.test", uuid: "X" });
   check(
     "with no key it carries the placeholder instead",
-    buildShortcut({ key: KEY_PLACEHOLDER, baseUrl: "https://example.test", uuid: "X" }).includes(
-      "Bearer REPLACE_WITH_YOUR_KEY",
-    ),
+    Buffer.from(bare).includes(Buffer.from("Bearer REPLACE_WITH_YOUR_KEY")),
     true,
   );
 
@@ -313,7 +415,7 @@ try {
   check(
     "and nothing was added by it",
     await prisma.reminder.count({ where: { userId: user.id } }),
-    1,
+    2,
   );
 } finally {
   await cleanup();
