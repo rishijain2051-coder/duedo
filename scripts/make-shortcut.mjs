@@ -33,11 +33,13 @@ console.log(
 );
 console.log(`
 Getting it onto the phone:
-  1. On the iPhone, run any shortcut once, then turn on
-     Settings > Shortcuts > Allow Untrusted Shortcuts. Apple refuses unsigned
-     shortcut files until that is on, and this file cannot be signed from here.
-  2. AirDrop ${out} to the phone, or email it to yourself and open the attachment.
-  3. Shortcuts opens it. Add it, then say "Hey Siri, ${name}".
+  1. AirDrop ${out} to the phone, or email it to yourself and open the attachment.
+  2. Shortcuts shows every action in it, then a red "Add Untrusted Shortcut" button
+     at the very bottom — below the whole list, which is why it gets missed. Apple
+     has not signed this file and cannot be made to from here.
+     On iOS 16 and earlier, turn on Settings > Shortcuts > Allow Untrusted Shortcuts
+     first; iOS 17 replaced that switch with the per-import prompt.
+  3. Say "Hey Siri, ${name}".
 
-If the import is refused, build it by hand instead — four actions, listed in the
-README under "Add by voice". That path does not depend on this file.`);
+If the import is refused outright, build it by hand instead — four actions, listed in
+the README under "Add by voice". That path does not depend on this file.`);

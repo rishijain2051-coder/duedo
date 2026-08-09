@@ -7,9 +7,11 @@
 // lib/csv.ts and lib/html.ts exist.
 //
 // A .shortcut is a property list, so writing one is straightforward. *Signing* one is
-// not: since iOS 15 an unsigned shortcut only opens where Allow Untrusted Shortcuts is
-// on, and Apple's signing is a service call tied to an Apple ID rather than anything a
-// file can be given offline. Nothing here can change that; the UI says so instead.
+// not, and cannot be: Apple issues the signature against an Apple ID, so there is no
+// keypair to hold the way there is for an app or an installer. An unsigned file still
+// imports — iOS 17 replaced the old global "Allow Untrusted Shortcuts" switch with a
+// per-import prompt that lists every action and puts the Add button below them.
+// Nothing here can change that, so the UI explains where the button is instead.
 
 export const SHORTCUT_FILENAME = "prosys-add-reminder.shortcut";
 

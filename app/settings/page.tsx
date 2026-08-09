@@ -1176,8 +1176,10 @@ export default function SettingsPage() {
             {newToken
               ? "Add shortcut downloads a file with the key above already in it — open it on your iPhone and it is ready."
               : "Add shortcut downloads the file with a placeholder key, since a key is only readable the moment it is made. Create one first to have it filled in."}{" "}
-            iOS refuses unsigned shortcuts until Settings → Shortcuts → Allow Untrusted
-            Shortcuts is on.
+            Apple hasn&apos;t signed it, so Shortcuts shows the actions first and puts{" "}
+            <span className="font-medium">Add Untrusted Shortcut</span> at the very
+            bottom — scroll past the whole list. On iOS 16 and earlier you may need
+            Settings → Shortcuts → Allow Untrusted Shortcuts first.
           </p>
           {tokenStatus?.exists && (
             <p className="text-xs text-muted-foreground">

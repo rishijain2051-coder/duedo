@@ -221,10 +221,21 @@ Press **Add shortcut** without making a key first and the file still has all fou
 actions, just with a placeholder key to replace — the key is only readable at the
 moment it is created, so there is nothing to fill in afterwards.
 
-**iOS will refuse it until untrusted shortcuts are allowed.** Run any shortcut once,
-then Settings → Shortcuts → **Allow Untrusted Shortcuts**. Apple's signing is a service
-call tied to an Apple ID, not something a file can be given offline, so an unsigned
-shortcut has no other route in.
+**Apple hasn't signed the file, so iOS asks before adding it.** Shortcuts opens it,
+shows every action it contains, and puts a red **Add Untrusted Shortcut** button at the
+very bottom — below the whole list, which is why it gets missed. On iOS 16 and earlier
+this was a global switch instead (Settings → Shortcuts → **Allow Untrusted Shortcuts**,
+which only appeared after running any shortcut once); iOS 17 replaced it with the
+per-import prompt.
+
+There is no way to hand the file a signature from here. Apple issues it, tied to an
+Apple ID — there is no keypair to generate the way there is for an app or an installer.
+The two routes to a signed one both need Apple in the loop: sharing from the Shortcuts
+app, which signs it server-side, or `shortcuts sign` on macOS 12+ with iCloud signed in.
+
+If you would rather not see the prompt again: import it once, then in Shortcuts use
+**Share → Copy iCloud Link**. Apple signs that, and the link installs anywhere with no
+prompt at all. It carries your key, so treat the link like the key.
 
 The same file from a computer, if that is easier than tapping through the phone:
 
