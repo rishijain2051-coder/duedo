@@ -50,7 +50,7 @@ export interface RotationResult {
  * earliest-created active admin, which is all there is to go on if the flag was never
  * set — a fresh install someone forgot to mark.
  */
-async function mainAdmin() {
+export async function mainAdmin() {
   return prisma.user.findFirst({
     where: { role: "admin", status: "active" },
     orderBy: [{ isRootAdmin: "desc" }, { createdAt: "asc" }],

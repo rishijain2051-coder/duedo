@@ -6,6 +6,7 @@ import {
   sweepRetention,
 } from "@/lib/dispatch";
 import { rotateAuditLogIfDue } from "@/lib/audit-rotate";
+import { rotateCronLogIfDue } from "@/lib/cron-log-rotate";
 import { runMonthlyMaintenance } from "@/lib/rollup";
 import { advanceStreaks } from "@/lib/streaks";
 import { sendMonthlyReports } from "@/lib/family-report";
@@ -124,6 +125,36 @@ async function handle(req: NextRequest) {
       );
     }
 
+    /**
+     * The scheduler-log rotation's own force flag, deliberately not `forceAuditRotate`.
+     *
+     * Sharing that flag cost 7,156 rows of pg_cron history. The suite's success section
+     * forces a rotation with a *fake* sender — legitimate for the audit log, whose rows
+     * it copies out and puts back — and the second rotation rode the same flag, saw a
+     * successful send, and deleted a week of run history that no mail carried. That
+     * table is Postgres', so there was nothing to put back.
+     *
+     * Two consequences below: this rotation needs its own flag, and it stands down
+     * entirely whenever a mail override is in play without it. A tick that has faked
+     * the sender must not be able to delete something on the strength of it.
+     */
+    const forceCronRotate = req.nextUrl.searchParams.get("forceCronRotate") === "1";
+    if (forceCronRotate && isServerless) {
+      return NextResponse.json(
+        { message: "The scheduler rotate override is not available in production." },
+        { status: 400 },
+      );
+    }
+    if (forceCronRotate && !failSend && !fakeSend) {
+      return NextResponse.json(
+        {
+          message:
+            "forceCronRotate needs failAuditMail=1 or fakeAuditMail=1 as well, so a forced rotation can't send real mail.",
+        },
+        { status: 400 },
+      );
+    }
+
     // Also dev-only. Month close and history pruning normally run on one tick in 360,
     // which a test can't wait for — and pruning is destructive, so it must not be
     // forceable in production.
@@ -139,6 +170,10 @@ async function handle(req: NextRequest) {
       | Awaited<ReturnType<typeof rotateAuditLogIfDue>>
       | { error: string }
       | { ran: false; reason: string };
+    let cronLog:
+      | Awaited<ReturnType<typeof rotateCronLogIfDue>>
+      | { error: string }
+      | { ran: false; reason: string };
 
     // Not while the clock is being overridden. `?now=` exists so the engine's
     // lead/due/overdue spacing can be tested without waiting out real minutes, and
@@ -149,17 +184,36 @@ async function handle(req: NextRequest) {
     // trail are one-way doors.
     if (nowParam) {
       audit = { ran: false, reason: "skipped: the clock is overridden" };
+      cronLog = { ran: false, reason: "skipped: the clock is overridden" };
     } else {
+      const override = failSend
+        ? async () => false
+        : fakeSend
+          ? async () => true
+          : undefined;
       try {
-        const override = failSend
-          ? async () => false
-          : fakeSend
-            ? async () => true
-            : undefined;
         audit = await rotateAuditLogIfDue(now, override, forceAuditRotate);
       } catch (e) {
         console.error("[cron] audit rotation failed:", e);
         audit = { error: (e as Error).message };
+      }
+      // pg_cron's own run log, on the same terms and for a sharper reason: it grows a
+      // row a minute forever and was measured at twice the size of the entire app.
+      // Separate try block so a failure here cannot cost the audit rotation, or the
+      // dispatch that both of them ride on.
+      //
+      // Stands down under a mail override it wasn't explicitly asked to join. A faked
+      // send is a suite pretending the mail worked; letting that pretence authorise a
+      // delete is what destroyed the history once, and this table cannot be restored.
+      if ((failSend || fakeSend) && !forceCronRotate) {
+        cronLog = { ran: false, reason: "skipped: a mail override is in play" };
+      } else {
+        try {
+          cronLog = await rotateCronLogIfDue(now, override, forceCronRotate);
+        } catch (e) {
+          console.error("[cron] scheduler log rotation failed:", e);
+          cronLog = { error: (e as Error).message };
+        }
       }
     }
 
@@ -216,7 +270,7 @@ async function handle(req: NextRequest) {
       }
     }
 
-    return NextResponse.json({ ...summary, audit, swept, rollup, streaks, report });
+    return NextResponse.json({ ...summary, audit, cronLog, swept, rollup, streaks, report });
   } catch (e) {
     console.error("[cron] dispatch failed:", e);
     // Recorded, not just logged: a dispatcher that has been throwing for a day

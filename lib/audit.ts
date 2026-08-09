@@ -52,7 +52,13 @@ export type AuditAction =
   // Housekeeping. Written straight after the daily dump is mailed and the surplus
   // entries trimmed, so the log carries a line saying where the older history went —
   // and doubles as the "already done today" marker.
-  | "audit.rotate";
+  | "audit.rotate"
+  /**
+   * The same, for pg_cron's own run log. Postgres writes a row a minute there and
+   * removes none, so it is mailed to the owner daily and trimmed to a day — see
+   * lib/cron-log-rotate.ts. Doubles as that rotation's once-a-day marker.
+   */
+  | "cron.rotate";
 
 interface RecordArgs {
   /** Null for system actions such as the dispatcher. */

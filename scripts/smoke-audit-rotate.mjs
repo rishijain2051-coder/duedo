@@ -57,11 +57,16 @@ const KEEP = Number(
 /** Enough over the tail that the trim has something to remove. */
 const SEEDED = KEEP + 12;
 /**
- * The one row cleanup() leaves behind: a marker saying today has been rotated, which is
- * what stops production's cron rotating for real in the middle of this run. It sits in
- * every count taken before section 4's rotation sweeps it up with the rest.
+ * The rows cleanup() leaves behind: one marker per daily rotation, saying today is
+ * already spent so production's cron stands down for the length of this run. They sit
+ * in every count taken before section 4's rotation sweeps them up with the rest.
+ *
+ * Two of them now — the audit log and pg_cron's own run log both rotate once a day and
+ * both keep their marker in this table. Missing the second would empty the log and hand
+ * production an unspent day for the scheduler dump, which is how 188 rows of a real
+ * audit log were lost the first time.
  */
-const GUARD = 1;
+const GUARD = 2;
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -120,6 +125,19 @@ async function standDownProductionCron() {
     data: {
       action: "audit.rotate",
       entity: "audit",
+      timestamp: new Date(Date.now() - 5 * 60_000),
+      detail: { note: "placeholder written by smoke-audit-rotate" },
+    },
+  });
+  // The scheduler-log rotation keeps its own once-a-day marker in this same table, so
+  // emptying it above also tells that one the day is unspent. Without this line the
+  // next real tick would mail the install's owner a dump of pg_cron's history and
+  // delete it — the identical hazard that cost 188 rows of a real audit log, arriving
+  // by a different door the moment a second rotation started using this marker.
+  await prisma.activityLog.create({
+    data: {
+      action: "cron.rotate",
+      entity: "system",
       timestamp: new Date(Date.now() - 5 * 60_000),
       detail: { note: "placeholder written by smoke-audit-rotate" },
     },
@@ -207,9 +225,40 @@ try {
   check("every row survived", await prisma.activityLog.count(), SEEDED + GUARD);
   // Still only the placeholder. A failed send must not leave a marker behind, or the
   // day would count as done and the rows it refused to delete would never be mailed.
+  // Filtered to this rotation's own action, so it stays 1 however many rotations
+  // share the table.
   check("no new rotation marker was written",
-    await prisma.activityLog.count({ where: { action: "audit.rotate" } }), GUARD);
+    await prisma.activityLog.count({ where: { action: "audit.rotate" } }), 1);
   check("dispatch itself was unaffected", failed.ran, true);
+
+  console.log("\n   and the same holds for pg_cron's own run log");
+  // That table is Postgres', not ours: there is no copying it out and putting it back,
+  // so this suite never exercises a *successful* rotation of it. It has its own force
+  // flag, used on this line and nowhere else, and it stands down entirely under any
+  // other tick that has faked the sender.
+  //
+  // Sharing forceAuditRotate cost 7,156 rows of real run history. Section 4 below
+  // forces a rotation with a fake send — safe for a log this suite copies out and puts
+  // back, and not safe at all for one it cannot.
+  const cronRows = async () =>
+    Number(
+      (await prisma.$queryRawUnsafe("select count(*)::int as n from cron.job_run_details"))[0].n,
+    );
+
+  // Measured either side of its own tick. Asserting on the reason string would be
+  // timing-dependent: pg_cron writes a row a minute, so whether anything has yet aged
+  // past the keep window changes between one run of this suite and the next, and the
+  // rotation legitimately answers "nothing to mail" when it has not. What must hold
+  // regardless is that a refused send removes nothing.
+  const cronBefore = await cronRows();
+  const cronFailed = await tick("?failAuditMail=1&forceCronRotate=1");
+  check("a refused send deletes no run rows", (await cronRows()) >= cronBefore, true);
+  check("and it says it deleted none", cronFailed.cronLog?.rowsDeleted ?? 0, 0);
+  check(
+    "an unforced tick with a faked sender does not touch it at all",
+    (await tick("?fakeAuditMail=1")).cronLog?.reason,
+    "skipped: a mail override is in play",
+  );
 
   console.log("\n   forcing a rotation cannot send real mail");
   const forcedAlone = await fetch(`${BASE}/api/cron/dispatch?forceAuditRotate=1`, {
@@ -228,6 +277,7 @@ try {
   const future = new Date(Date.now() + 400 * 24 * 3600_000).toISOString();
   const travelled = await tick(`?now=${encodeURIComponent(future)}`);
   check("the rotation stands down", travelled.audit?.ran, false);
+  check("and so does the scheduler-log one", travelled.cronLog?.ran, false);
   check("saying why", travelled.audit?.reason, "skipped: the clock is overridden");
   check("and the log is untouched", await prisma.activityLog.count(), SEEDED + GUARD);
   check("while dispatch still time-travelled", travelled.ran, true);

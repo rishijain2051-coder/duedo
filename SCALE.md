@@ -173,20 +173,26 @@ its own would fill the 500 MB free tier in **about two years** — with no users
 reminders and nothing to show for it. Every app-side saving in this document is worth
 less than this one line.
 
-It now has a retention policy, scheduled in pg_cron itself:
+It is now rotated on exactly the terms the audit log is: the older rows are **mailed to
+the owner as a CSV, and only then deleted**, keeping the last 24 hours
+(`lib/cron-log-rotate.ts`, riding the same tick everything else does).
 
-```sql
-select cron.schedule(
-  'prune-cron-log',
-  '17 3 * * *',
-  $$delete from cron.job_run_details where end_time < now() - interval '7 days'$$
-);
-```
+A scheduled `DELETE` was the first version and it did bound the table. It was replaced
+because it answers the wrong question. The morning you discover the dispatcher has been
+failing since Tuesday, a prune has already thrown Tuesday away; a mailbox has not. The
+rule is inherited verbatim from the audit rotation: **nothing is deleted until the SMTP
+server has accepted the message.**
 
-Seven days holds it at roughly **4.9 MB** in perpetuity, and still answers the two
-questions that table is ever opened for: did the dispatcher run overnight, and when did
-it start failing. `vacuum` is what returns the space after the delete — the first run
-marks the tuples dead, autovacuum reclaims them.
+That leaves the live table at roughly **1,440 rows / 700 kB**, and the history in a
+mailbox instead of a database. `vacuum` returns the space after a large first rotation.
+
+One thing this cost, recorded because the same trap has now been walked into twice. The
+rotation was initially wired to `forceAuditRotate`, the dev-only flag the audit suite
+uses to force a rotation with a *faked* sender — safe for a log that suite copies out
+and puts back, and not safe at all for one it cannot. The forced tick saw a successful
+send that never happened and deleted **7,156 rows** of real run history. It now has its
+own flag, and stands down entirely under any tick that has faked the sender without
+asking for it by name.
 
 Left alone: `net._http_response`, from pg_net. It looks like the same problem and is
 not — pg_net applies its own TTL and it self-limits under a megabyte (848 kB measured).
@@ -298,7 +304,7 @@ number to watch on the admin health page, where `Took` is recorded for every run
 | limit | current | headroom |
 |---|---|---|
 | Database, 500 MB free tier | 17.8 MB total, of which 1.99 MB is this app | large, now that the cron log is bounded |
-| `cron.job_run_details` | 4.05 MB, capped at 7 days ≈ 4.9 MB | fixed, not growing |
+| `cron.job_run_details` | ~700 kB, rotated daily to the owner's mailbox | fixed, not growing |
 | Dispatch tick, 60 s | 2–15 s (over a trans-Pacific link) | large; watch `Took` |
 | Vercel Hobby function invocations | 1 tick/min = ~44k/month | comfortable |
 

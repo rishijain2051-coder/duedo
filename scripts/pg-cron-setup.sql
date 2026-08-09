@@ -47,26 +47,26 @@ select cron.schedule(
   $$
 );
 
--- --------------------------------------------- keep pg_cron's own log from growing
--- pg_cron writes one row per run to cron.job_run_details and never removes any of
--- them. At one run a minute that is 1,440 rows a day, forever, whether or not anybody
--- uses the app. Measured on this install: 695 kB/day, 248 MB/year — already twice the
--- size of the entire application schema, and enough on its own to fill Supabase's
--- 500 MB free tier in about two years with no users at all.
+-- --------------------------------------------- pg_cron's own log grows without limit
+-- cron.job_run_details gets one row per run and pg_cron removes none. At a run a
+-- minute that is 1,440 rows a day forever, whether or not anybody uses the app —
+-- measured here at 695 kB/day, 248 MB/year, twice the size of the entire application
+-- schema, and enough on its own to fill Supabase's 500 MB free tier in about two years
+-- with no users at all.
 --
--- Seven days holds it near 5 MB and still answers the only two questions that table
--- gets opened for: did the dispatcher run overnight, and when did it start failing.
-select cron.unschedule('prune-cron-log')
-where exists (select 1 from cron.job where jobname = 'prune-cron-log');
-
-select cron.schedule(
-  'prune-cron-log',
-  '17 3 * * *', -- daily, off the hour so it never coincides with a dispatch tick
-  $$delete from cron.job_run_details where end_time < now() - interval '7 days'$$
-);
-
--- The delete only marks tuples dead; autovacuum returns the space. To reclaim it
--- immediately after the first big prune:
+-- Nothing to schedule for it. The app rotates it on the same terms as its own audit
+-- log: mail the older rows to the owner, then keep the last 24 hours, and delete
+-- nothing until the mail has been accepted (lib/cron-log-rotate.ts, riding the tick
+-- above). A scheduled DELETE would also have bounded the table, and would have thrown
+-- away the week of history you want on the morning you discover something has been
+-- failing since Tuesday.
+--
+-- If it was ever scheduled as a SQL job, remove it — otherwise it deletes the rows
+-- before they can be mailed:
+--   select cron.unschedule('prune-cron-log');
+--
+-- The delete only marks tuples dead; autovacuum returns the space. To reclaim it at
+-- once after a large first rotation:
 --   vacuum (analyze) cron.job_run_details;
 
 -- ------------------------------------------------------- if reminders go silent

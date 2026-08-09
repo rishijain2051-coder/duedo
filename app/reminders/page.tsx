@@ -154,7 +154,12 @@ export default function RemindersPage() {
       // and saved without a thought was booked for the small hours.
       dueDate: toDateKey(soon(), timeZone),
       dueTime: toClockValue(soon(), timeZone),
-      leadOffsets: DEFAULT_LEADS,
+      // Only the ones that fit. With the due instant ten minutes out that is none of
+      // them, which is the honest answer — a day's notice of something happening in
+      // ten minutes is not an alert anybody can be given.
+      leadOffsets: DEFAULT_LEADS.filter(
+        (m) => soon().getTime() - m * 60_000 > Date.now(),
+      ),
       // New reminders land on whichever list you're looking at, and a family one
       // defaults to telling the whole family — the common case for a shared bill.
       familyId: scope === "mine" ? null : scope,
@@ -233,6 +238,37 @@ export default function RemindersPage() {
     });
     setFormOpen(true);
   }
+
+  /**
+   * Which advance alerts the chosen due instant still leaves room for.
+   *
+   * A lead point already in the past is never sent — planFires refuses to back-fill,
+   * so adding "1 week before" to something due tomorrow fires nothing. The form used
+   * to show those ticked anyway, and after untimed reminders started landing ten
+   * minutes out that was the normal case: a new reminder offered "1 day before" and
+   * "1 hour before" pre-selected, neither of which could ever happen.
+   */
+  const leadFits = useCallback(
+    (minutes: number) => {
+      if (!form.dueDate) return true;
+      const due = new Date(
+        form.dueTime ? `${form.dueDate}T${form.dueTime}` : `${form.dueDate}T23:59`,
+      );
+      if (Number.isNaN(due.getTime())) return true;
+      return due.getTime() - minutes * 60_000 > Date.now();
+    },
+    [form.dueDate, form.dueTime],
+  );
+
+  // Drop any that stop fitting when the due instant moves. Done here rather than at
+  // submit so the tick disappears as the date is changed — a checkbox that silently
+  // means nothing is worse than one that is visibly unavailable.
+  useEffect(() => {
+    setForm((f) => {
+      const kept = f.leadOffsets.filter((m) => leadFits(m));
+      return kept.length === f.leadOffsets.length ? f : { ...f, leadOffsets: kept };
+    });
+  }, [leadFits]);
 
   function toggleLead(minutes: number) {
     setForm((f) => ({
@@ -806,15 +842,23 @@ export default function RemindersPage() {
             <div className="grid grid-cols-2 gap-2">
               {LEAD_OFFSET_OPTIONS.map((o) => {
                 const on = form.leadOffsets.includes(o.minutes);
+                // Already in the past for this due instant, so it can never be sent —
+                // offered as unavailable rather than as a tick that quietly does
+                // nothing. See leadFits.
+                const fits = leadFits(o.minutes);
                 return (
                   <button
                     key={o.minutes}
                     type="button"
+                    disabled={!fits}
+                    title={fits ? undefined : "Too late for this due time"}
                     onClick={() => toggleLead(o.minutes)}
                     className={`flex min-h-11 items-center justify-center rounded-md border px-3 text-xs font-medium transition-colors md:min-h-0 md:py-2 ${
-                      on
-                        ? "border-primary bg-primary/10 text-primary"
-                        : "border-border text-muted-foreground hover:bg-accent"
+                      !fits
+                        ? "cursor-not-allowed border-border/50 text-muted-foreground/40 line-through"
+                        : on
+                          ? "border-primary bg-primary/10 text-primary"
+                          : "border-border text-muted-foreground hover:bg-accent"
                     }`}
                   >
                     {o.label}
@@ -823,7 +867,10 @@ export default function RemindersPage() {
               })}
             </div>
             <p className="mt-1.5 text-xs text-muted-foreground">
-              You always get one at the due time. These are extra.
+              You always get one at the due time. These are extra
+              {LEAD_OFFSET_OPTIONS.some((o) => !leadFits(o.minutes)) &&
+                ", and the ones already past for this due time are struck out"}
+              .
             </p>
           </div>
 
