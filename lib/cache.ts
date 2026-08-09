@@ -58,6 +58,38 @@ export function clearCache(): void {
 }
 
 /**
+ * The address last signed in with on this device, so the login screen only asks for
+ * the PIN.
+ *
+ * Kept outside PREFIX on purpose, which means clearCache() does *not* remove it. That
+ * is the point: the convenience is worth nothing if pressing Logout — the ordinary way
+ * to leave — also forgets it. It is the identifier the person types anyway, never a
+ * credential, and the PIN it is paired with is not stored at all.
+ *
+ * The trade is visible: sign out on a shared browser and the next person sees which
+ * address was last used here. Clearing site data removes it, as does signing in with
+ * a different address, which overwrites it.
+ */
+const LAST_EMAIL_KEY = "prosys:last-email";
+
+export function rememberEmail(email: string): void {
+  try {
+    const trimmed = email.trim();
+    if (trimmed) localStorage.setItem(LAST_EMAIL_KEY, trimmed);
+  } catch {
+    /* private mode — the field simply starts empty */
+  }
+}
+
+export function lastEmail(): string {
+  try {
+    return localStorage.getItem(LAST_EMAIL_KEY) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+/**
  * Binds the cache to an account, wiping it when the account changes.
  *
  * This matters because reminders are private and the cache is per *browser*, not

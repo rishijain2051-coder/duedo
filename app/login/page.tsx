@@ -16,7 +16,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Field, Input } from "@/components/ui/form";
 import { Credit } from "@/components/credit";
-import { setCacheOwner } from "@/lib/cache";
+import { lastEmail, rememberEmail, setCacheOwner } from "@/lib/cache";
 import { api } from "@/services/api";
 import { PIN_LENGTH, type AccountType } from "@/types";
 
@@ -123,9 +123,19 @@ export default function LoginPage() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const outcome = params.get("verified");
-    if (!outcome) return;
     const prefill = params.get("email");
+
+    // The address last signed in with here, so only the PIN is left to type. Read in
+    // an effect rather than in useState: localStorage does not exist during the server
+    // render, and seeding state from it would mismatch on hydration.
+    //
+    // The link's own address wins when there is one — somebody arriving from a
+    // verification email is confirming *that* address, which may not be the one last
+    // used on this device.
     if (prefill) setEmail(prefill);
+    else setEmail(lastEmail());
+
+    if (!outcome) return;
     setVerifyNotice(
       outcome === "ok"
         ? "Email confirmed — your account is active. Sign in with your PIN."
@@ -143,6 +153,9 @@ export default function LoginPage() {
     try {
       const me = await api.auth.login(email, pin);
       setCacheOwner(me.id);
+      // Only after it worked. Remembering a typo would make the next sign-in worse,
+      // not better — the field would start wrong instead of empty.
+      rememberEmail(email);
       goToApp();
     } catch (e) {
       setError((e as Error).message);
@@ -211,6 +224,11 @@ export default function LoginPage() {
     setError(null);
     setPin("");
     setConfirmPin("");
+    // Signing up is not the same person coming back, so the remembered address is not
+    // a helpful starting point — it is an address that already has an account, and
+    // registering with it can only fail.
+    if (next === "register") setEmail("");
+    else setEmail(lastEmail());
   }
 
   const passkeysPossible =
@@ -449,9 +467,12 @@ export default function LoginPage() {
                 className="space-y-4"
               >
                 <Field label="Email">
+                  {/* `username`, not `email`: paired with the PIN field's
+                      `current-password` below, it is what lets a password manager
+                      recognise this as one login and offer to fill both. */}
                   <Input
                     type="email"
-                    autoComplete="email"
+                    autoComplete="username"
                     autoFocus={!passkeysPossible}
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
