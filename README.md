@@ -213,47 +213,27 @@ so generating a new one is also how you revoke the old.
 
 ### Getting the shortcut
 
-**On the iPhone, in the app:** Settings → **Add by voice** → **Create key**, then
-**Add shortcut**. The file downloads with that key already in it and opens in
-Shortcuts. Add it, and say "Hey Siri, add reminder".
+Settings → **Add by voice** → **Create key**, then **Get the shortcut**. It opens an
+iCloud link, installs, and asks for nothing. Paste the key into the Authorization
+header of its **Get Contents of URL** action, and say "Hey Siri, add reminder".
 
-Press **Add shortcut** without making a key first and the file still has all four
-actions, just with a placeholder key to replace — the key is only readable at the
-moment it is created, so there is nothing to fill in afterwards.
+The link carries a **placeholder** rather than anybody's key, which is what makes one
+link safe for everyone — a shortcut holding one person's key would file the whole
+household's reminders into that one account. Each person makes their own key in their
+own Settings.
 
-**Apple hasn't signed the file, so iOS asks before adding it.** Shortcuts opens it,
-shows every action it contains, and puts a red **Add Untrusted Shortcut** button at the
-very bottom — below the whole list, which is why it gets missed. On iOS 16 and earlier
-this was a global switch instead (Settings → Shortcuts → **Allow Untrusted Shortcuts**,
-which only appeared after running any shortcut once); iOS 17 replaced it with the
-per-import prompt.
-
-There is no way to hand the file a signature from here. Apple issues it, tied to an
-Apple ID — there is no keypair to generate the way there is for an app or an installer.
-The two routes to a signed one both need Apple in the loop: sharing from the Shortcuts
-app, which signs it server-side, or `shortcuts sign` on macOS 12+ with iCloud signed in.
-
-If you would rather not see the prompt again: import it once, then in Shortcuts use
-**Share → Copy iCloud Link**. Apple signs that, and the link installs anywhere with no
-prompt at all. It carries your key, so treat the link like the key.
-
-The same file from a computer, if that is easier than tapping through the phone:
-
-```bash
-node scripts/make-shortcut.mjs --key prosys_your_key_here --url https://your-app.vercel.app
-```
-
-Both call `buildShortcut` in [`lib/shortcut.ts`](lib/shortcut.ts) — one builder, so the
-button and the script cannot drift apart. It writes a **binary** property list, encoded
-by hand rather than by a dependency. The first version wrote XML, which every plist
-reader accepted and Shortcuts silently ignored — the app opened on the file and did
-nothing at all, no preview and no error. `smoke-dictation` round-trips the bytes through
-Python's `plistlib` to prove a real reader accepts them.
+**Why a link and not a file.** The app used to generate the `.shortcut` itself. That
+file was a correct property list — XML first, then binary, both verified against a real
+plist reader — and Shortcuts on iOS 26 opened it and did nothing at all: no preview, no
+button, no error. Apple issues shortcut signatures against an Apple ID, so there is no
+keypair to hold and nothing a locally written file can be given to make it acceptable.
+An iCloud share link is Apple doing the signing, and it is the only version of this that
+works. The generator was deleted rather than left as a button that produces a file iOS
+will not open.
 
 #### Or build it by hand
 
-If an import is ever refused, these four actions are the whole shortcut and depend on
-none of the above.
+Three actions, if you would rather not use the link — or to see what it contains.
 
 1. Settings → **Add by voice** → **Create key**, and copy it.
 2. Shortcuts app → **+** → add these three actions in order:
@@ -467,7 +447,9 @@ Voice capture — the dictation parser and the token endpoint behind it. Every r
 try one is to talk at a phone and see what happens, which tests one wording once. That
 file imports nothing so Node runs the real one. The half that matters most is what it
 refuses to guess: "pay the vehicle insurance" must **not** be filed under Vehicle, and
-"end of the month" is a date while "end of every month" is a schedule:
+"end of the month" is a date while "end of every month" is a schedule. It also covers
+what it must *not* leave in the title — "in five minutes" reached production sitting in
+a reminder's name, due at the default time:
 
 ```bash
 node --env-file=.env scripts/smoke-dictation.mjs

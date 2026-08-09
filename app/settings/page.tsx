@@ -31,7 +31,6 @@ import { useApp } from "@/components/app-context";
 import { Credit } from "@/components/credit";
 import { FamilySettings } from "@/components/family-settings";
 import { ExternalContactsCard } from "@/components/external-contacts";
-import { buildShortcut, KEY_PLACEHOLDER, SHORTCUT_FILENAME } from "@/lib/shortcut";
 import {
   api,
   type ActiveLogin,
@@ -55,6 +54,24 @@ import {
   type AccentId,
   type ThemeMode,
 } from "@/types";
+
+/**
+ * The shortcut, shared through iCloud so that Apple signs it.
+ *
+ * This replaced a generator that wrote the .shortcut file itself. That file was a
+ * correct property list — XML first, then binary, both verified against a real plist
+ * reader — and Shortcuts on iOS 26 opened it and did nothing at all: no preview, no
+ * button, no error. Apple issues shortcut signatures against an Apple ID, so there is
+ * no keypair to hold and nothing a locally written file can be given to make it
+ * acceptable. An iCloud share link is Apple doing the signing, which is the only
+ * version of this that works.
+ *
+ * It carries a placeholder rather than a key, which is what makes one link safe for
+ * everyone: a shortcut holding one person's key would file everybody's reminders into
+ * that one account.
+ */
+const SHORTCUT_LINK =
+  "https://www.icloud.com/shortcuts/ede3aa13f3ab4d25a7d4c12b3dd757fc";
 
 const OVERDUE_CHOICES = [
   { minutes: 15, label: "Every 15 minutes" },
@@ -308,45 +325,6 @@ export default function SettingsPage() {
     } finally {
       setBusy(null);
     }
-  }
-
-  /**
-   * Builds the .shortcut file here and hands it to the browser.
-   *
-   * Built client-side rather than fetched, because the key only exists in plain form
-   * for as long as this page holds it — the server keeps an HMAC, so an endpoint that
-   * embedded the key would have nothing to embed. When there is no key in hand the
-   * file carries a placeholder, which is still the four actions built for you.
-   */
-  function downloadShortcut() {
-    const file = buildShortcut({
-      key: newToken ?? KEY_PLACEHOLDER,
-      baseUrl: window.location.origin,
-      uuid:
-        typeof crypto !== "undefined" && crypto.randomUUID
-          ? crypto.randomUUID().toUpperCase()
-          : `${Date.now()}-0000-4000-8000-000000000000`,
-    });
-    // A binary property list, so the Blob takes the bytes as they are. The first
-    // version wrote an XML plist, which parsed correctly everywhere except in
-    // Shortcuts, where it opened the app and did nothing at all.
-    const url = URL.createObjectURL(
-      new Blob([file as BlobPart], { type: "application/octet-stream" }),
-    );
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = SHORTCUT_FILENAME;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    // Revoked on the next tick: Safari cancels an in-flight download if the object URL
-    // goes before it has started reading it.
-    setTimeout(() => URL.revokeObjectURL(url), 10_000);
-    flash(
-      newToken
-        ? "Shortcut downloaded, with your key in it. Open it on your iPhone."
-        : "Shortcut downloaded. Replace the placeholder key in the Get Contents of URL action.",
-    );
   }
 
   async function revokeToken() {
@@ -1123,9 +1101,30 @@ export default function SettingsPage() {
         <CardContent className="space-y-3">
           <p className="text-sm text-muted-foreground">
             An Apple Shortcut can dictate a reminder straight into this account — “Hey
-            Siri, add reminder”, then say it. Setup is in the README under{" "}
-            <span className="font-medium">Add by voice</span>.
+            Siri, add reminder”, then say it.
           </p>
+          <ol className="ml-4 list-decimal space-y-1 text-sm text-muted-foreground">
+            <li>
+              <span className="font-medium text-foreground">Create key</span> below, and
+              copy it.
+            </li>
+            <li>
+              Open{" "}
+              <a
+                href={SHORTCUT_LINK}
+                target="_blank"
+                rel="noreferrer"
+                className="font-medium text-primary underline"
+              >
+                the shortcut
+              </a>{" "}
+              on your iPhone and add it.
+            </li>
+            <li>
+              In its <span className="font-medium">Get Contents of URL</span> action,
+              replace the placeholder in the Authorization header with your key.
+            </li>
+          </ol>
 
           {tokenStatus?.exists ? (
             <p className="text-sm">
@@ -1163,9 +1162,11 @@ export default function SettingsPage() {
               {busy === "token" && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               {tokenStatus?.exists ? "Replace key" : "Create key"}
             </Button>
-            <Button variant="outline" onClick={downloadShortcut}>
-              <Download className="mr-2 h-4 w-4" /> Add shortcut
-            </Button>
+            <a href={SHORTCUT_LINK} target="_blank" rel="noreferrer">
+              <Button variant="outline">
+                <Download className="mr-2 h-4 w-4" /> Get the shortcut
+              </Button>
+            </a>
             {tokenStatus?.exists && (
               <Button
                 variant="outline"
@@ -1178,13 +1179,10 @@ export default function SettingsPage() {
             )}
           </div>
           <p className="text-xs text-muted-foreground">
-            {newToken
-              ? "Add shortcut downloads a file with the key above already in it — open it on your iPhone and it is ready."
-              : "Add shortcut downloads the file with a placeholder key, since a key is only readable the moment it is made. Create one first to have it filled in."}{" "}
-            Apple hasn&apos;t signed it, so Shortcuts shows the actions first and puts{" "}
-            <span className="font-medium">Add Untrusted Shortcut</span> at the very
-            bottom — scroll past the whole list. On iOS 16 and earlier you may need
-            Settings → Shortcuts → Allow Untrusted Shortcuts first.
+            The shortcut is shared through iCloud, so Apple has signed it — it installs
+            with no warning, and it carries a placeholder rather than anybody&apos;s key.
+            The key is what makes it yours, which is why it is pasted in afterwards
+            rather than baked in.
           </p>
           {tokenStatus?.exists && (
             <p className="text-xs text-muted-foreground">
