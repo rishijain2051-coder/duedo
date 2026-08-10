@@ -30,7 +30,7 @@ const nextConfig: NextConfig = {
     APP_BUILD_ID: buildId,
     // The app name is configurable for emails; the client needs it too, for the
     // "add to Home Screen" copy in lib/push-client.ts.
-    NEXT_PUBLIC_APP_NAME: process.env.APP_NAME || "PRO-SYS",
+    NEXT_PUBLIC_APP_NAME: process.env.APP_NAME || "DueDo",
   },
   async headers() {
     return [

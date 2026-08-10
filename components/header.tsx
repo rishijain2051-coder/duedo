@@ -31,7 +31,7 @@ export function Header({ onMenuToggle }: { onMenuToggle?: () => void }) {
           <Menu className="h-6 w-6" />
         </button>
         <span className="wordmark bg-gradient-to-r from-primary to-primary-soft bg-clip-text text-lg font-bold text-transparent md:hidden">
-          PRO-SYS
+          DueDo
         </span>
         <div className="hidden md:flex items-center gap-2 text-sm">
           <UserCircle className="h-5 w-5 text-muted-foreground" />

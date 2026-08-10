@@ -80,7 +80,7 @@ export default function UpgradePage() {
   /** Prefilled so the first message already says who is asking and for what. */
   function reach(plan: PlanId): string {
     const body =
-      `Hi, I'd like the ${PLANS[plan].name} plan for ${process.env.NEXT_PUBLIC_APP_NAME ?? "PRO-SYS"}.\n` +
+      `Hi, I'd like the ${PLANS[plan].name} plan for ${process.env.NEXT_PUBLIC_APP_NAME ?? "DueDo"}.\n` +
       `Account: ${settings?.email ?? ""}`;
     return WHATSAPP
       ? `https://wa.me/${WHATSAPP}?text=${encodeURIComponent(body)}`

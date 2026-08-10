@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Offline · PRO-SYS</title>
+    <title>Offline · DueDo</title>
     <!--
       The last resort, served by the service worker when a page is asked for with no
       connection and no cached copy of it. Deliberately self-contained: no stylesheet,
@@ -75,7 +75,7 @@
       // The same choice lib/theme.ts makes, kept in step by hand because this file
       // cannot import it. Reading localStorage is not a request, so it is safe here.
       try {
-        var m = localStorage.getItem("prosys:theme-mode");
+        var m = localStorage.getItem("duedo:theme-mode");
         var light =
           m === "light" ||
           (m === "system" &&

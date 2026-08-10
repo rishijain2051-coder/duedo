@@ -8,8 +8,15 @@ import { ACCENTS, type AccentId, type ThemeMode } from "@/types";
 // sharing a laptop each get their own browser profile in practice, per-device is
 // also usually what they want.
 
-export const THEME_MODE_KEY = "prosys:theme-mode";
-export const THEME_ACCENT_KEY = "prosys:theme-accent";
+// Defined in a non-client module so the server-rendered bootstrap in app/layout.tsx can
+// interpolate them too, and re-exported here so callers still import them from one
+// place. See lib/theme-keys.ts for what goes wrong otherwise.
+//
+// Imported *and* re-exported, not `export … from`: a bare re-export forwards the names
+// without binding them locally, so readMode below would call getItem(undefined), get
+// null, and silently return the default — the theme picker appearing to do nothing.
+import { THEME_ACCENT_KEY, THEME_MODE_KEY } from "./theme-keys";
+export { THEME_ACCENT_KEY, THEME_MODE_KEY };
 
 export const DEFAULT_MODE: ThemeMode = "dark";
 export const DEFAULT_ACCENT: AccentId = "blue";

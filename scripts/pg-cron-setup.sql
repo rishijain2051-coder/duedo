@@ -1,4 +1,4 @@
--- PRO-SYS — per-minute reminder dispatch via Supabase pg_cron.
+-- DueDo — per-minute reminder dispatch via Supabase pg_cron.
 --
 -- Run this ONCE in the Supabase SQL editor (Dashboard -> SQL Editor -> New query)
 -- after the app is deployed and you know its URL.
@@ -10,8 +10,15 @@
 --
 -- One call covers every account: /api/cron/dispatch walks all approved users.
 --
--- The domain below is already set. Replace the one remaining placeholder:
---   YOUR_CRON_SECRET -> the CRON_SECRET from your Vercel environment variables
+-- Replace TWO placeholders below:
+--   YOUR_DUEDO_DOMAIN -> the deployed host, e.g. duedo.vercel.app (no scheme, no slash)
+--   YOUR_CRON_SECRET  -> the CRON_SECRET from your Vercel environment variables
+--
+-- The domain is a placeholder rather than a fixed value because it has already moved
+-- once: the app was PRO-SYS at pro-sys-by-rishi.vercel.app before the rename. A URL
+-- baked into this file is a URL that goes stale silently — the job keeps firing, keeps
+-- getting an error from a domain nobody owns any more, and no reminder is ever sent
+-- while the app itself looks perfectly healthy.
 --
 -- The secret is deliberately NOT stored in this file, because this file is tracked
 -- by git. It does end up inside cron.job.command in the database once scheduled,
@@ -27,15 +34,22 @@ create extension if not exists pg_cron;
 create extension if not exists pg_net with schema extensions;
 
 -- Re-running is safe: drop any previous schedule first.
+select cron.unschedule('duedo-dispatch')
+where exists (select 1 from cron.job where jobname = 'duedo-dispatch');
+
+-- And the job under the app's former name. This one is not housekeeping: left in place
+-- it fires every minute at a Vercel project that no longer exists, forever, filling
+-- cron.job_run_details with failures — while the health page, which now looks for
+-- 'duedo-dispatch', reports no scheduler at all. Two wrong answers from one leftover.
 select cron.unschedule('prosys-dispatch')
 where exists (select 1 from cron.job where jobname = 'prosys-dispatch');
 
 select cron.schedule(
-  'prosys-dispatch',
+  'duedo-dispatch',
   '* * * * *', -- every minute; this is pg_cron's finest granularity
   $$
   select net.http_post(
-    url     := 'https://pro-sys-by-rishi.vercel.app/api/cron/dispatch',
+    url     := 'https://YOUR_DUEDO_DOMAIN/api/cron/dispatch',
     headers := jsonb_build_object(
       'Content-Type',  'application/json',
       'Authorization', 'Bearer YOUR_CRON_SECRET'
@@ -113,7 +127,7 @@ select cron.schedule(
 -- the app replied):
 --   select runid, status, return_message, start_time
 --   from cron.job_run_details
---   where jobid = (select jobid from cron.job where jobname = 'prosys-dispatch')
+--   where jobid = (select jobid from cron.job where jobname = 'duedo-dispatch')
 --   order by start_time desc
 --   limit 20;
 --
@@ -127,4 +141,4 @@ select cron.schedule(
 -- it means the engine ran and had nothing to send.
 --
 -- ------------------------------------------------------------------- teardown
---   select cron.unschedule('prosys-dispatch');
+--   select cron.unschedule('duedo-dispatch');

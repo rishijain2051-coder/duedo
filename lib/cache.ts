@@ -15,9 +15,9 @@ import { isOfflineError } from "@/lib/net";
 // swaps in behind it. Repeat navigations and a cold PWA launch feel instant, and
 // the app still shows something useful with no connection at all.
 
-const PREFIX = "prosys:cache:";
+const PREFIX = "duedo:cache:";
 /** Which account the cached data belongs to. See setCacheOwner. */
-const OWNER_KEY = "prosys:cache-owner";
+const OWNER_KEY = "duedo:cache-owner";
 
 interface Entry<T> {
   v: T;
@@ -70,7 +70,7 @@ export function clearCache(): void {
  * address was last used here. Clearing site data removes it, as does signing in with
  * a different address, which overwrites it.
  */
-const LAST_EMAIL_KEY = "prosys:last-email";
+const LAST_EMAIL_KEY = "duedo:last-email";
 
 export function rememberEmail(email: string): void {
   try {
@@ -149,7 +149,7 @@ export interface Cached<T> {
  * Fired after the outbox drains, so every cached page re-reads rather than sitting on
  * the optimistic copy it painted while offline. See lib/offline.ts.
  */
-export const SYNCED_EVENT = "prosys:synced";
+export const SYNCED_EVENT = "duedo:synced";
 
 /**
  * Fetches `key` through `fetcher`, seeding from localStorage first.

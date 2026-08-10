@@ -74,7 +74,7 @@ export async function sendVerificationEmail(user: {
   });
 
   const link = `${appUrl()}/api/auth/verify?token=${encodeURIComponent(token)}`;
-  const appName = process.env.APP_NAME || "PRO-SYS";
+  const appName = process.env.APP_NAME || "DueDo";
 
   const sent = await sendMail({
     to: user.email,

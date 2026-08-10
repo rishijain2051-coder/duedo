@@ -132,7 +132,7 @@ export async function rotateCronLogIfDue(
   // succeed is the only reason to open this file.
   const failed = rows.filter((r) => r.status !== "succeeded").length;
   const dateLabel = toDateKey(now, admin.timezone);
-  const appName = process.env.APP_NAME || "PRO-SYS";
+  const appName = process.env.APP_NAME || "DueDo";
 
   const sent = await deliver({
     to: admin.email,

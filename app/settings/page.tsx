@@ -700,13 +700,13 @@ export default function SettingsPage() {
             {mustInstall && (
               <div className="mb-3 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
                 <p className="font-medium text-amber-700 dark:text-amber-400">
-                  Add PRO-SYS to your Home Screen first
+                  Add DueDo to your Home Screen first
                 </p>
                 <p className="mt-1 text-muted-foreground">
                   iPhone only delivers notifications to an installed app, never to
                   a Safari tab. Tap{" "}
                   <Share className="inline h-3.5 w-3.5 align-text-bottom" /> Share →{" "}
-                  <strong>Add to Home Screen</strong>, then open PRO-SYS from your
+                  <strong>Add to Home Screen</strong>, then open DueDo from your
                   Home Screen and come back here.
                 </p>
               </div>

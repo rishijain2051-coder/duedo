@@ -59,7 +59,7 @@ async function schedulerState(): Promise<SchedulerState> {
     const names = new Set(extensions.map((e) => e.extname));
 
     const jobs = await prisma.$queryRaw<{ jobname: string; active: boolean }[]>`
-      select jobname, active from cron.job where jobname = 'prosys-dispatch'
+      select jobname, active from cron.job where jobname = 'duedo-dispatch'
     `;
 
     const ticks = await prisma.$queryRaw<
@@ -68,7 +68,7 @@ async function schedulerState(): Promise<SchedulerState> {
       select d.status, d.start_time, d.return_message
       from cron.job_run_details d
       join cron.job j on j.jobid = d.jobid
-      where j.jobname = 'prosys-dispatch'
+      where j.jobname = 'duedo-dispatch'
       order by d.start_time desc
       limit 1
     `;

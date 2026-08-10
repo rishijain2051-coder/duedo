@@ -6,7 +6,7 @@ import { api } from "@/services/api";
 // checked, because iOS only supports any of it in an installed PWA.
 
 const SW_URL = "/sw.js";
-const APP_NAME = process.env.NEXT_PUBLIC_APP_NAME || "PRO-SYS";
+const APP_NAME = process.env.NEXT_PUBLIC_APP_NAME || "DueDo";
 
 export function isPushSupported(): boolean {
   return (

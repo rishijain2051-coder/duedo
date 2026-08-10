@@ -17,7 +17,7 @@ import {
 // Browsers only allow Notification.requestPermission() from a user gesture, so
 // this can't self-enable — but it can be one tap instead of a hunt through menus.
 
-const DISMISS_KEY = "prosys:push-prompt-dismissed";
+const DISMISS_KEY = "duedo:push-prompt-dismissed";
 const DISMISS_DAYS = 3;
 
 function recentlyDismissed(): boolean {
@@ -106,13 +106,13 @@ export function PushPrompt() {
 
           {blocker === "install" && (
             <>
-              <p className="text-sm font-medium">Add PRO-SYS to your Home Screen</p>
+              <p className="text-sm font-medium">Add DueDo to your Home Screen</p>
               <p className="mt-0.5 text-xs text-muted-foreground">
                 {isIos() ? (
                   <>
                     iPhone only delivers notifications to an installed app. Tap{" "}
                     <Share className="inline h-3 w-3 align-text-bottom" /> Share →{" "}
-                    <strong>Add to Home Screen</strong>, then open PRO-SYS from the
+                    <strong>Add to Home Screen</strong>, then open DueDo from the
                     new icon.
                   </>
                 ) : (
@@ -130,7 +130,7 @@ export function PushPrompt() {
               <p className="mt-0.5 text-xs text-muted-foreground">
                 Nothing can reach you until you allow them in{" "}
                 {isIos()
-                  ? "Settings → Notifications → PRO-SYS"
+                  ? "Settings → Notifications → DueDo"
                   : "your browser's site settings"}
                 . Email reminders still work if they&apos;re on.
               </p>

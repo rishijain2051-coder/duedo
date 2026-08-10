@@ -7,6 +7,6 @@
   </defs>
   <rect width="512" height="512" fill="url(#g)"/>
   <g transform="translate(0 0) scale(1)" stroke="#ffffff" stroke-width="56" stroke-linecap="round" stroke-linejoin="round" fill="none">
-    <path d="M180 392 V120 H288 a70 70 0 0 1 0 140 H180"/>
+    <path d="M143 392 V120 H233 a136 136 0 0 1 0 272 H143"/>
   </g>
 </svg>

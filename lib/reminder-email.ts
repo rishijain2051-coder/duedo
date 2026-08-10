@@ -63,7 +63,7 @@ export function buildReminderEmail(input: ReminderEmailInput): {
   subject: string;
   html: string;
 } {
-  const appName = process.env.APP_NAME || "PRO-SYS";
+  const appName = process.env.APP_NAME || "DueDo";
   const status = statusLabel(input);
   const accent = accentFor(input.kind);
   const amount = formatAmount(input.amount);

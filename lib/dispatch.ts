@@ -1020,12 +1020,12 @@ export async function recordFailedRun(
 
 /** Fires a one-off push so a user can confirm delivery works end to end. */
 export async function sendTestPush(userId: string) {
-  const appName = process.env.APP_NAME || "PRO-SYS";
+  const appName = process.env.APP_NAME || "DueDo";
   const badge = await countOutstandingFor(userId, await familyIdsFor(userId));
   return sendPushToUser(userId, {
     title: `${appName} test notification`,
     body: "If you can see this on your lock screen, push is working.",
-    tag: "prosys-test",
+    tag: "duedo-test",
     kind: "test",
     badge,
     url: "/settings",
@@ -1037,7 +1037,7 @@ export async function sendTestEmail(
   to: string,
   userName: string,
 ): Promise<boolean> {
-  const appName = process.env.APP_NAME || "PRO-SYS";
+  const appName = process.env.APP_NAME || "DueDo";
   return sendMail({
     to,
     subject: `${appName}: test email`,

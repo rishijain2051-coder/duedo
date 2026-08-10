@@ -113,7 +113,7 @@ export async function sendMonthlyReports(
         year: "numeric",
       }).format(start);
 
-      const appName = process.env.APP_NAME || "PRO-SYS";
+      const appName = process.env.APP_NAME || "DueDo";
       const url = process.env.APP_URL?.replace(/\/$/, "");
 
       const cells = rows

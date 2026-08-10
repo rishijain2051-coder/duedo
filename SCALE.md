@@ -253,7 +253,7 @@ dashboard setting is what actually applies**:
 Verify with:
 
 ```bash
-curl -sD - -o /dev/null https://pro-sys-by-rishi.vercel.app/api/health | grep -i x-vercel-id
+curl -sD - -o /dev/null https://YOUR_DUEDO_DOMAIN/api/health | grep -i x-vercel-id
 ```
 
 The second value is the one that matters — it should read `hnd1`.

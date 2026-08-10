@@ -119,7 +119,7 @@ export async function warnExpiringPlans(
   }
 
   const deliver = send ?? sendMail;
-  const appName = process.env.APP_NAME || "PRO-SYS";
+  const appName = process.env.APP_NAME || "DueDo";
   const rows = fresh
     .map(
       (u) =>

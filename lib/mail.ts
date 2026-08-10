@@ -79,7 +79,7 @@ export async function sendMail(options: SendMailOptions): Promise<boolean> {
   if (!t) return false;
   const from =
     process.env.MAIL_FROM ||
-    `${process.env.APP_NAME || "PRO-SYS"} <${process.env.SMTP_USER}>`;
+    `${process.env.APP_NAME || "DueDo"} <${process.env.SMTP_USER}>`;
   try {
     await t.sendMail({
       from,

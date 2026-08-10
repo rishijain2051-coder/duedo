@@ -239,8 +239,12 @@ export default function LoginPage() {
       <Card className="w-full max-w-sm">
         <CardHeader className="space-y-1 pb-6 text-center">
           <CardTitle className="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-primary to-primary-soft">
-            PRO-SYS
+            DueDo
           </CardTitle>
+          {/* The tagline sits here and nowhere else inside the app. This is the one
+              screen a stranger sees before they know what the thing is; past the lock
+              screen it would be decoration on a page they came to do something on. */}
+          <p className="text-sm font-medium">Just missed it? Never again.</p>
           <p className="text-sm text-muted-foreground">
             {loading
               ? "…"

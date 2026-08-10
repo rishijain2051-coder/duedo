@@ -116,7 +116,7 @@ export default function AdminHealthPage() {
               !data.scheduler.readable
                 ? "Could not read the cron catalogs — this says nothing about whether the job works."
                 : !data.scheduler.jobScheduled
-                  ? "No job named prosys-dispatch. Run scripts/pg-cron-setup.sql."
+                  ? "No job named duedo-dispatch. Run scripts/pg-cron-setup.sql."
                   : data.scheduler.jobActive
                     ? `Active. Last tick ${data.scheduler.lastTickStatus ?? "unknown"}.`
                     : "Scheduled but inactive — it will never fire."

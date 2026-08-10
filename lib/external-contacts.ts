@@ -85,7 +85,7 @@ export async function contactSendable(
     data: { tokenHash: hashToken(token), tokenSentAt: new Date() },
   });
 
-  const appName = process.env.APP_NAME || "PRO-SYS";
+  const appName = process.env.APP_NAME || "DueDo";
   const base = `${appUrl()}/api/contacts/confirm?token=${encodeURIComponent(token)}`;
   const sent = await sendMail({
     to: contact.email,

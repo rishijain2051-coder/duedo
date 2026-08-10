@@ -6,10 +6,10 @@ import { cookies } from "next/headers";
 // anyone out of their account.
 
 export function rpName(): string {
-  return process.env.APP_NAME || "PRO-SYS";
+  return process.env.APP_NAME || "DueDo";
 }
 
-const CHALLENGE_COOKIE = "prosys_webauthn_challenge";
+const CHALLENGE_COOKIE = "duedo_webauthn_challenge";
 const CHALLENGE_TTL_SECONDS = 300;
 
 /**
@@ -17,6 +17,13 @@ const CHALLENGE_TTL_SECONDS = 300;
  *
  * rpID must be the bare domain with no port or scheme. Behind Vercel the
  * x-forwarded-* headers are authoritative, since req.url reports the internal host.
+ *
+ * Derived rather than configured, which has one consequence worth stating plainly:
+ * **a passkey is bound to the domain it was created on.** Moving the app — as the
+ * PRO-SYS to DueDo rename did — means every existing passkey stops being offered,
+ * because the browser will not present a credential registered for another rpID.
+ * Nobody is locked out (the PIN is always kept as the fallback, see above), but
+ * everyone re-enrols Face ID once. Any future domain move costs the same again.
  */
 export function rpInfo(req: NextRequest): { rpID: string; origin: string } {
   const url = new URL(req.url);

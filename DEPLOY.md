@@ -1,4 +1,4 @@
-# Deploying PRO-SYS (free tier)
+# Deploying DueDo (free tier)
 
 One Vercel project + one Supabase project. Email and push are both optional — set up
 either, both, or neither, and each person picks what they want in Settings.
@@ -73,8 +73,8 @@ variables from [`.env.example`](.env.example):
 | `DATABASE_URL` | yes | Transaction pooler (6543). |
 | `AUTH_SECRET` | yes | Changing it signs everyone out. |
 | `CRON_SECRET` | yes | Without it the cron endpoint refuses to run in production. |
-| `APP_NAME` | no | Defaults to `PRO-SYS`. |
-| `APP_URL` | no | Adds an "Open PRO-SYS" button to reminder emails. |
+| `APP_NAME` | no | Defaults to `DueDo`. |
+| `APP_URL` | no | Adds an "Open DueDo" button to reminder emails. |
 | `SMTP_HOST` `SMTP_PORT` `SMTP_SECURE` `SMTP_USER` `SMTP_PASS` `MAIL_FROM` | for email | Leave blank to disable email entirely. |
 | `VAPID_PUBLIC_KEY` `VAPID_PRIVATE_KEY` `NEXT_PUBLIC_VAPID_PUBLIC_KEY` `VAPID_SUBJECT` | for push | The public key goes in twice — once server-side, once as `NEXT_PUBLIC_*`. |
 | `NEXT_PUBLIC_UPGRADE_WHATSAPP` | for paid plans | Digits only, full international form: `919876543210`. Without it (and without `NEXT_PUBLIC_UPGRADE_EMAIL`) `/upgrade` still lists the plans but offers no way to ask for one. |
@@ -142,7 +142,7 @@ Open the Supabase **SQL Editor** and run
 placeholders with your deployed domain and your `CRON_SECRET`. One call covers every
 account.
 
-That script schedules one job, `prosys-dispatch`, every minute.
+That script schedules one job, `duedo-dispatch`, every minute.
 
 Nothing else to schedule: pg_cron's own run log — one row per run, never removed by
 pg_cron, measured at 248 MB a year here — is rotated by the app on the same terms as
@@ -195,7 +195,7 @@ says), then activate the account by hand under **/admin → Accounts** — or, o
 install with no admin yet, with the SQL in step 6.
 
 **No push on iPhone.** Almost always a Safari tab rather than an installed app. Check
-Settings → How you're reminded: if it says *Add PRO-SYS to your Home Screen first*,
+Settings → How you're reminded: if it says *Add DueDo to your Home Screen first*,
 that's the cause.
 
 **Push worked, then stopped.** iOS rotates subscriptions. The app re-registers on
@@ -214,3 +214,73 @@ session pooler (5432).
 
 **Cron returns 401.** `CRON_SECRET` doesn't match the `Authorization: Bearer …`
 header in the SQL, or isn't set in Vercel at all.
+
+---
+
+## Appendix: moving to a new domain
+
+Done once already, for the PRO-SYS → DueDo rename. **The database is not involved** —
+every account, reminder, family and plan is untouched, because they live in Supabase
+and only the front door moved.
+
+Order matters. Step 4 is the one that fails silently: the app looks perfectly healthy
+with a dead scheduler, because creating and listing reminders never touch it.
+
+**1. Create the new Vercel project.** Import the same repo, Root Directory at the repo
+root. Every environment variable has to be entered again — a new project inherits
+nothing:
+
+| | |
+| --- | --- |
+| `DATABASE_URL` | the same Supabase transaction-pooler string (6543) |
+| `AUTH_SECRET` | **the same value.** A new one signs everyone out permanently |
+| `CRON_SECRET` | the same value, or step 4 must use the new one |
+| `APP_NAME` | `DueDo` |
+| `APP_URL` | the **new** URL — get it from the first deploy, then set this and redeploy |
+| `SMTP_HOST` `SMTP_PORT` `SMTP_SECURE` `SMTP_USER` `SMTP_PASS` `MAIL_FROM` | unchanged |
+| `VAPID_PUBLIC_KEY` `VAPID_PRIVATE_KEY` `NEXT_PUBLIC_VAPID_PUBLIC_KEY` `VAPID_SUBJECT` | **the same values.** New keys orphan every existing push subscription |
+| `NEXT_PUBLIC_UPGRADE_WHATSAPP` | your WhatsApp Business number |
+
+`APP_URL` is chicken-and-egg: the URL doesn't exist until the first deploy, and
+confirmation links are built from it. Deploy, copy the URL, set it, redeploy.
+
+**2. Sign in and check the app answers.** `/api/health` and the login screen are
+enough. Nothing below matters if this doesn't work.
+
+**3. Point the scheduler at it.** Re-run
+[`scripts/pg-cron-setup.sql`](scripts/pg-cron-setup.sql) in the Supabase SQL editor
+with the new domain. It unschedules **both** the old `prosys-dispatch` and any previous
+`duedo-dispatch` before scheduling, so it is safe to run twice.
+
+**4. Confirm the scheduler actually fired.** This is the step to not skip:
+
+```sql
+select jobname, status, return_message, start_time
+from cron.job_run_details d
+join cron.job j using (jobid)
+order by start_time desc limit 5;
+```
+
+A row from the last minute with `status = 'succeeded'`. If the old job is still listed,
+it is firing at a domain that no longer exists — every minute, forever — and the admin
+health page will report no scheduler at all, because it looks for `duedo-dispatch`.
+
+**5. Delete the old Vercel project.** Only after step 4 passes. Two projects on the
+same database is not harmful — the dispatcher is idempotent — but it is two things to
+keep in your head.
+
+**What everyone has to redo, once:**
+
+- **Sign in again.** The session cookie belongs to the old origin.
+- **Re-enrol Face ID.** A passkey is bound to the domain it was created on
+  (`rpInfo` in [lib/webauthn.ts](lib/webauthn.ts)), so the browser will not offer the
+  old one. The PIN still works throughout — nobody is locked out.
+- **Re-enable notifications**, from the Home Screen on iPhone. A push subscription is
+  per-origin too.
+- **Re-add the Home Screen icon**, and delete the old one.
+- **Re-point the Siri shortcut** at the new URL. Existing API tokens keep working —
+  the stored hash covers the whole token and nothing inspects its `prosys_` prefix —
+  so only the URL inside the shortcut changes.
+
+Nothing on that list can be avoided by anything in the code: they are all consequences
+of the origin changing, which is what a new domain *is*.

@@ -1,4 +1,4 @@
-/* PRO-SYS service worker — push delivery, and enough caching to open offline.
+/* DueDo service worker — push delivery, and enough caching to open offline.
  *
  * Note that it holds no notion of *who* is signed in. Every fetch below goes out
  * with the session cookie, so an action always applies to whoever is logged in on
@@ -37,9 +37,9 @@ const BADGE_ICON = "/icons/badge-96.png";
  * it forever — changing the rule cannot heal what the old rule already saved. Renaming
  * the cache is the only thing that abandons it.
  */
-const STATIC_CACHE = "prosys-static-v2";
+const STATIC_CACHE = "duedo-static-v1";
 /** Page documents, kept only as a fallback for when the network is gone. */
-const SHELL_CACHE = "prosys-shell-v1";
+const SHELL_CACHE = "duedo-shell-v1";
 // Precached at install, so editing that file alone is not enough to ship the change —
 // SHELL_CACHE has to be renamed too, or installed devices keep serving the old copy.
 const OFFLINE_URL = "/offline.html";
@@ -73,8 +73,18 @@ self.addEventListener("activate", (event) => {
       // A rename of either cache above is how a bad stored copy gets abandoned, so
       // the sweep has to actually happen rather than being left for the browser.
       const names = await caches.keys();
+      // Two prefixes. The app was PRO-SYS until the rename, and sweeping only the new
+      // one would abandon prosys-static-v2 and prosys-shell-v1 without ever deleting
+      // them.
+      //
+      // Production doesn't actually need this — the rename moved the app to a new
+      // Vercel domain, and a new origin has no caches, no IndexedDB, no localStorage
+      // and no worker to begin with. localhost does: the origin there never changed, so
+      // every dev machine still holds the old pair. That is reason enough to keep the
+      // line, and it costs one string comparison per activate.
+      const MINE = (n) => n.startsWith("duedo-") || n.startsWith("prosys-");
       await Promise.all(
-        names.filter((n) => n.startsWith("prosys-") && !KEEP.includes(n)).map((n) => caches.delete(n)),
+        names.filter((n) => MINE(n) && !KEEP.includes(n)).map((n) => caches.delete(n)),
       );
       await self.clients.claim();
     })(),
@@ -186,10 +196,10 @@ self.addEventListener("push", (event) => {
   try {
     data = event.data ? event.data.json() : {};
   } catch {
-    data = { title: "PRO-SYS", body: event.data ? event.data.text() : "Reminder" };
+    data = { title: "DueDo", body: event.data ? event.data.text() : "Reminder" };
   }
 
-  const title = data.title || "PRO-SYS";
+  const title = data.title || "DueDo";
   const hasReminder = Boolean(data.reminderId);
 
   const options = {
@@ -197,7 +207,7 @@ self.addEventListener("push", (event) => {
     icon: APP_ICON,
     badge: BADGE_ICON,
     // Collapses repeat nags for the same reminder into one notification.
-    tag: data.tag || "prosys",
+    tag: data.tag || "duedo",
     renotify: true,
     requireInteraction: false,
     data: {

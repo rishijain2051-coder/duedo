@@ -1,6 +1,6 @@
 // Regenerates the PWA icon set:  node scripts/generate-icons.mjs
 //
-// The "P" is drawn as stroked paths rather than <text> so rasterising never
+// The "D" is drawn as stroked paths rather than <text> so rasterising never
 // depends on a font being installed on the machine running this.
 
 import { mkdir, writeFile } from "node:fs/promises";
@@ -8,8 +8,18 @@ import sharp from "sharp";
 
 const OUT = "public/icons";
 
-/** The wordmark glyph, as a stroked path in a 512x512 box. */
-const GLYPH = "M180 392 V120 H288 a70 70 0 0 1 0 140 H180";
+/**
+ * The wordmark glyph, as a stroked path in a 512x512 box.
+ *
+ * Stem at x=143, bowl starting 90 to its right, arced with r=136 — half the 272 of
+ * vertical travel, so the curve is a true semicircle rather than an approximation.
+ *
+ * The x is not a round number because the stroke is: at width 56 the ink reaches 28
+ * beyond the path on every side, so the drawn glyph spans 115..397 and centring the
+ * *path* would have left it visibly right-of-centre in the tile. Optical centre, not
+ * arithmetic centre.
+ */
+const GLYPH = "M143 392 V120 H233 a136 136 0 0 1 0 272 H143";
 
 /** @param {number} inset  Padding as a fraction, for the maskable variant's safe zone. */
 function svg(inset = 0) {
@@ -53,6 +63,12 @@ for (const { name, size, source } of targets) {
   console.log(`${name}  ${size}x${size}  ${png.length} bytes`);
 }
 
-// A favicon the browser tab can use as well.
+// The tab icon, declared explicitly by metadata.icons in app/layout.tsx.
+//
+// There is deliberately no app/favicon.ico and no app/icon.svg. Both are App Router
+// file conventions, and metadata.icons overrides them — so a file there is served but
+// never linked, which is how app/favicon.ico survived the DueDo rename untouched and
+// went on showing the old "P" in every browser tab while every icon here had changed.
+// One source, generated, linked from one place.
 await writeFile("public/icons/icon.svg", svg(0));
 console.log("icon.svg");

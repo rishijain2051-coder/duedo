@@ -23,8 +23,14 @@ import type { AuthUser } from "./auth";
 
 const TOKEN_BYTES = 32;
 
-/** Prefixed so a leaked string is recognisable for what it is in a log or a paste. */
-const PREFIX = "prosys_";
+/**
+ * Prefixed so a leaked string is recognisable for what it is in a log or a paste.
+ *
+ * Changing it does not invalidate anything already issued: the stored hash covers the
+ * whole token, and verification never inspects the prefix. Tokens minted before the
+ * rename keep their `prosys_` and keep working — this only shapes new ones.
+ */
+const PREFIX = "duedo_";
 
 function hashToken(token: string): string {
   return createHmac(

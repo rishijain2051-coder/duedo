@@ -296,7 +296,7 @@ try {
   check("no token", (await post({ text: "hello" })).status, 401);
   check(
     "a wrong token",
-    (await post({ text: "hello" }, { Authorization: "Bearer prosys_not-a-real-token-value" })).status,
+    (await post({ text: "hello" }, { Authorization: "Bearer duedo_not-a-real-token-value" })).status,
     401,
   );
   check("GET is refused with an explanation", (await fetch(`${BASE}/api/ingest/reminder`)).status, 405);
@@ -315,7 +315,7 @@ try {
     select: { id: true },
   });
   const { createHmac, randomBytes } = await import("node:crypto");
-  const plain = "prosys_" + randomBytes(32).toString("base64url");
+  const plain = "duedo_" + randomBytes(32).toString("base64url");
   const hash = createHmac("sha256", process.env.AUTH_SECRET || "dev-insecure-secret-change-me")
     .update(plain)
     .digest("hex");

@@ -24,7 +24,7 @@ import { PrismaClient } from "@prisma/client";
 import { Pool } from "pg";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { createHmac, randomBytes } from "node:crypto";
-import { assertScratchDatabase } from "./smoke-guard.mjs";
+import { assertScratchDatabase, SESSION_COOKIE, TOKEN_PREFIX } from "./smoke-guard.mjs";
 
 const BASE = process.env.BASE_URL || "http://localhost:3000";
 
@@ -78,7 +78,7 @@ function session() {
     });
     for (const c of res.headers.getSetCookie?.() ?? []) {
       const pair = c.split(";")[0];
-      if (pair.startsWith("prosys_session=")) cookie = pair;
+      if (pair.startsWith(`${SESSION_COOKIE}=`)) cookie = pair;
     }
     const text = await res.text();
     let data = null;
@@ -240,7 +240,7 @@ try {
   console.log("\n4. The voice route enforces the same cap — a paywall only in the UI is none");
   // A token minted while paid, then the account dropped to free: the token never
   // expires by design, so this is the state a lapse actually leaves behind.
-  const plain = "prosys_" + randomBytes(32).toString("base64url");
+  const plain = TOKEN_PREFIX + randomBytes(32).toString("base64url");
   const hash = createHmac("sha256", process.env.AUTH_SECRET || "dev-insecure-secret-change-me")
     .update(plain)
     .digest("hex");

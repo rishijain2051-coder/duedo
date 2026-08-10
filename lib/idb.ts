@@ -12,7 +12,14 @@ import type { Mutation } from "@/lib/sync";
 // Not a wrapper library either. `idb` is small and good, but this is open, put, getAll
 // and delete — and a runtime dependency needs a reason that survives the bundle cost.
 
-const DB_NAME = "prosys";
+/**
+ * Renamed with the app. Anything still queued in the old `prosys` database is
+ * abandoned rather than migrated, which is safe for exactly one reason: the rename
+ * also moved the app to a new domain, and IndexedDB is per-origin — the new origin
+ * never had an outbox to lose. A rename *without* a move would need a migration here,
+ * because an abandoned queue is somebody's completed bill going unrecorded.
+ */
+const DB_NAME = "duedo";
 const DB_VERSION = 1;
 const STORE = "outbox";
 

@@ -99,7 +99,7 @@ export async function GET(req: NextRequest) {
     `"Covers reminders currently in the app. Deleting a reminder removes its history, ` +
     `so anything deleted is not counted here."`;
 
-  const name = `prosys-${scope === "mine" ? "personal" : "family"}-${formatInZone(from, user.timezone).replace(/\s/g, "")}.csv`;
+  const name = `duedo-${scope === "mine" ? "personal" : "family"}-${formatInZone(from, user.timezone).replace(/\s/g, "")}.csv`;
 
   return new NextResponse(`${note}\r\n${csv}\r\n`, {
     headers: {

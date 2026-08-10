@@ -1,9 +1,17 @@
-# PRO-SYS
+# DueDo
 
-A **multi-user personal reminder app** — never miss a bill, birthday, renewal, or
-anything else that's due. Reminders are **time-based**, and they reach you by
-**push notification** on your lock screen, by **email**, or both — each person
+**Just missed it? Never again.** Bills, birthdays, renewals — sorted.
+
+A **multi-user personal reminder app**. Reminders are **time-based**, and they reach
+you by **push notification** on your lock screen, by **email**, or both — each person
 chooses.
+
+> Renamed from **PRO-SYS** in August 2026, which is why older commits, the
+> `D:\prosys for kashish` fork it shares ancestry with, and any passkey or API token
+> issued before then still carry the old name. The database was not touched by the
+> rename; the deployment moved to a new Vercel project, so every client-side store
+> (cookies, cached data, service-worker caches, passkeys) starts fresh on the new
+> domain — see [DEPLOY.md](DEPLOY.md).
 
 ## Architecture
 
@@ -362,7 +370,7 @@ and enable notifications in Settings. Requires iOS 16.4+.
 
 Notifications use your iPhone's standard notification tone — iOS gives web apps no
 way to pick their own sound. Change it under the iPhone's Settings → Notifications
-→ PRO-SYS.
+→ DueDo.
 
 ## Deployment (free)
 

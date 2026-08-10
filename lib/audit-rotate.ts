@@ -148,7 +148,7 @@ export async function rotateAuditLogIfDue(
   );
 
   const dateLabel = toDateKey(now, admin.timezone);
-  const appName = process.env.APP_NAME || "PRO-SYS";
+  const appName = process.env.APP_NAME || "DueDo";
 
   const sent = await deliver({
     to: admin.email,

@@ -19,7 +19,7 @@ export async function GET(req: NextRequest) {
   const token = req.nextUrl.searchParams.get("token") ?? "";
   const answer = req.nextUrl.searchParams.get("answer") ?? "yes";
   const result = await confirmContact(token, answer);
-  const appName = process.env.APP_NAME || "PRO-SYS";
+  const appName = process.env.APP_NAME || "DueDo";
 
   if (!result.ok) {
     return page(

@@ -127,9 +127,9 @@ function Wordmark({ small }: { small?: boolean }) {
           small ? "text-xl" : "text-2xl",
         )}
       >
-        PRO-SYS
+        DueDo
       </h1>
-      <p className="text-xs text-muted-foreground mt-1">Reminders</p>
+      <p className="text-xs text-muted-foreground mt-1">Bills, birthdays, renewals — sorted</p>
     </div>
   );
 }

@@ -11,7 +11,13 @@
 // token instead would make the login unrevocable — the whole point of a
 // DB-backed session is that deleting the row ends it immediately.
 
-export const SESSION_COOKIE = "prosys_session";
+/**
+ * Renaming this signs everyone out: the browser still holds the old cookie, nothing
+ * reads it any more, and the next request is simply unauthenticated. That is the
+ * correct outcome and not worth avoiding — it happened once, at the rename, and the
+ * PIN screen is one tap.
+ */
+export const SESSION_COOKIE = "duedo_session";
 export const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 30; // 30 days
 const SUBJECT = "session";
 

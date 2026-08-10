@@ -1,7 +1,7 @@
 {
-  "name": "PRO-SYS — Reminders",
-  "short_name": "PRO-SYS",
-  "description": "Never miss a bill, birthday, renewal, or anything else that's due.",
+  "name": "DueDo — Just missed it? Never again.",
+  "short_name": "DueDo",
+  "description": "Bills, birthdays, renewals — sorted.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

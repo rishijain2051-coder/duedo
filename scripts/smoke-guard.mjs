@@ -15,6 +15,21 @@
 const TEST_DOMAIN = "@example.invalid";
 
 /**
+ * Must match SESSION_COOKIE in lib/session.ts.
+ *
+ * Duplicated because these suites are .mjs and that is .ts — there is no import that
+ * works without a build step, and adding one to run a smoke test is a worse trade. One
+ * copy here rather than six inline strings: at the DueDo rename every suite was parsing
+ * `prosys_session=` out of Set-Cookie by hand, so all six would have failed at once,
+ * every assertion reporting as an authorisation failure and none of them pointing at
+ * the cookie.
+ */
+export const SESSION_COOKIE = "duedo_session";
+
+/** The API token prefix, matching lib/api-token.ts. Cosmetic — nothing verifies it. */
+export const TOKEN_PREFIX = "duedo_";
+
+/**
  * A year of Family access, spread into whatever a suite seeds its accounts with.
  *
  * Every suite except smoke-plan is testing a feature, not a paywall, and a freshly
