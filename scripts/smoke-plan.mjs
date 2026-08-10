@@ -388,6 +388,24 @@ try {
     true,
   );
 
+  // The count has to survive the tick, or the admin health page cannot show it — and
+  // then "3 alerts, 1 email" reads as two emails going missing, with the honest answer
+  // nowhere on the page. Asserted on the persisted row rather than the response,
+  // because the row is what health actually reads.
+  const run = await prisma.dispatchRun.findFirst({
+    orderBy: { ranAt: "desc" },
+    select: { emailsSkippedPlan: true, emailsSent: true, error: true },
+  });
+  check("the tick recorded it", run.emailsSkippedPlan > 0, true);
+  check("and did not record it as a failure", run.error, null);
+
+  const health = (await owner.call("GET", "/api/admin/health")).data;
+  check(
+    "and the health route carries it",
+    health.runs.some((r) => r.emailsSkippedPlan > 0),
+    true,
+  );
+
   // ──────────────────────────────────────────────────────────────────────────────
   console.log("\n8. Granting is the owner's alone, and stacks from the later date");
   check(

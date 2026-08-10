@@ -262,6 +262,8 @@ export interface DispatchRunRow {
   pushesSent: number;
   pushesFailed: number;
   emailsSent: number;
+  /** Wanted an email, plan doesn't include one. Never a failure — see the schema note. */
+  emailsSkippedPlan: number;
   error: string | null;
 }
 

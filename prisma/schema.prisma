@@ -605,6 +605,13 @@ model DispatchRun {
   pushesSent   Int      @default(0)
   pushesFailed Int      @default(0)
   emailsSent   Int      @default(0)
+  /// Recipients who wanted an email and didn't get one because their plan has none.
+  ///
+  /// Not a failure, and kept apart from every failure counter for that reason. It is
+  /// here because the alternative reading is worse: without it, "3 alerts, 1 email" on
+  /// a run looks like two emails went missing, and the honest answer — two of those
+  /// people are on Free — is invisible.
+  emailsSkippedPlan Int  @default(0)
   error        String?
 
   @@index([ranAt])

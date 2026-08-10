@@ -752,6 +752,7 @@ async function recordRun(s: DispatchSummary, error?: string): Promise<void> {
         pushesSent: s.pushesSent,
         pushesFailed: s.pushesFailed,
         emailsSent: s.emailsSent,
+        emailsSkippedPlan: s.emailsSkippedPlan,
         error: error ?? null,
       },
     });

@@ -135,6 +135,7 @@ export async function deliveryHealth(runLimit = RUN_LIST_LIMIT) {
       pushesSent: r.pushesSent,
       pushesFailed: r.pushesFailed,
       emailsSent: r.emailsSent,
+      emailsSkippedPlan: r.emailsSkippedPlan,
       error: r.error,
     })),
     failingDevices: failingDevices.map((d) => ({

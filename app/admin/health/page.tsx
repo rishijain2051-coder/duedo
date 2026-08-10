@@ -194,6 +194,13 @@ export default function AdminHealthPage() {
                         <span className="text-destructive"> ({r.pushesFailed} failed)</span>
                       )}{" "}
                       · {r.emailsSent} email
+                      {/* Only when there is one, and never in the failure colour.
+                          Somebody on Free not being emailed is the paywall working;
+                          shown red it would read as delivery breaking. Without it,
+                          "3 alerts, 1 email" looks like two emails went missing. */}
+                      {r.emailsSkippedPlan > 0 && (
+                        <span> · {r.emailsSkippedPlan} on Free</span>
+                      )}
                     </p>
                   </li>
                 ))}
@@ -229,7 +236,18 @@ export default function AdminHealthPage() {
                           <span className="text-destructive"> ({r.pushesFailed} failed)</span>
                         )}
                       </td>
-                      <td className="px-3 py-2">{r.emailsSent}</td>
+                      <td className="px-3 py-2">
+                        {r.emailsSent}
+                        {/* Muted, and only when non-zero — this is the paywall working,
+                            not delivery failing. It sits beside the email count because
+                            that is the number it explains. */}
+                        {r.emailsSkippedPlan > 0 && (
+                          <span className="text-xs text-muted-foreground">
+                            {" "}
+                            · {r.emailsSkippedPlan} on Free
+                          </span>
+                        )}
+                      </td>
                       <td className="px-3 py-2 text-xs text-muted-foreground">
                         {r.durationMs}ms
                       </td>
