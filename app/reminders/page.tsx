@@ -18,6 +18,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import { Field, Input, Select, Textarea } from "@/components/ui/form";
+import { DateField } from "@/components/ui/date-field";
 import { useApp } from "@/components/app-context";
 import { ScopeTabs } from "@/components/scope-tabs";
 import { ReminderThread } from "@/components/reminder-thread";
@@ -797,10 +798,13 @@ export default function RemindersPage() {
           </Field>
           <div className="grid sm:grid-cols-2 gap-4">
             <Field label="Due date *">
-              <Input
-                type="date"
+              {/* Not <Input type="date">. That renders in the browser's locale, so on
+                  an en-US machine this one field read 08/10/2026 while every other date
+                  in the app read 10/08/2026 — two real dates, two months apart, with
+                  nothing on screen saying which was meant. */}
+              <DateField
                 value={form.dueDate}
-                onChange={(e) => setForm({ ...form, dueDate: e.target.value })}
+                onChange={(dueDate) => setForm({ ...form, dueDate })}
               />
             </Field>
             <Field label="Time">

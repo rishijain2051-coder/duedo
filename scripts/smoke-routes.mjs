@@ -1361,6 +1361,31 @@ try {
     loginHtml.includes(`>${copyrightYear()}<`) || loginHtml.includes(copyrightYear()),
     true,
   );
+
+  // ──────────────────────────────────────────────────────────────────────────────
+  // The date field types and reads dd/mm/yyyy whatever the browser's locale is —
+  // <input type="date"> renders in the *browser's* language, so on an en-US machine
+  // the one field where a date is entered showed 08/10/2026 while every date it
+  // produced read 10/08/2026. Both are real dates, two months apart.
+  console.log("\n18. The date field is dd/mm/yyyy, and refuses days that don't exist");
+  const { isoToText, textToIso, maskDate } = await import("../lib/date-text.ts");
+
+  check("stored date renders dd/mm/yyyy", isoToText("2027-04-03"), "03/04/2027");
+  check("and reads back the same way", textToIso("03/04/2027"), "2027-04-03");
+  check("which is not the mm/dd reading", textToIso("03/04/2027") !== "2027-03-04", true);
+
+  // The reason a range check is not enough: Date rolls these forward silently, so
+  // without the round trip the reminder lands on a day nobody typed.
+  check("31 February is refused", textToIso("31/02/2026"), "");
+  check("31 April is refused", textToIso("31/04/2026"), "");
+  check("29 February in a common year is refused", textToIso("29/02/2027"), "");
+  check("but a real leap day is kept", textToIso("29/02/2028"), "2028-02-29");
+  check("month 13 is refused", textToIso("01/13/2026"), "");
+
+  // Half a date must never reach the server as a whole one.
+  check("a partial entry yields nothing", textToIso("03/04"), "");
+  check("slashes appear as digits are typed", maskDate("0304"), "03/04");
+  check("and stop at eight digits", maskDate("030420279999"), "03/04/2027");
 } finally {
   await cleanup();
   await prisma.$disconnect();
