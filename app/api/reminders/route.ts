@@ -5,15 +5,11 @@ import { sanitizeReminderInput } from "@/lib/reminder-logic";
 import { visibleReminderWhere } from "@/lib/ownership";
 import { assertReminderDestination, assertReminderFields } from "@/lib/reminder-scope";
 import { assertReminderRoom } from "@/lib/plan-guard";
+import { REMINDER_INCLUDE } from "@/lib/reminder-shape";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const INCLUDE = {
-  category: true,
-  family: { select: { id: true, name: true } },
-  assignedTo: { select: { id: true, name: true } },
-} as const;
 
 /**
  * Everything the caller can see: their personal reminders plus the shared list of
@@ -40,7 +36,7 @@ export async function GET(req: NextRequest) {
 
     return prisma.reminder.findMany({
       where: { ...where, ...(status ? { status } : {}) },
-      include: INCLUDE,
+      include: REMINDER_INCLUDE,
       orderBy: { dueAt: "asc" },
     });
   });
@@ -69,7 +65,7 @@ export async function POST(req: NextRequest) {
     if (id) {
       const mine = await prisma.reminder.findFirst({
         where: { id, userId: user.id },
-        include: INCLUDE,
+        include: REMINDER_INCLUDE,
       });
       // Already landed — a lost response, or a queue replayed twice. The reminder the
       // caller asked for exists and is theirs, which is what they wanted to hear.
@@ -84,7 +80,7 @@ export async function POST(req: NextRequest) {
       return await prisma.reminder.create({
         // userId is always the caller: ownership is never taken from the body.
         data: { ...data, ...(id ? { id } : {}), userId: user.id } as never,
-        include: INCLUDE,
+        include: REMINDER_INCLUDE,
       });
     } catch (e) {
       if ((e as { code?: string }).code === "P2002") {

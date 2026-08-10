@@ -212,18 +212,6 @@ export function limitsFor(user: PlanBearer, now?: Date): PlanLimits {
   return PLANS[effectivePlan(user, now)].limits;
 }
 
-/** True while paid access is live. Purely for display — never gate on this directly. */
-export function isPremium(user: PlanBearer, now: Date = new Date()): boolean {
-  return effectivePlan(user, now) !== "free";
-}
-
-/** Whole days until access ends; negative once it has. Null when it never started. */
-export function daysLeft(user: PlanBearer, now: Date = new Date()): number | null {
-  const until = endOfAccess(user);
-  if (until === null) return null;
-  return Math.ceil((until - now.getTime()) / 86_400_000);
-}
-
 /**
  * The cheapest plan that would lift a given cap, for the "upgrade to X" line in a
  * refusal. Returns null when nothing higher would help, which currently only happens

@@ -7,14 +7,11 @@ import { formatTimeInZone } from "@/lib/time";
 import { sanitizeReminderInput } from "@/lib/reminder-logic";
 import { assertReminderDestination, assertReminderFields } from "@/lib/reminder-scope";
 import { assertReminderRoom, hasFeature, PLAN_LIMIT_STATUS } from "@/lib/plan-guard";
+import { REMINDER_INCLUDE } from "@/lib/reminder-shape";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const INCLUDE = {
-  category: true,
-  family: { select: { id: true, name: true } },
-} as const;
 
 /**
  * JSON, or just the sentence when the caller asks for text.
@@ -156,7 +153,7 @@ export async function POST(req: NextRequest) {
       // Ownership from the token's account, never from the body — the same rule the
       // cookie-authenticated route follows.
       data: { ...data, userId: user.id } as never,
-      include: INCLUDE,
+      include: REMINDER_INCLUDE,
     });
 
     return reply(req, 201, {

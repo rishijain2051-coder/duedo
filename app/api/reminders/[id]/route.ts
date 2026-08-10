@@ -5,15 +5,11 @@ import { sanitizeReminderInput } from "@/lib/reminder-logic";
 import { assertReminderAction, findVisibleReminder } from "@/lib/ownership";
 import { assertReminderDestination, assertReminderFields } from "@/lib/reminder-scope";
 import { clearDispatchLedger } from "@/lib/dispatch";
+import { REMINDER_INCLUDE } from "@/lib/reminder-shape";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const INCLUDE = {
-  category: true,
-  family: { select: { id: true, name: true } },
-  assignedTo: { select: { id: true, name: true } },
-} as const;
 
 export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   return json(async (user) => {
@@ -22,7 +18,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
     await findVisibleReminder(id, user.id);
     const reminder = await prisma.reminder.findUnique({
       where: { id },
-      include: { ...INCLUDE, history: { orderBy: { completedOn: "desc" } } },
+      include: { ...REMINDER_INCLUDE, history: { orderBy: { completedOn: "desc" } } },
     });
     if (!reminder) throw new HttpError(404, "Reminder not found");
     return reminder;
@@ -93,7 +89,7 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
     return prisma.reminder.update({
       where: { id },
       data: data as never,
-      include: INCLUDE,
+      include: REMINDER_INCLUDE,
     });
   });
 }

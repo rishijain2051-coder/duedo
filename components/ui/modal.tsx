@@ -92,7 +92,17 @@ export function Modal({
         className={cn(
           // max-h-app-panel is 90dvh with a 90vh fallback: at 90vh the footer
           // buttons of a long form sat behind the mobile browser toolbar.
-          "max-h-app-panel w-full max-w-lg touch-auto overflow-y-auto overscroll-contain rounded-xl border bg-card text-card-foreground shadow-lg outline-none glass",
+          //
+          // Solid `bg-card`, and deliberately not `glass`. This element scrolls and
+          // carries a sticky action bar, and those two cannot both be translucent: the
+          // bar has to hide whatever passes under it, so it needs an opaque background
+          // — which then reads as a flat slab against a see-through panel. That is
+          // exactly what it looked like behind Cancel and Create reminder, an opaque
+          // #121214 strip inside a panel compositing to rgba(0,0,0,.2).
+          //
+          // The dialog still sits on a blurred, dimmed overlay, so the depth is not
+          // lost; it is just produced behind the panel rather than through it.
+          "max-h-app-panel w-full max-w-lg touch-auto overflow-y-auto overscroll-contain rounded-xl border bg-card text-card-foreground shadow-lg outline-none",
           className,
         )}
         onClick={(e) => e.stopPropagation()}

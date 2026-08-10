@@ -4,6 +4,7 @@ import { json, HttpError, readJson } from "@/lib/http";
 import { DEFAULT_CATEGORIES, uniqueJoinCode } from "@/lib/families";
 import { audit } from "@/lib/audit";
 import { assertFamilyRoom } from "@/lib/plan-guard";
+import { FAMILY_MEMBERSHIP_INCLUDE, shapeFamilies } from "@/lib/family-shape";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,48 +19,9 @@ export async function GET() {
     const memberships = await prisma.familyMember.findMany({
       where: { userId: user.id },
       orderBy: { joinedAt: "asc" },
-      include: {
-        family: {
-          include: {
-            members: {
-              orderBy: { joinedAt: "asc" },
-              include: { user: { select: { id: true, name: true, email: true } } },
-            },
-          },
-        },
-      },
+      include: FAMILY_MEMBERSHIP_INCLUDE,
     });
-
-    return memberships.map(({ role, family }) => ({
-      id: family.id,
-      name: family.name,
-      role,
-      createdAt: family.createdAt,
-      joinCode: role === "head" ? family.joinCode : null,
-      /**
-       * What the family has opted into.
-       *
-       * Carried on every load rather than fetched with the scoreboard, because the
-       * reminders page needs `allowNudges` and has no scoreboard — and because the
-       * scoreboard never returned `monthlyReportToHead` at all, so the head's switch for
-       * it showed as on however it was actually set. Four booleans is a cheaper payload
-       * than a second request, and one source of truth beats two.
-       */
-      flags: {
-        showRanking: family.showRanking,
-        showStreaks: family.showStreaks,
-        allowNudges: family.allowNudges,
-        monthlyReportToHead: family.monthlyReportToHead,
-      },
-      members: family.members.map((m) => ({
-        id: m.user.id,
-        name: m.user.name,
-        email: m.user.email,
-        role: m.role,
-        joinedAt: m.joinedAt,
-        self: m.user.id === user.id,
-      })),
-    }));
+    return shapeFamilies(memberships, user.id);
   });
 }
 

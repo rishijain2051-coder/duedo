@@ -3,6 +3,7 @@ import { json } from "@/lib/http";
 import { familyIdsFor } from "@/lib/families";
 import { countOutstandingFor } from "@/lib/recipients";
 import { SETTINGS_SELECT, shapeSettings } from "@/lib/settings-shape";
+import { FAMILY_MEMBERSHIP_INCLUDE, shapeFamilies } from "@/lib/family-shape";
 import { isPushConfigured } from "@/lib/push";
 import { isMailConfigured } from "@/lib/mail";
 
@@ -52,16 +53,7 @@ export async function GET() {
         ? prisma.familyMember.findMany({
             where: { userId: user.id },
             orderBy: { joinedAt: "asc" },
-            include: {
-              family: {
-                include: {
-                  members: {
-                    orderBy: { joinedAt: "asc" },
-                    include: { user: { select: { id: true, name: true, email: true } } },
-                  },
-                },
-              },
-            },
+            include: FAMILY_MEMBERSHIP_INCLUDE,
           })
         : Promise.resolve([]),
     ]);
@@ -80,36 +72,7 @@ export async function GET() {
         pushConfigured: isPushConfigured(),
         mailConfigured: isMailConfigured(),
       }),
-      families: memberships.map(({ role, family }) => ({
-        id: family.id,
-        name: family.name,
-        role,
-        createdAt: family.createdAt,
-        joinCode: role === "head" ? family.joinCode : null,
-        /**
-         * What the family has opted into.
-         *
-         * Carried on every load rather than fetched with the scoreboard, because the
-         * reminders page needs `allowNudges` and has no scoreboard — and because the
-         * scoreboard never returned `monthlyReportToHead` at all, so the head's switch for
-         * it showed as on however it was actually set. Four booleans is a cheaper payload
-         * than a second request, and one source of truth beats two.
-         */
-        flags: {
-          showRanking: family.showRanking,
-          showStreaks: family.showStreaks,
-          allowNudges: family.allowNudges,
-          monthlyReportToHead: family.monthlyReportToHead,
-        },
-        members: family.members.map((m) => ({
-          id: m.user.id,
-          name: m.user.name,
-          email: m.user.email,
-          role: m.role,
-          joinedAt: m.joinedAt,
-          self: m.user.id === user.id,
-        })),
-      })),
+      families: shapeFamilies(memberships, user.id),
       badge: { outstanding, unreadNotifications },
       // Carried here so the update check stops polling /api/version on the critical
       // path — one fewer function invocation per load, for a value that only changes

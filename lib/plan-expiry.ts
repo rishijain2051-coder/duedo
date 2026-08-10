@@ -3,7 +3,7 @@ import { audit } from "./audit";
 import { mainAdmin } from "./audit-rotate";
 import { escapeHtml } from "./html";
 import { isMailConfigured, sendMail } from "./mail";
-import { PLANS, effectivePlan, isPlanId } from "./plan";
+import { PLANS, isPlanId } from "./plan";
 import { formatInZone } from "./time";
 
 // Renewal warnings, on the same tick as everything else.
@@ -149,17 +149,4 @@ export async function warnExpiringPlans(
   });
 
   return { ran: true, warned: fresh.length, mailedTo: ok ? admin.email : undefined };
-}
-
-/**
- * Whether an account is inside its warning window — for the banner in the UI, which
- * has the same rule to apply and no business re-deriving it.
- */
-export function isExpiringSoon(
-  user: { plan: string; premiumUntil: Date | string | null },
-  now = new Date(),
-): boolean {
-  if (effectivePlan(user, now) === "free") return false;
-  const until = new Date(user.premiumUntil!).getTime();
-  return until - now.getTime() <= WARN_DAYS * DAY_MS;
 }
