@@ -4,7 +4,7 @@ import { json, HttpError, type AuthUser, readJson } from "@/lib/http";
 import { isPushConfigured, countSubscriptions } from "@/lib/push";
 import { isMailConfigured } from "@/lib/mail";
 import { hashPin, verifyPin, isValidPin, PIN_LENGTH } from "@/lib/pin";
-import { effectivePlan } from "@/lib/plan";
+import { SETTINGS_SELECT, shapeSettings } from "@/lib/settings-shape";
 import { IDLE_TIMEOUT_OPTIONS, type Settings } from "@/types";
 
 export const runtime = "nodejs";
@@ -17,55 +17,19 @@ export const dynamic = "force-dynamic";
  */
 async function shape(userId: string): Promise<Settings> {
   const [u, passkeyCount, pushSubscriptions] = await Promise.all([
-    prisma.user.findUniqueOrThrow({
-      where: { id: userId },
-      select: {
-        name: true,
-        email: true,
-        role: true,
-        accountType: true,
-        plan: true,
-        premiumUntil: true,
-        timezone: true,
-        defaultTime: true,
-        overdueRepeatMins: true,
-        idleTimeoutMins: true,
-        emailOptIn: true,
-        pushOptIn: true,
-        password_hash: true,
-      },
-    }),
+    prisma.user.findUniqueOrThrow({ where: { id: userId }, select: SETTINGS_SELECT }),
     prisma.passkey.count({ where: { userId } }),
     // Must match what the dispatcher will actually send to, so a revoked device
     // isn't reported as "receiving".
     countSubscriptions(userId),
   ]);
 
-  const isAdmin = u.role === "admin";
-
-  return {
-    name: u.name,
-    email: u.email,
-    role: isAdmin ? "admin" : "member",
-    accountType: u.accountType === "family" ? "family" : "solo",
-    // Resolved here rather than in the client. The rule for reading `plan` against
-    // `premiumUntil` lives in lib/plan.ts and gets to stay there; the UI is handed the
-    // answer, so a paid surface can never be shown by a copy of the rule that drifted.
-    // `premiumUntil` travels too, because "until 12 March" is the useful thing to say.
-    plan: effectivePlan(u),
-    premiumUntil: u.premiumUntil?.toISOString() ?? null,
-    timezone: u.timezone,
-    defaultTime: u.defaultTime,
-    overdueRepeatMins: u.overdueRepeatMins,
-    idleTimeoutMins: u.idleTimeoutMins,
-    emailOptIn: u.emailOptIn,
-    pushOptIn: u.pushOptIn,
-    pinSet: Boolean(u.password_hash),
+  return shapeSettings(u, {
     passkeyCount,
+    pushSubscriptions,
     pushConfigured: isPushConfigured(),
     mailConfigured: isMailConfigured(),
-    pushSubscriptions,
-  };
+  });
 }
 
 export async function GET() {

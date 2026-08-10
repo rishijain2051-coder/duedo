@@ -60,6 +60,10 @@ export async function warnExpiringPlans(
       status: "active",
       plan: { not: "free" },
       premiumUntil: { gt: now, lte: horizon },
+      // Admins are on the top plan regardless of the date, so theirs running out
+      // changes nothing. Warning them would be a renewal notice for access they are
+      // not going to lose.
+      role: { not: "admin" },
     },
     select: { id: true, name: true, email: true, plan: true, premiumUntil: true, timezone: true },
     orderBy: { premiumUntil: "asc" },

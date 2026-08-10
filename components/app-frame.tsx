@@ -7,6 +7,7 @@ import { Sidebar, MobileNav } from "@/components/sidebar";
 import { Header } from "@/components/header";
 import { PushPrompt } from "@/components/push-prompt";
 import { UpdateBanner } from "@/components/update-banner";
+import { PlanUpgraded } from "@/components/plan-upgraded";
 import { OfflineBar } from "@/components/offline-bar";
 import { OutboxBar } from "@/components/outbox-bar";
 
@@ -38,6 +39,7 @@ export function AppFrame({ children }: { children: React.ReactNode }) {
           <OfflineBar />
           <OutboxBar />
           <UpdateBanner />
+          <PlanUpgraded />
           <PushPrompt />
           {children}
         </div>

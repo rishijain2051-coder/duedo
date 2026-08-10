@@ -190,7 +190,9 @@ export async function assertFamilyRoom(
 export async function assertFamilySeat(familyId: string, now?: Date): Promise<void> {
   const head = await prisma.familyMember.findFirst({
     where: { familyId, role: "head" },
-    select: { user: { select: { plan: true, premiumUntil: true } } },
+    // role included, or an admin running a household would be read as Free and their
+    // family capped at nobody.
+    select: { user: { select: { plan: true, premiumUntil: true, role: true } } },
   });
 
   // A headless family is a data anomaly, not a billing state: deleting an account

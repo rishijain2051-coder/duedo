@@ -9,6 +9,7 @@ import {
   CURRENCY,
   PLANS,
   PLAN_ORDER,
+  isStaff,
   planSpec,
   type PlanId,
   type PlanLimits,
@@ -96,11 +97,13 @@ export default function UpgradePage() {
       <div>
         <h1 className="text-xl font-semibold">Plans</h1>
         <p className="text-sm text-muted-foreground">
-          {current === "free"
-            ? until
-              ? `Your ${planSpec(settings?.plan).name} access ended ${formatDate(until, timeZone)}. Everything you had is still here.`
-              : "You're on Free. Everything below is optional."
-            : `You're on ${PLANS[current].name}${until ? `, until ${formatDate(until, timeZone)}` : ""}.`}
+          {settings && isStaff(settings)
+            ? `You're the ${settings.isRootAdmin ? "owner" : "an admin"} of this install, so you already have everything below. This is what everyone else sees.`
+            : current === "free"
+              ? until
+                ? `Your ${planSpec(settings?.plan).name} access ended ${formatDate(until, timeZone)}. Everything you had is still here.`
+                : "You're on Free. Everything below is optional."
+              : `You're on ${PLANS[current].name}${until ? `, until ${formatDate(until, timeZone)}` : ""}.`}
         </p>
       </div>
 

@@ -18,7 +18,7 @@ import { Modal } from "@/components/ui/modal";
 import { useApp } from "@/components/app-context";
 import { api } from "@/services/api";
 import { formatDate, formatDateTime } from "@/lib/format";
-import { CURRENCY, PLANS, PLAN_ORDER, planSpec } from "@/lib/plan";
+import { CURRENCY, PLANS, PLAN_ORDER, isStaff, planSpec } from "@/lib/plan";
 import { PIN_LENGTH, type ManagedUser, type PlanId, type Reminder } from "@/types";
 
 /** What the owner actually types. A year is the sold unit; the rest are for fixing things. */
@@ -251,7 +251,14 @@ export default function AdminAccountsPage() {
                       who lapses this week is the only way a manual renewal gets
                       chased before it stops working. */}
                   <p className="text-xs text-muted-foreground">
-                    {u.effectivePlan && u.effectivePlan !== "free" ? (
+                    {/* Staff first. An admin is on the top plan by virtue of being an
+                        admin, so printing "Family" against the owner's own row would
+                        read as though somebody had sold it to them. */}
+                    {isStaff({ role: u.role, isRootAdmin: u.isRoot }) ? (
+                      <span className="text-primary">
+                        {u.isRoot ? "Owner" : "Admin"} · every feature, no expiry
+                      </span>
+                    ) : u.effectivePlan && u.effectivePlan !== "free" ? (
                       <span className="text-primary">
                         {planSpec(u.effectivePlan).name}
                         {u.premiumUntil &&

@@ -174,10 +174,34 @@ try {
   const settings = (await free.call("GET", "/api/settings")).data;
   check("plan is free", settings.plan, "free");
   check("no expiry", settings.premiumUntil, null);
+
+  // Both routes serve a Settings payload, and only one of them is what the app shell
+  // actually loads. This suite asserted on /api/settings alone and passed 53 times
+  // while /api/bootstrap returned no `plan` at all — so a granted year was invisible
+  // to the account holding it and the paywall never lifted. Comparing them is the
+  // assertion that would have caught it.
+  const boot = (await free.call("GET", "/api/bootstrap")).data;
+  check("bootstrap agrees on the plan", boot.settings.plan, settings.plan);
+  check("and on the expiry", boot.settings.premiumUntil, settings.premiumUntil);
+  check("and on who owns the install", boot.settings.isRootAdmin, settings.isRootAdmin);
   // DEFAULT_CATEGORIES seeds 8 and ensureOthersCategory adds a 9th on first save. A cap
   // at or below 9 would refuse a brand new account its own starting list.
   const seeded = await prisma.category.count({ where: { userId: free.id } });
   check("seeded categories are under the free cap", seeded < FREE_CATEGORIES, true);
+
+  console.log("\n1b. An admin is on the top plan without anyone granting them one");
+  // The owner was created with role=admin and no plan and no premiumUntil at all.
+  // Running the install is the entitlement — the alternative is the owner paying
+  // themselves, or silently losing email reminders on their own app.
+  const ownerSettings = (await owner.call("GET", "/api/settings")).data;
+  check("top plan", ownerSettings.plan, "family");
+  check("with no expiry behind it", ownerSettings.premiumUntil, null);
+  check("and marked as the owner", ownerSettings.isRootAdmin, true);
+  check(
+    "so a paid surface just works",
+    (await owner.call("GET", "/api/insights")).status,
+    200,
+  );
 
   // ──────────────────────────────────────────────────────────────────────────────
   console.log("\n2. Paid-only features are refused with 402, not 403");
@@ -391,6 +415,18 @@ try {
   const daysOut = Math.round((new Date(granted.data.premiumUntil) - Date.now()) / DAY);
   check("a lapsed account restarts from today", daysOut, 365);
   check("the note is kept", granted.data.planNote, "UPI 4471, 99, 1yr");
+
+  // The bug this section exists for. The admin page showed the grant correctly the
+  // whole time it was broken; what mattered was whether the *granted account* could
+  // see it, through the route its own app shell reads.
+  const afterGrant = (await free.call("GET", "/api/bootstrap")).data.settings;
+  check("the granted account sees it on its next load", afterGrant.plan, "individual");
+  check("with the date", Boolean(afterGrant.premiumUntil), true);
+  check(
+    "and the paywall is actually lifted",
+    (await free.call("GET", "/api/insights")).status,
+    200,
+  );
 
   // Renewing early keeps what is left.
   const extended = await owner.call("PATCH", `/api/users/${free.id}`, { addDays: 365 });

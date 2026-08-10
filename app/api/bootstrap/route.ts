@@ -2,6 +2,9 @@ import { prisma } from "@/lib/db";
 import { json } from "@/lib/http";
 import { familyIdsFor } from "@/lib/families";
 import { countOutstandingFor } from "@/lib/recipients";
+import { SETTINGS_SELECT, shapeSettings } from "@/lib/settings-shape";
+import { isPushConfigured } from "@/lib/push";
+import { isMailConfigured } from "@/lib/mail";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -34,22 +37,11 @@ export async function GET() {
       outstanding,
       memberships,
     ] = await Promise.all([
-      prisma.user.findUniqueOrThrow({
-        where: { id: user.id },
-        select: {
-          name: true,
-          email: true,
-          role: true,
-          accountType: true,
-          timezone: true,
-          defaultTime: true,
-          overdueRepeatMins: true,
-          idleTimeoutMins: true,
-          emailOptIn: true,
-          pushOptIn: true,
-          password_hash: true,
-        },
-      }),
+      // The same select the settings route uses. This route hand-rolled its own once,
+      // and the two drifted the moment a column was added: plan and premiumUntil went
+      // into /api/settings and not here, so the shell — which reads *this* — saw no
+      // plan at all and showed Free to an account that had been granted a year.
+      prisma.user.findUniqueOrThrow({ where: { id: user.id }, select: SETTINGS_SELECT }),
       prisma.passkey.count({ where: { userId: user.id } }),
       prisma.pushSubscription.count({ where: { userId: user.id, blockedAt: null } }),
       prisma.notification.count({ where: { userId: user.id, read: false } }),
@@ -82,25 +74,12 @@ export async function GET() {
         role: row.role === "admin" ? "admin" : "member",
         accountType: row.accountType === "family" ? "family" : "solo",
       },
-      settings: {
-        name: row.name,
-        email: row.email,
-        role: row.role === "admin" ? "admin" : "member",
-        accountType: row.accountType === "family" ? "family" : "solo",
-        timezone: row.timezone,
-        defaultTime: row.defaultTime,
-        overdueRepeatMins: row.overdueRepeatMins,
-        idleTimeoutMins: row.idleTimeoutMins,
-        emailOptIn: row.emailOptIn,
-        pushOptIn: row.pushOptIn,
-        pinSet: Boolean(row.password_hash),
+      settings: shapeSettings(row, {
         passkeyCount,
-        pushConfigured: Boolean(process.env.VAPID_PUBLIC_KEY),
-        mailConfigured: Boolean(
-          process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS,
-        ),
         pushSubscriptions,
-      },
+        pushConfigured: isPushConfigured(),
+        mailConfigured: isMailConfigured(),
+      }),
       families: memberships.map(({ role, family }) => ({
         id: family.id,
         name: family.name,

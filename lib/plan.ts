@@ -139,10 +139,41 @@ export function planSpec(id: unknown): PlanSpec {
   return isPlanId(id) ? PLANS[id] : PLANS.free;
 }
 
+/**
+ * What to call this account's entitlement on screen.
+ *
+ * Admins are on ADMIN_PLAN, so naming the plan would say "Family" on the owner's own
+ * row — technically true and useless. They are not customers; what matters about that
+ * row is which one it is.
+ */
+export function planTitle(u: {
+  plan?: unknown;
+  role?: string;
+  isRootAdmin?: boolean;
+}): string {
+  if (u.isRootAdmin) return "Owner";
+  if (u.role === "admin") return "Admin";
+  return `${planSpec(u.plan).name} plan`;
+}
+
+/** True when the entitlement comes from running the install rather than from paying. */
+export function isStaff(u: { role?: string; isRootAdmin?: boolean }): boolean {
+  return u.isRootAdmin === true || u.role === "admin";
+}
+
+/** The plan the install's own staff are on. See effectivePlan. */
+export const ADMIN_PLAN: PlanId = "family";
+
 /** The billing fields, as every caller here needs them. */
 export interface PlanBearer {
   plan: string;
   premiumUntil: Date | string | null;
+  /**
+   * `admin` or `member`. Optional so a caller that genuinely only has the billing
+   * columns still compiles — but every select that feeds a plan decision should ask
+   * for it, because omitting it silently downgrades an admin to Free.
+   */
+  role?: string;
 }
 
 function endOfAccess(user: PlanBearer): number | null {
@@ -166,6 +197,12 @@ function endOfAccess(user: PlanBearer): number | null {
  * interpret is the one that grants nothing.
  */
 export function effectivePlan(user: PlanBearer, now: Date = new Date()): PlanId {
+  // Admins run the install and are not customers of it. They get the top plan
+  // outright, with no date and nothing to grant — the alternative is the owner paying
+  // themselves, or worse, quietly losing email reminders on their own app because
+  // nobody thought to hand them a plan. Checked before the date so it cannot expire.
+  if (user.role === "admin") return ADMIN_PLAN;
+
   const until = endOfAccess(user);
   if (until === null || until <= now.getTime()) return "free";
   return isPlanId(user.plan) ? user.plan : "free";

@@ -75,9 +75,11 @@ export interface Settings {
   email: string;
   role: 'admin' | 'member';
   accountType: AccountType;
+  /** The install's owner. Shown as "Owner" in place of a plan name. */
+  isRootAdmin: boolean;
   /**
    * What this account can actually use right now — already resolved against the
-   * expiry date server-side, so the UI never re-derives it.
+   * expiry date and against admin status server-side, so the UI never re-derives it.
    */
   plan: PlanId;
   /** When paid access ends, ISO. Null on an account that never had any. */

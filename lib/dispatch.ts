@@ -163,6 +163,8 @@ interface Recipient {
    */
   plan: string;
   premiumUntil: Date | null;
+  /** Read only by limitsFor: an admin is on the top plan whatever the columns say. */
+  role: string;
 }
 
 export interface DispatchSummary {
@@ -416,6 +418,7 @@ export async function dispatchDueReminders(
         pushOptIn: true,
         plan: true,
         premiumUntil: true,
+        role: true,
       },
     });
     for (const u of rows) userCache.set(u.id, u);

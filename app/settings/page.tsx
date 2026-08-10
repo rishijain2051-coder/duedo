@@ -49,7 +49,7 @@ import {
 import { useClientOnly } from "@/lib/client-only";
 import { checkForUpdate, applyUpdate, RUNNING_BUILD_ID } from "@/lib/update";
 import { formatDateTime } from "@/lib/format";
-import { planSpec } from "@/lib/plan";
+import { isStaff, planSpec, planTitle } from "@/lib/plan";
 import {
   ACCENTS,
   IDLE_TIMEOUT_OPTIONS,
@@ -549,22 +549,35 @@ export default function SettingsPage() {
         <CardContent className="flex flex-wrap items-center justify-between gap-3 p-4">
           <div className="min-w-0">
             <p className="flex items-center gap-2 font-medium">
-              <BadgeIndianRupee className="h-5 w-5" />
-              {settings ? planSpec(settings.plan).name : "—"} plan
+              {settings && isStaff(settings) ? (
+                <ShieldCheck className="h-5 w-5 text-primary" />
+              ) : (
+                <BadgeIndianRupee className="h-5 w-5" />
+              )}
+              {settings ? planTitle(settings) : "—"}
             </p>
+            {/* Three states, and staff is deliberately its own. Telling the owner they
+                are "on Family, renews never" would be technically true and would read
+                as though they had been sold something. */}
             <p className="text-sm text-muted-foreground">
-              {planSpec(settings?.plan).id !== "free" && settings?.premiumUntil
-                ? `Renews ${formatDateTime(settings.premiumUntil, false, settings.timezone)}`
-                : settings?.premiumUntil
-                  ? `Ended ${formatDateTime(settings.premiumUntil, false, settings.timezone)}. Everything you made is still here.`
-                  : "Email reminders, spending and voice are on the paid plans."}
+              {settings && isStaff(settings)
+                ? "Every feature, with no expiry — you run this install."
+                : settings?.plan !== "free" && settings?.premiumUntil
+                  ? `Renews ${formatDateTime(settings.premiumUntil, false, settings.timezone)}`
+                  : settings?.premiumUntil
+                    ? `Ended ${formatDateTime(settings.premiumUntil, false, settings.timezone)}. Everything you made is still here.`
+                    : "Email reminders, spending and voice are on the paid plans."}
             </p>
           </div>
           <Link
             href="/upgrade"
             className="inline-flex h-11 items-center justify-center rounded-md border border-border px-4 text-sm font-medium shadow-sm transition-all hover:bg-accent hover:text-accent-foreground sm:h-9"
           >
-            {planSpec(settings?.plan).id === "free" ? "See plans" : "Manage"}
+            {settings && isStaff(settings)
+              ? "See plans"
+              : planSpec(settings?.plan).id === "free"
+                ? "See plans"
+                : "Manage"}
           </Link>
         </CardContent>
       </Card>
