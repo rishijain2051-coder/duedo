@@ -532,6 +532,15 @@ refuses to run against a database holding real accounts (override with
 `smoke-run-history` — restore its rows afterwards regardless of that override, because
 a guard you can switch off is a guard that will be switched off.
 
+> **Never read the browser during render.** Every page here is a client component and
+> is still server-rendered first, so `isPushSupported()` or `"PublicKeyCredential" in
+> window` written straight into a component returns false on the server and true in the
+> browser. React then throws the server's markup away and rebuilds that tree on the
+> client — the page still looks right, which is exactly why this survived: the only
+> evidence is a console error. Use `useClientOnly` from
+> [`lib/client-only.ts`](lib/client-only.ts), which returns `null` until mounted so
+> nothing has to guess.
+>
 > **Tip:** don't run `npm run build` while `npm run dev` is running — they share the
 > `.next` folder and corrupt it. Stop dev first.
 >

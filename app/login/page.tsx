@@ -17,6 +17,7 @@ import { Button } from "@/components/ui/button";
 import { Field, Input } from "@/components/ui/form";
 import { Credit } from "@/components/credit";
 import { lastEmail, rememberEmail, setCacheOwner } from "@/lib/cache";
+import { useClientOnly } from "@/lib/client-only";
 import { api } from "@/services/api";
 import { PIN_LENGTH, type AccountType } from "@/types";
 
@@ -231,8 +232,17 @@ export default function LoginPage() {
     else setEmail(lastEmail());
   }
 
-  const passkeysPossible =
-    typeof window !== "undefined" && "PublicKeyCredential" in window;
+  /**
+   * Read after mount, not during render — see lib/client-only.ts. `typeof window`
+   * here meant the server rendered the form without the Face ID button and the
+   * browser's first render put it back, which is a hydration mismatch: React threw
+   * away the server's markup for the whole card and rebuilt it.
+   *
+   * Null until known, and treated as "no passkeys" while it is, so the button appears
+   * rather than disappearing. The page is already showing its loading state at that
+   * point, so there is nothing to flicker.
+   */
+  const passkeysPossible = useClientOnly(() => "PublicKeyCredential" in window) ?? false;
 
   return (
     <div className="flex min-h-screen w-full flex-col items-center justify-center gap-4 bg-background p-4">

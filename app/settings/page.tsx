@@ -46,6 +46,7 @@ import {
   needsInstallFirst,
   permission,
 } from "@/lib/push-client";
+import { useClientOnly } from "@/lib/client-only";
 import { checkForUpdate, applyUpdate, RUNNING_BUILD_ID } from "@/lib/update";
 import { formatDateTime } from "@/lib/format";
 import { planSpec } from "@/lib/plan";
@@ -474,9 +475,20 @@ export default function SettingsPage() {
     setBusy(null);
   }
 
-  const pushSupported = isPushSupported();
-  const mustInstall = needsInstallFirst();
-  const perm = permission();
+  /**
+   * All three read the browser, so all three are read after mount rather than during
+   * render — see lib/client-only.ts. Read during render they were false on the server
+   * and true here, which broke hydration for the whole page: React discarded the
+   * server's markup and rebuilt this tree on the client, every load.
+   *
+   * `null` until known, and every use below is guarded on it, so the "your browser
+   * doesn't support push" line never flashes at a browser that does.
+   */
+  const caps = useClientOnly(() => ({
+    pushSupported: isPushSupported(),
+    mustInstall: needsInstallFirst(),
+    perm: permission(),
+  }));
 
   return (
     <div className="flex-1 space-y-4 p-4 md:p-8">
@@ -697,7 +709,7 @@ export default function SettingsPage() {
           )}
 
           <div className="border-t border-border pt-4">
-            {mustInstall && (
+            {caps?.mustInstall && (
               <div className="mb-3 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
                 <p className="font-medium text-amber-700 dark:text-amber-400">
                   Add DueDo to your Home Screen first
@@ -712,7 +724,7 @@ export default function SettingsPage() {
               </div>
             )}
 
-            {!pushSupported && !mustInstall && (
+            {caps && !caps.pushSupported && !caps.mustInstall && (
               <p className="mb-3 text-sm text-muted-foreground">
                 This browser doesn&apos;t support push notifications — email still
                 works.
@@ -727,7 +739,7 @@ export default function SettingsPage() {
               <span className="font-medium">
                 {subscribedHere ? "subscribed" : "not subscribed"}
               </span>
-              {perm === "denied" && (
+              {caps?.perm === "denied" && (
                 <span className="text-amber-700 dark:text-amber-400">
                   {" "}
                   · blocked in this browser
@@ -742,7 +754,7 @@ export default function SettingsPage() {
             <div className="mt-3 flex flex-wrap gap-2">
               <Button
                 onClick={togglePush}
-                disabled={busy !== null || !pushSupported || mustInstall}
+                disabled={busy !== null || !caps?.pushSupported || caps.mustInstall}
                 variant={subscribedHere ? "outline" : "default"}
               >
                 {busy === "push" ? (
