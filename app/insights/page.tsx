@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { Download, Loader2, TrendingDown, TrendingUp } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -123,10 +124,27 @@ export default function InsightsPage() {
 
       <ScopeTabs />
 
-      {month.error && !d && (
-        <div className="rounded-md border border-destructive/40 bg-destructive/10 px-4 py-2 text-sm text-red-700 dark:text-red-400">
-          {month.error}
-        </div>
+      {/* A paywall is not a fault. 402 gets the ordinary card and a way forward; a real
+          failure keeps the red banner it deserves. */}
+      {month.errorStatus === 402 && !d ? (
+        <Card>
+          <CardContent className="space-y-3 py-10 text-center">
+            <p className="text-sm text-muted-foreground">{month.error}</p>
+            <Link
+              href="/upgrade"
+              className="inline-flex h-11 items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground shadow transition-all hover:bg-primary/90 sm:h-9"
+            >
+              See plans
+            </Link>
+          </CardContent>
+        </Card>
+      ) : (
+        month.error &&
+        !d && (
+          <div className="rounded-md border border-destructive/40 bg-destructive/10 px-4 py-2 text-sm text-red-700 dark:text-red-400">
+            {month.error}
+          </div>
+        )
       )}
 
       {month.loading ? (

@@ -10,7 +10,7 @@
 import { PrismaClient } from "@prisma/client";
 import { Pool } from "pg";
 import { PrismaPg } from "@prisma/adapter-pg";
-import { assertScratchDatabase } from "./smoke-guard.mjs";
+import { assertScratchDatabase, PAID } from "./smoke-guard.mjs";
 
 const BASE = process.env.BASE_URL || "http://localhost:3000";
 
@@ -128,7 +128,9 @@ try {
   // authorisation, not the admin UI.
   await prisma.user.updateMany({
     where: { email: { in: [ALICE, BOB] } },
-    data: { status: "active", approvedAt: new Date() },
+    // PAID because this suite is about who may reach what, not about billing — a cap
+    // refusal here would masquerade as an authorisation result.
+    data: { status: "active", approvedAt: new Date(), ...PAID },
   });
   if (regA.data?.status !== "active") {
     // Alice was not the first account, so she is a plain member.
@@ -280,7 +282,7 @@ try {
   });
   await prisma.user.updateMany({
     where: { email: CAROL },
-    data: { status: "active", role: "member", approvedAt: new Date() },
+    data: { status: "active", role: "member", approvedAt: new Date(), ...PAID },
   });
   await carol("POST", "/api/auth/login", { email: CAROL, pin: "3333" });
 

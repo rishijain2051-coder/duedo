@@ -14,7 +14,7 @@
 import { PrismaClient } from "@prisma/client";
 import { Pool } from "pg";
 import { PrismaPg } from "@prisma/adapter-pg";
-import { assertScratchDatabase } from "./smoke-guard.mjs";
+import { assertScratchDatabase, PAID } from "./smoke-guard.mjs";
 
 const BASE = process.env.BASE_URL || "http://localhost:3000";
 
@@ -97,6 +97,8 @@ async function account(email, name, pin) {
       emailOptIn: false,
       pushOptIn: false,
       timezone: "Asia/Kolkata",
+      // Creating a family and taking members is the Family plan.
+      ...PAID,
     },
   });
   await s("POST", "/api/auth/login", { email, pin });

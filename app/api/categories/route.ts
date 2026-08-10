@@ -6,6 +6,7 @@ import {
   assertMember,
   familyIdsFor,
 } from "@/lib/families";
+import { assertCategoryRoom } from "@/lib/plan-guard";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -73,6 +74,12 @@ export async function POST(req: NextRequest) {
     const familyId = body.familyId ? String(body.familyId) : null;
     if (familyId) await assertMember(user.id, familyId);
     const scope = familyId ? { familyId } : { userId: user.id };
+
+    // Counted per scope, and only on this path. seedIfEmpty above writes the eight
+    // defaults without consulting the cap on purpose: a new account would otherwise be
+    // refused its own starting list, and the cap is set above nine precisely so the
+    // seed can never be what breaches it.
+    await assertCategoryRoom(user, scope);
 
     const clash = await prisma.category.findFirst({
       where: { ...scope, name },

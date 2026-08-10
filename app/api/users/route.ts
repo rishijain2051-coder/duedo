@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db";
 import { jsonAdmin } from "@/lib/http";
+import { effectivePlan } from "@/lib/plan";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -38,6 +39,9 @@ export async function GET(req: NextRequest) {
         status: true,
         accountType: true,
         isRootAdmin: true,
+        plan: true,
+        premiumUntil: true,
+        planNote: true,
         emailVerifiedAt: true,
         createdAt: true,
         _count: { select: { reminders: true } },
@@ -70,6 +74,16 @@ export async function GET(req: NextRequest) {
       self: u.id === admin.id,
       canTransferRoot: admin.isRootAdmin && u.role === "admin" && u.status === "active",
       reminders: u._count.reminders,
+      // Both halves, plus what they resolve to. The page needs the raw pair to render
+      // an expiry date and the resolved answer to say what they can actually use, and
+      // deriving the second in the client would be a second copy of the rule.
+      plan: u.plan,
+      premiumUntil: u.premiumUntil,
+      effectivePlan: effectivePlan(u),
+      // Admin-only, and this route already is. The payment note is how a grant is
+      // reconciled months later; it is never sent to the account it describes.
+      planNote: u.planNote,
+      canGrantPlan: admin.isRootAdmin,
     }));
   });
 }

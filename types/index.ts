@@ -11,6 +11,13 @@ export interface CurrentUser {
 
 export type UserStatus = 'pending' | 'active' | 'rejected';
 export type AccountType = 'solo' | 'family';
+/**
+ * Imported *and* re-exported: the interfaces below use it, and client code should be
+ * able to reach it from here like every other shared type. lib/plan.ts stays the one
+ * definition — a second copy of the union is a second thing to forget to update.
+ */
+import type { PlanId } from '@/lib/plan';
+export type { PlanId };
 
 /**
  * PINs are exactly this many digits.
@@ -45,6 +52,18 @@ export interface ManagedUser {
   /** Whether the viewer may hand ownership to this account. */
   canTransferRoot?: boolean;
   reminders?: number;
+
+  // ---------------------------------------------------------------- billing
+  /** What was bought. Says nothing on its own — see effectivePlan below. */
+  plan?: PlanId;
+  /** When paid access ends, ISO. Null means it never started. */
+  premiumUntil?: string | null;
+  /** What `plan` and `premiumUntil` resolve to together, worked out server-side. */
+  effectivePlan?: PlanId;
+  /** The owner's own record of what was paid. Admin list only; never sent to the user. */
+  planNote?: string | null;
+  /** Whether the viewer may grant or withdraw paid access. Root admin only. */
+  canGrantPlan?: boolean;
 }
 
 /**
@@ -56,6 +75,13 @@ export interface Settings {
   email: string;
   role: 'admin' | 'member';
   accountType: AccountType;
+  /**
+   * What this account can actually use right now — already resolved against the
+   * expiry date server-side, so the UI never re-derives it.
+   */
+  plan: PlanId;
+  /** When paid access ends, ISO. Null on an account that never had any. */
+  premiumUntil: string | null;
   timezone: string;
   /** "HH:mm". No longer used for reminders — see UNTIMED_LEAD_MINUTES in lib/time.ts. */
   defaultTime: string;

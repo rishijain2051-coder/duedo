@@ -1,6 +1,7 @@
 import { json } from "@/lib/http";
 import { apiTokenStatus, mintApiToken, revokeApiToken } from "@/lib/api-token";
 import { audit } from "@/lib/audit";
+import { assertFeature } from "@/lib/plan-guard";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -21,6 +22,11 @@ export async function GET() {
 
 export async function POST() {
   return json(async (user) => {
+    // Issuing is gated as well as using it. The token never expires, so gating only
+    // here would let one minted while paid outlive the plan indefinitely — and gating
+    // only at /api/ingest/reminder would hand out a credential that silently does
+    // nothing. Both ends, or neither is honest.
+    assertFeature(user, "voice");
     const token = await mintApiToken(user.id);
     await audit({
       actorId: user.id,

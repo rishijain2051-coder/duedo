@@ -20,7 +20,7 @@ import vm from "node:vm";
 import { PrismaClient } from "@prisma/client";
 import { Pool } from "pg";
 import { PrismaPg } from "@prisma/adapter-pg";
-import { assertScratchDatabase } from "./smoke-guard.mjs";
+import { assertScratchDatabase, PAID } from "./smoke-guard.mjs";
 
 const BASE = process.env.BASE_URL || "http://localhost:3000";
 
@@ -387,7 +387,13 @@ try {
     });
     await prisma.user.update({
       where: { email },
-      data: { status: "active", emailVerifiedAt: new Date(), verifyTokenHash: null },
+      data: {
+        status: "active",
+        emailVerifiedAt: new Date(),
+        verifyTokenHash: null,
+        // A family is created below, and the queue replays reminder creates.
+        ...PAID,
+      },
     });
     check(`${name} can sign in`, (await call("POST", "/api/auth/login", { email, pin })).status, 200);
   }

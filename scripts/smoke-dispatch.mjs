@@ -15,7 +15,7 @@
 import { PrismaClient } from "@prisma/client";
 import { Pool } from "pg";
 import { PrismaPg } from "@prisma/adapter-pg";
-import { assertScratchDatabase } from "./smoke-guard.mjs";
+import { assertScratchDatabase, PAID } from "./smoke-guard.mjs";
 
 const BASE = process.env.BASE_URL || "http://localhost:3000";
 const SECRET = process.env.CRON_SECRET;
@@ -95,6 +95,11 @@ try {
       overdueRepeatMins: 60,
       emailOptIn: false,
       pushOptIn: false,
+      // Both channels are off above, so email is refused for opting out long before
+      // the plan is consulted — but the seeding here is deliberately generous and a
+      // free account would change what this suite is measuring the day someone turns
+      // a channel on to test something.
+      ...PAID,
     },
   });
   const category = await prisma.category.create({
@@ -296,6 +301,7 @@ try {
       timezone: TZ,
       emailOptIn: false,
       pushOptIn: false,
+      ...PAID,
     },
   });
   const family = await prisma.family.create({

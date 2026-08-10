@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { json, HttpError, readJson } from "@/lib/http";
 import { DEFAULT_CATEGORIES, uniqueJoinCode } from "@/lib/families";
 import { audit } from "@/lib/audit";
+import { assertFamilyRoom } from "@/lib/plan-guard";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -68,6 +69,11 @@ export async function POST(req: NextRequest) {
     const body = await readJson(req);
     const name = typeof body?.name === "string" ? body.name.trim() : "";
     if (name.length < 2) throw new HttpError(400, "Give the family a name.");
+
+    // Creating a household is the Family plan. Joining one stays free on every plan —
+    // the point of the tier is that one person pays and the household joins, so the
+    // seat check on the way in bills the head instead (see assertFamilySeat).
+    await assertFamilyRoom(user);
 
     const joinCode = await uniqueJoinCode();
 

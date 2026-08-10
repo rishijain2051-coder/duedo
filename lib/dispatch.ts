@@ -8,6 +8,10 @@ import { contactSendable } from "./external-contacts";
 import { recipientsFor, countOutstandingFor } from "./recipients";
 import { familyIdsFor } from "./families";
 import { formatInZone, formatTimeInZone, humanizeMinutes } from "./time";
+// lib/plan.ts and not lib/plan-guard.ts on purpose: this file reads an entitlement,
+// it never refuses a write, and importing the guard would put a throw within reach of
+// the one code path that must never have one.
+import { limitsFor } from "./plan";
 
 // The reminder engine. Called once a minute by Supabase pg_cron (see DEPLOY.md),
 // which is why every decision below has to be idempotent: a duplicated or delayed
@@ -149,6 +153,16 @@ interface Recipient {
   timezone: string;
   emailOptIn: boolean;
   pushOptIn: boolean;
+  /**
+   * Billing, and the *only* thing in this file that reads it.
+   *
+   * It decides one question — whether this person is emailed — and nothing else. Which
+   * reminders fire, when, and to whom is settled entirely without it, so a lapsed
+   * account keeps every alert it had; push is unlimited on every plan and costs nothing
+   * to send. A plan must never be able to silence a reminder outright.
+   */
+  plan: string;
+  premiumUntil: Date | null;
 }
 
 export interface DispatchSummary {
@@ -168,6 +182,8 @@ export interface DispatchSummary {
   emailsSent: number;
   emailsThrottled: number;
   emailsSkippedOptOut: number;
+  /** Recipients whose plan doesn't include email. They still got push and the feed. */
+  emailsSkippedPlan: number;
   /** Escalations to an outside address that the consent rule stopped. Not a failure. */
   escalationsWithheld: number;
   durationMs: number;
@@ -361,6 +377,7 @@ export async function dispatchDueReminders(
     emailsSent: 0,
     emailsThrottled: 0,
     emailsSkippedOptOut: 0,
+    emailsSkippedPlan: 0,
     escalationsWithheld: 0,
     durationMs: 0,
   };
@@ -397,6 +414,8 @@ export async function dispatchDueReminders(
         timezone: true,
         emailOptIn: true,
         pushOptIn: true,
+        plan: true,
+        premiumUntil: true,
       },
     });
     for (const u of rows) userCache.set(u.id, u);
@@ -626,6 +645,20 @@ export async function dispatchDueReminders(
       // --------------------------------------------------------------- email
       if (!person.emailOptIn || !person.email) {
         summary.emailsSkippedOptOut++;
+        continue;
+      }
+
+      // The one billing check in the dispatcher, and it is deliberately the last thing
+      // before an email rather than anything earlier: by this point the notification is
+      // already recorded and the push already sent, so a free account is reminded, on
+      // time, through every channel that costs nothing to run. Email is the one with a
+      // real ceiling — a single SMTP account, a few hundred a day, shared by everyone —
+      // which is why it is the channel that is sold.
+      //
+      // Counted separately from an opt-out so the health page never reports someone who
+      // has not paid as someone who has switched email off.
+      if (!limitsFor(person).email) {
+        summary.emailsSkippedPlan++;
         continue;
       }
 
@@ -977,6 +1010,7 @@ export async function recordFailedRun(
       emailsSent: 0,
       emailsThrottled: 0,
       emailsSkippedOptOut: 0,
+      emailsSkippedPlan: 0,
       escalationsWithheld: 0,
       durationMs,
     },

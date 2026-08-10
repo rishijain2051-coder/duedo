@@ -15,6 +15,21 @@
 const TEST_DOMAIN = "@example.invalid";
 
 /**
+ * A year of Family access, spread into whatever a suite seeds its accounts with.
+ *
+ * Every suite except smoke-plan is testing a feature, not a paywall, and a freshly
+ * registered account is on Free — which now means no email, no spending, no voice, no
+ * outside contacts and no creating a family. Without this, suites that have nothing to
+ * do with billing start failing on it, and the failure reads as a broken feature.
+ *
+ * smoke-plan.mjs deliberately does *not* use this: the caps are what it is testing.
+ */
+export const PAID = {
+  plan: "family",
+  premiumUntil: new Date(Date.now() + 365 * 86_400_000),
+};
+
+/**
  * Exits unless every account is a test account (or SMOKE_FORCE=1).
  * `prisma` is passed in so this file needs no client of its own.
  */

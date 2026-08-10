@@ -77,6 +77,7 @@ variables from [`.env.example`](.env.example):
 | `APP_URL` | no | Adds an "Open PRO-SYS" button to reminder emails. |
 | `SMTP_HOST` `SMTP_PORT` `SMTP_SECURE` `SMTP_USER` `SMTP_PASS` `MAIL_FROM` | for email | Leave blank to disable email entirely. |
 | `VAPID_PUBLIC_KEY` `VAPID_PRIVATE_KEY` `NEXT_PUBLIC_VAPID_PUBLIC_KEY` `VAPID_SUBJECT` | for push | The public key goes in twice — once server-side, once as `NEXT_PUBLIC_*`. |
+| `NEXT_PUBLIC_UPGRADE_WHATSAPP` | for paid plans | Digits only, full international form: `919876543210`. Without it (and without `NEXT_PUBLIC_UPGRADE_EMAIL`) `/upgrade` still lists the plans but offers no way to ask for one. |
 
 `npm run build` runs `prisma generate` first, so no extra build step is needed.
 
@@ -104,6 +105,26 @@ Everyone else signs up the same way and activates their own account by clicking 
 link in the confirmation email — no approval needed from you. That depends on SMTP
 working, which is why step 3 matters; if mail is unavailable the signup response says
 so and you can activate the account by hand under **/admin → Accounts**.
+
+## 6a. Give yourself a plan
+
+Your own account signs up on Free like everybody else, which means no email reminders,
+no spending tracker, no voice capture and no creating a family. Fix that once, from
+**/admin → Accounts → Plan** on your own row: pick Family, pick 1 year, Grant.
+
+That control is the whole payment system. Somebody messages you from `/upgrade`, pays
+however suits, and you set the date. Only the root admin sees it — an admin you promote
+later cannot hand out paid access, to themselves or to anyone.
+
+Grants **stack** from the later of today and the current expiry, so renewing three days
+early keeps those three days and renewing a month late starts from today rather than
+back-dating. The note field is for your own reconciliation ("UPI ref 4471, ₹99, 1yr");
+the account it describes never sees it.
+
+Three days before anyone's access ends, the dispatcher tells them in the app and mails
+you a list of who to chase. Nothing of theirs is deleted or switched off when it lapses:
+every reminder they have keeps firing, and they simply can't add new ones until they are
+back under the free cap.
 
 ## 7. Schedule the dispatcher (every minute)
 

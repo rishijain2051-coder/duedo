@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { json, HttpError, readJson } from "@/lib/http";
 import { normalizeJoinCode } from "@/lib/families";
 import { audit } from "@/lib/audit";
+import { assertFamilySeat } from "@/lib/plan-guard";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -40,6 +41,11 @@ export async function POST(req: NextRequest) {
       select: { id: true },
     });
     if (already) throw new HttpError(409, `You're already in ${family.name}.`);
+
+    // Charged to the head's plan, not the joiner's — one payment, four people. Checked
+    // after the "already a member" case above so rejoining is never mistaken for a
+    // fifth seat.
+    await assertFamilySeat(family.id);
 
     await prisma.familyMember.create({
       data: { familyId: family.id, userId: user.id, role: "member" },

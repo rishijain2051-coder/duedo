@@ -5,6 +5,7 @@ import { toCsv } from "@/lib/csv";
 import { round2 } from "@/lib/money";
 import { formatInZone, zonedMonthStartOffset } from "@/lib/time";
 import { historyScopeWhere, parseScope } from "@/lib/history-scope";
+import { hasFeature, PLAN_LIMIT_STATUS } from "@/lib/plan-guard";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -26,6 +27,17 @@ export async function GET(req: NextRequest) {
   const user = await currentUser();
   if (!user) {
     return NextResponse.json({ message: "Not authenticated" }, { status: 401 });
+  }
+
+  // This route builds its own response rather than going through `json()`, so an
+  // HttpError thrown here would escape uncaught — hence the explicit check. It is the
+  // Spending view's export and follows Spending: a free account has no such view to
+  // export from, so there is no data stranded behind this that they can otherwise see.
+  if (!hasFeature(user, "spending")) {
+    return NextResponse.json(
+      { message: "The spending tracker is a paid feature." },
+      { status: PLAN_LIMIT_STATUS },
+    );
   }
 
   const p = req.nextUrl.searchParams;

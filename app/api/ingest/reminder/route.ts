@@ -6,6 +6,7 @@ import { HttpError } from "@/lib/http";
 import { formatTimeInZone } from "@/lib/time";
 import { sanitizeReminderInput } from "@/lib/reminder-logic";
 import { assertReminderDestination, assertReminderFields } from "@/lib/reminder-scope";
+import { assertReminderRoom, hasFeature, PLAN_LIMIT_STATUS } from "@/lib/plan-guard";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -89,6 +90,17 @@ export async function POST(req: NextRequest) {
     return reply(req, 400, { message: "Nothing to add", spoken: "I didn't catch that." });
   }
 
+  // Voice is a paid feature, checked here as well as where the token is issued.
+  // The token never expires by design, so a shortcut outlives a lapse — this is what
+  // makes the entitlement lapse with it. Checked before the category lookup below so
+  // an unentitled call costs one query rather than three.
+  if (!hasFeature(user, "voice")) {
+    return reply(req, PLAN_LIMIT_STATUS, {
+      message: "Adding reminders by voice is a paid feature.",
+      spoken: "Adding by voice needs a paid plan. Open the app to upgrade.",
+    });
+  }
+
   // Which list. `scope` is optional and defaults to personal, so the common shortcut
   // sends only `text`. A family id is verified by assertReminderDestination below, so
   // one supplied here cannot reach a list this account isn't in.
@@ -117,6 +129,11 @@ export async function POST(req: NextRequest) {
   }
 
   try {
+    // The same cap the form enforces. This route is a create path that does not go
+    // through the form, which is exactly the door a paywall gets walked around.
+    // HttpError from here is spoken back by the catch below.
+    await assertReminderRoom(user);
+
     const data = sanitizeReminderInput(
       {
         title: parsed.title,

@@ -80,6 +80,33 @@ model User {
 
   phone String? // optional, reserved for future SMS/WhatsApp channels
 
+  // ---------------------------------------------------------------- billing
+  /// free | individual | family. What they are entitled to *if* premiumUntil is
+  /// still in the future — the two are read together and never separately, which
+  /// is why lib/plan.ts is the only place that looks at either.
+  plan String @default("free")
+
+  /// When paid access ends. Null means it never started.
+  ///
+  /// A date rather than an `isPremium` boolean, and that is the whole design. A
+  /// boolean never expires: it is switched on by hand and stays on, so the job of
+  /// remembering who lapsed falls to a person, every month, forever. A date does it
+  /// itself — the grant is still one click, but access stops when it is supposed to,
+  /// and "who expires this week" becomes a query rather than a memory. It is also
+  /// what makes the renewal warning on the dispatch tick possible at all.
+  ///
+  /// There is no checkout. An admin sets this by hand after payment lands (see
+  /// /upgrade and PATCH /api/users/[id]), which at this size is a fifteen-second job
+  /// and avoids needing a payment gateway, a business registration and GST returns to
+  /// charge a few dozen people.
+  premiumUntil DateTime? @db.Timestamptz
+
+  /// What was paid, in the admin's own words — "UPI ref 4471, 99, 1yr". Never shown
+  /// to the user. Six months on, "I paid you in March" needs an answer better than
+  /// somebody's WhatsApp history, and the grant audit entry alone records only that
+  /// access was extended, not what for.
+  planNote String?
+
   // ---------------------------------------------------------- preferences
   /// Every instant is stored UTC and rendered in this zone.
   timezone          String @default("Asia/Kolkata")
@@ -118,6 +145,11 @@ model User {
   completedHistory      ReminderHistory[]  @relation("CompletedReminders")
 
   @@index([status])
+  /// The renewal warning runs on every dispatch tick — 1,440 times a day — and asks
+  /// only "who expires in the next three days". Without this that is a full scan of
+  /// User every minute forever, which is affordable now and stops being so long
+  /// before anything else here does.
+  @@index([premiumUntil])
 }
 
 /// A household. Owns a shared reminder list and its own category list.

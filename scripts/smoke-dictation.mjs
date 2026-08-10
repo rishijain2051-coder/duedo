@@ -14,7 +14,7 @@
 import { PrismaClient } from "@prisma/client";
 import { Pool } from "pg";
 import { PrismaPg } from "@prisma/adapter-pg";
-import { assertScratchDatabase } from "./smoke-guard.mjs";
+import { assertScratchDatabase, PAID } from "./smoke-guard.mjs";
 
 const BASE = process.env.BASE_URL || "http://localhost:3000";
 
@@ -309,6 +309,8 @@ try {
       status: "active",
       emailVerifiedAt: new Date(),
       timezone: TZ,
+      // The ingest route this suite drives is the voice path, which is paid.
+      ...PAID,
     },
     select: { id: true },
   });

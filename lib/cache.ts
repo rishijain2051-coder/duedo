@@ -123,6 +123,15 @@ export interface Cached<T> {
   loading: boolean;
   /** Set when the last fetch failed. Stale data may still be present alongside it. */
   error: string | null;
+  /**
+   * The HTTP status behind `error`, when there was one.
+   *
+   * Exists for 402: a paid feature is not a fault, and rendering it in the same red
+   * "something went wrong" banner as a 500 tells people the app is broken when it is
+   * working exactly as designed. Matching on the message text instead would tie the
+   * page's layout to the wording of a sentence.
+   */
+  errorStatus: number | null;
   /** True while revalidating in the background over cached data. */
   validating: boolean;
   /**
@@ -151,6 +160,7 @@ export const SYNCED_EVENT = "prosys:synced";
 export function useCached<T>(key: string, fetcher: () => Promise<T>): Cached<T> {
   const [data, setData] = useState<T | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [errorStatus, setErrorStatus] = useState<number | null>(null);
   const [validating, setValidating] = useState(false);
   const [offline, setOffline] = useState(false);
   const [primed, setPrimed] = useState(false);
@@ -178,6 +188,7 @@ export function useCached<T>(key: string, fetcher: () => Promise<T>): Cached<T> 
       hasData.current = true;
       writeCache(key, fresh);
       setError(null);
+      setErrorStatus(null);
       setOffline(false);
     } catch (e) {
       // Deliberately keeps whatever is on screen: stale content beats an empty
@@ -189,6 +200,7 @@ export function useCached<T>(key: string, fetcher: () => Promise<T>): Cached<T> 
       // banner on every page reads as five separate faults. With nothing cached
       // there is nothing else to say, so it is surfaced.
       setError(dropped && hasData.current ? null : (e as Error).message);
+      setErrorStatus((e as { status?: number }).status ?? null);
     } finally {
       setValidating(false);
     }
@@ -222,8 +234,13 @@ export function useCached<T>(key: string, fetcher: () => Promise<T>): Cached<T> 
 
   return {
     data,
-    loading: data === null,
+    // Not merely "no data yet": a request that has already failed is finished, not
+    // pending. Without the second clause a refusal the server answered instantly —
+    // 402 on a paid surface, say — left a spinner turning under the message forever,
+    // because nothing was ever going to arrive to clear it.
+    loading: data === null && error === null,
     error,
+    errorStatus,
     validating,
     offline,
     refresh: revalidate,

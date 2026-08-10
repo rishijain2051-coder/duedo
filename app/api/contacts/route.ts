@@ -1,12 +1,10 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/db";
 import { HttpError, json, readJson } from "@/lib/http";
+import { assertContactRoom } from "@/lib/plan-guard";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-/** Enough for a landlord, an accountant and a couple of others. */
-const MAX_CONTACTS = 10;
 
 /**
  * Addresses outside the app that escalation may reach, and their consent state.
@@ -72,10 +70,10 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const count = await prisma.externalContact.count({ where: { ownerId: user.id } });
-    if (count >= MAX_CONTACTS) {
-      throw new HttpError(400, `At most ${MAX_CONTACTS} contacts.`);
-    }
+    // How many is a plan question now, not a constant here. Checked after the block
+    // list above so someone who asked never to be contacted is refused for that reason
+    // rather than being told about somebody else's billing.
+    await assertContactRoom(user);
 
     const existing = await prisma.externalContact.findUnique({
       where: { ownerId_email: { ownerId: user.id, email } },

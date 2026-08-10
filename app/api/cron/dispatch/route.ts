@@ -10,6 +10,7 @@ import { rotateCronLogIfDue } from "@/lib/cron-log-rotate";
 import { runMonthlyMaintenance } from "@/lib/rollup";
 import { advanceStreaks } from "@/lib/streaks";
 import { sendMonthlyReports } from "@/lib/family-report";
+import { warnExpiringPlans } from "@/lib/plan-expiry";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -229,6 +230,8 @@ async function handle(req: NextRequest) {
     let streaks: Awaited<ReturnType<typeof advanceStreaks>> | { error: string } | null = null;
     let report: Awaited<ReturnType<typeof sendMonthlyReports>> | { error: string } | null =
       null;
+    let expiring: Awaited<ReturnType<typeof warnExpiringPlans>> | { error: string } | null =
+      null;
     if (!nowParam) {
       // Retention. Here rather than inside dispatchDueReminders for the same reason
       // everything else in this block is: these are deletes, and `?now=` must never
@@ -268,9 +271,31 @@ async function handle(req: NextRequest) {
         console.error("[cron] monthly report failed:", e);
         report = { error: (e as Error).message };
       }
+      try {
+        // Renewal warnings. No force flag and none wanted: unlike the rotations this is
+        // not once-a-day-or-never, it simply finds nobody on almost every tick, and a
+        // test can reach it by granting an account three days and running the tick.
+        //
+        // Needs no guard against the mail overrides either. It deletes nothing, so a
+        // faked send costs at most one digest the owner didn't get — and the per-account
+        // warnings are written before the mail, so they land regardless.
+        expiring = await warnExpiringPlans(now, fakeSend ? async () => true : undefined);
+      } catch (e) {
+        console.error("[cron] plan expiry warning failed:", e);
+        expiring = { error: (e as Error).message };
+      }
     }
 
-    return NextResponse.json({ ...summary, audit, cronLog, swept, rollup, streaks, report });
+    return NextResponse.json({
+      ...summary,
+      audit,
+      cronLog,
+      swept,
+      rollup,
+      streaks,
+      report,
+      expiring,
+    });
   } catch (e) {
     console.error("[cron] dispatch failed:", e);
     // Recorded, not just logged: a dispatcher that has been throwing for a day

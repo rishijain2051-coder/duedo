@@ -8,6 +8,7 @@ import type {
   DashboardStats,
   FamilySummary,
   ManagedUser,
+  PlanId,
   Reminder,
   Settings,
 } from "@/types";
@@ -373,6 +374,27 @@ export const api = {
       request<{ reset: boolean }>(`/users/${id}`, {
         method: "PATCH",
         body: JSON.stringify({ newPin: pin }),
+      }),
+    /**
+     * Grant or extend paid access. Root admin only, and the entire payment system —
+     * money arrives by UPI, this records what it bought.
+     *
+     * `addDays` stacks from the later of today and the current expiry, so renewing
+     * early doesn't cost the remaining days and renewing late doesn't back-date.
+     */
+    grantPlan: (
+      id: string,
+      body: { plan?: PlanId; addDays?: number; planNote?: string },
+    ) =>
+      request<ManagedUser>(`/users/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify(body),
+      }),
+    /** Withdraw access outright — a refund, or undoing a mistyped grant. */
+    clearPlan: (id: string) =>
+      request<ManagedUser>(`/users/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ clearPremium: true }),
       }),
   },
   /** The dedicated admin panel. Every route behind jsonAdmin. */

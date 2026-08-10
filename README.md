@@ -147,6 +147,41 @@ front of any cell starting `=`, `+`, `-`, `@`, tab or return, because a spreadsh
 those as a formula to run and the text in them was typed by someone else. Plain numbers
 are exempt, so amounts still add up ([`lib/csv.ts`](lib/csv.ts)).
 
+## Plans
+
+Free, Individual (₹99/year) and Family (₹299/year); Enterprise is a "talk to us" line
+with nothing behind it, on purpose. What Free holds back is the part a phone's built-in
+reminders app can't do — reminding *someone else*, and escalating to a third person when
+they don't answer — rather than rationing reminders, which is a comparison Free would
+lose. Push notifications and Face ID are on every plan: both cost nothing to run, and
+one of them is a security feature.
+
+**There is no checkout.** Taking card payments here means a registered business, KYC and
+GST returns, which is weeks of paperwork to charge a few dozen people. So `/upgrade`
+opens WhatsApp with the account's email already in the message, payment is arranged
+directly, and the owner sets an expiry date by hand under **/admin → Accounts → Plan**.
+Set `NEXT_PUBLIC_UPGRADE_WHATSAPP` or the button doesn't appear.
+
+Access is a **date** (`premiumUntil`), never an `isPremium` boolean. A boolean cannot
+expire, so remembering who lapsed becomes a person's monthly job — and it can't answer
+"who runs out this week", so nobody can be warned before it stops working. The date does
+both: grants stack from the later of today and the current expiry, so renewing early
+doesn't cost the remaining days and renewing late doesn't back-date. Every grant is
+audited with both ends of the move plus a private note of what was paid.
+
+One rule outranks every number: **caps gate creating, never delivering.** Nothing in
+[`lib/dispatch.ts`](lib/dispatch.ts) asks about a plan for lead, due or overdue alerts.
+When access lapses you keep every reminder you have and it keeps firing — you just can't
+add another until you're back under the free cap. Email is the one channel that stops,
+because it is the one with a real ceiling; transactional mail (verification, PIN reset,
+contact consent) is never gated. A billing lapse silently stopping a medication reminder
+is the one failure this app can't afford, and the only way to be sure is for the
+dispatcher to have no opinion about money.
+
+Limits live in [`lib/plan.ts`](lib/plan.ts) and are enforced in exactly one place,
+[`lib/plan-guard.ts`](lib/plan-guard.ts) — including `POST /api/ingest/reminder`, which
+is a create path that never touches the form.
+
 ## Escalation
 
 Per reminder, up to two steps: **if this still isn't done N hours late, tell someone
@@ -461,6 +496,25 @@ a reminder's name, due at the default time:
 ```bash
 node --env-file=.env scripts/smoke-dictation.mjs
 ```
+
+Plans and caps — the only suite that seeds *free* accounts on purpose, because it is
+the one testing a paywall rather than a feature. Everything else spreads `PAID` from
+`scripts/smoke-guard.mjs`, or it would start failing on billing it isn't about. The
+assertion that matters most is §6: **a lapse never stops a reminder firing**, driven
+through the real dispatcher, because a billing state that could silence an alert is
+invisible from the outside until somebody misses their medication. It also covers the
+door that doesn't go through the form — `POST /api/ingest/reminder` is a create path,
+and a cap enforced only in the UI is not a cap:
+
+```bash
+node --env-file=.env scripts/smoke-plan.mjs
+```
+
+Unlike the audit suite this one uses a **real** sender rather than `fakeAuditMail=1`.
+A faked send reports success without sending, and on a database that also carries real
+rows the audit rotation then deletes a day of history no mail carried — that is not
+hypothetical, it cost this install 7,156 rows of `cron.job_run_details` once. The price
+is one renewal digest to the owner naming a test account.
 
 They all seed throwaway accounts with **both channels switched off** and delete them
 afterwards, so none of them ever emails or pushes anywhere. `smoke-dispatch`

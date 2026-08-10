@@ -21,7 +21,7 @@
 import { PrismaClient } from "@prisma/client";
 import { Pool } from "pg";
 import { PrismaPg } from "@prisma/adapter-pg";
-import { assertScratchDatabase } from "./smoke-guard.mjs";
+import { assertScratchDatabase, PAID } from "./smoke-guard.mjs";
 
 const BASE = process.env.BASE_URL || "http://localhost:3000";
 
@@ -368,7 +368,7 @@ try {
 
   await prisma.user.updateMany({
     where: { email: { in: [ADMIN, MEMBER, OUTSIDER] } },
-    data: { status: "active", role: "member", approvedAt: new Date() },
+    data: { status: "active", role: "member", approvedAt: new Date(), ...PAID },
   });
   await prisma.user.update({ where: { email: ADMIN }, data: { role: "admin" } });
 

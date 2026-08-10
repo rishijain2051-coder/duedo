@@ -9,6 +9,7 @@ import {
   parseScope,
   scopeKeyFor,
 } from "@/lib/history-scope";
+import { assertFeature } from "@/lib/plan-guard";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -30,6 +31,7 @@ const MONTHS = 12;
  */
 export async function GET(req: NextRequest) {
   return json(async (user) => {
+    assertFeature(user, "spending");
     const scope = parseScope(req.nextUrl.searchParams.get("scope"));
     const now = new Date();
     const tz = user.timezone;

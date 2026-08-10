@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import {
+  BadgeIndianRupee,
   Bell,
   BellRing,
   Clock,
@@ -47,6 +48,7 @@ import {
 } from "@/lib/push-client";
 import { checkForUpdate, applyUpdate, RUNNING_BUILD_ID } from "@/lib/update";
 import { formatDateTime } from "@/lib/format";
+import { planSpec } from "@/lib/plan";
 import {
   ACCENTS,
   IDLE_TIMEOUT_OPTIONS,
@@ -523,6 +525,35 @@ export default function SettingsPage() {
             {busy === "name" && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             Save name
           </Button>
+        </CardContent>
+      </Card>
+
+      {/* ---------------- Plan ---------------- */}
+      {/* One row, not a pricing table — /upgrade is where the comparison lives. What
+          belongs here is the two facts you'd come to Settings for: what you're on, and
+          when it runs out. The date is the reason it says anything at all; "Premium:
+          yes" would give nobody a reason to renew before it stopped working. */}
+      <Card>
+        <CardContent className="flex flex-wrap items-center justify-between gap-3 p-4">
+          <div className="min-w-0">
+            <p className="flex items-center gap-2 font-medium">
+              <BadgeIndianRupee className="h-5 w-5" />
+              {settings ? planSpec(settings.plan).name : "—"} plan
+            </p>
+            <p className="text-sm text-muted-foreground">
+              {planSpec(settings?.plan).id !== "free" && settings?.premiumUntil
+                ? `Renews ${formatDateTime(settings.premiumUntil, false, settings.timezone)}`
+                : settings?.premiumUntil
+                  ? `Ended ${formatDateTime(settings.premiumUntil, false, settings.timezone)}. Everything you made is still here.`
+                  : "Email reminders, spending and voice are on the paid plans."}
+            </p>
+          </div>
+          <Link
+            href="/upgrade"
+            className="inline-flex h-11 items-center justify-center rounded-md border border-border px-4 text-sm font-medium shadow-sm transition-all hover:bg-accent hover:text-accent-foreground sm:h-9"
+          >
+            {planSpec(settings?.plan).id === "free" ? "See plans" : "Manage"}
+          </Link>
         </CardContent>
       </Card>
 
@@ -1099,6 +1130,18 @@ export default function SettingsPage() {
             An Apple Shortcut can dictate a reminder straight into this account — “Hey
             Siri, add reminder”, then say it.
           </p>
+          {/* Shown rather than hidden. A feature that simply isn't there reads as one
+              the app doesn't have; a feature with a price next to it is a choice. The
+              setup steps stay visible for the same reason — knowing what you'd be
+              getting is the point of showing it at all. */}
+          {settings && planSpec(settings.plan).id === "free" && (
+            <p className="rounded-md border border-border bg-muted/40 px-3 py-2 text-sm">
+              Part of a paid plan.{" "}
+              <Link href="/upgrade" className="font-medium text-primary underline">
+                See plans
+              </Link>
+            </p>
+          )}
           <ol className="ml-4 list-decimal space-y-1 text-sm text-muted-foreground">
             <li>
               <span className="font-medium text-foreground">Create key</span> below, and

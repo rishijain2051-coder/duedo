@@ -29,6 +29,12 @@ const AUTH_USER_SELECT = {
   isRootAdmin: true,
   status: true,
   accountType: true,
+  // Read together and never apart — see effectivePlan in lib/plan.ts. Carried on
+  // every authenticated request because the cap checks run on create paths that
+  // already have the caller in hand, and re-fetching the row to ask "what plan?"
+  // would be a second query per write for two columns.
+  plan: true,
+  premiumUntil: true,
   timezone: true,
   defaultTime: true,
   overdueRepeatMins: true,
@@ -46,6 +52,10 @@ export interface AuthUser {
   isRootAdmin: boolean;
   status: string;
   accountType: string;
+  /** What was bought. Meaningless without premiumUntil; never read on its own. */
+  plan: string;
+  /** When paid access ends. Null means it never started. */
+  premiumUntil: Date | null;
   timezone: string;
   defaultTime: string;
   overdueRepeatMins: number;

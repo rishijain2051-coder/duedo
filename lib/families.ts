@@ -124,6 +124,12 @@ export const OTHERS_CATEGORY = "Others";
  *
  * Not seeded with the eight defaults: a list that opens with an empty "Others" in it
  * invites people to file things there deliberately, which is not what it is for.
+ *
+ * Deliberately outside the category cap, like the seed in the categories route. This
+ * runs while a reminder is being saved, not while someone is managing a list, so a cap
+ * check here would surface as "could not add your reminder" for a category the user
+ * never asked for and cannot see the count of. The caps are set well clear of the nine
+ * rows this and the seed together create.
  */
 export async function ensureOthersCategory(
   scope: { userId: string } | { familyId: string },

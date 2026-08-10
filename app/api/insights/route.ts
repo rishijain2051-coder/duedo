@@ -9,6 +9,7 @@ import {
   parseScope,
   reminderScopeWhere,
 } from "@/lib/history-scope";
+import { assertFeature } from "@/lib/plan-guard";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -36,6 +37,10 @@ const FORECAST_DAYS = 7;
  */
 export async function GET(req: NextRequest) {
   return json(async (user) => {
+    // Reading only, and still gated — Spending is a paid surface. Nothing is deleted
+    // or stopped by a lapse: the completions these figures are built from keep being
+    // written, so the view fills back in the moment access resumes.
+    assertFeature(user, "spending");
     const scope = parseScope(req.nextUrl.searchParams.get("scope"));
     const now = new Date();
     const tz = user.timezone;

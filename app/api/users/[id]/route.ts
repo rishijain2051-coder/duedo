@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { HttpError, jsonAdmin, readJson } from "@/lib/http";
 import { hashPin, isValidPin, PIN_LENGTH } from "@/lib/pin";
 import { audit } from "@/lib/audit";
+import { isPlanId } from "@/lib/plan";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -16,10 +17,17 @@ const SELECT = {
   status: true,
   accountType: true,
   isRootAdmin: true,
+  plan: true,
+  premiumUntil: true,
+  planNote: true,
   approvedAt: true,
   emailVerifiedAt: true,
   createdAt: true,
 } as const;
+
+/** A grant of a year, a month, or anything else the owner types. Bounded both ways. */
+const MAX_GRANT_DAYS = 3660; // ten years; anything larger is a typo, not a decision
+const MAX_NOTE = 200;
 
 /**
  * ADMIN ONLY — approve, reject, or change the role of another account.
@@ -35,6 +43,30 @@ const SELECT = {
 export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   return jsonAdmin(async (admin) => {
     const { id } = await ctx.params;
+    const body = await readJson(req);
+
+    // Billing, handled before every rule below, because none of them apply to it.
+    //
+    // Access is granted by hand — there is no checkout — so this is the whole payment
+    // system: money arrives over UPI, the owner types how long it bought, and the date
+    // does the expiring. Two of the guards further down are deliberately not in force
+    // here:
+    //
+    //   * the self rule. It exists so an admin cannot demote or lock out their own
+    //     account; extending your own access cannot strand the install, and the owner
+    //     is the one person certain to need a plan (they have the family);
+    //   * the root-row rule. It stops an admin turning on the account that promoted
+    //     them, and a grant is root-only anyway, so there is nobody it protects here.
+    //
+    // Root-only, though, and not merely admin. This is revenue: an admin promoted later
+    // should not be able to hand out paid access, to themselves or to anyone.
+    if (body.plan !== undefined || body.addDays !== undefined || body.clearPremium) {
+      if (!admin.isRootAdmin) {
+        throw new HttpError(403, "Only the install's owner can change a plan.");
+      }
+      return grantPlan(admin.id, id, body);
+    }
+
     if (id === admin.id) {
       throw new HttpError(
         400,
@@ -44,8 +76,6 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
 
     const target = await prisma.user.findUnique({ where: { id }, select: SELECT });
     if (!target) throw new HttpError(404, "Account not found");
-
-    const body = await readJson(req);
 
     // Handing over ownership. Only the holder can give it away, and only to an admin
     // who is actually able to use it — an inactive one would leave the flag stranded
@@ -155,6 +185,94 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
 
     return updated;
   });
+}
+
+/**
+ * ROOT ADMIN ONLY — grant, extend or withdraw paid access.
+ *
+ * `addDays` stacks from whichever is later, today or the current expiry. Both cases
+ * are the obvious one once written down: someone renewing three days early should get
+ * their remaining three days *plus* the year, and someone who lapsed in March should
+ * get a year from today rather than from March, which would hand them a date already
+ * in the past.
+ */
+async function grantPlan(actorId: string, id: string, body: Record<string, unknown>) {
+  const target = await prisma.user.findUnique({ where: { id }, select: SELECT });
+  if (!target) throw new HttpError(404, "Account not found");
+
+  const data: {
+    plan?: string;
+    premiumUntil?: Date | null;
+    planNote?: string | null;
+  } = {};
+
+  if (body.clearPremium) {
+    // Withdrawal, for a refund or a mistake. Not the same as letting it lapse, and
+    // deliberately available: without it a typo of 3660 days is uncorrectable.
+    data.plan = "free";
+    data.premiumUntil = null;
+  } else {
+    if (body.plan !== undefined) {
+      if (!isPlanId(body.plan)) {
+        throw new HttpError(400, "plan must be free, individual or family.");
+      }
+      data.plan = body.plan;
+      if (body.plan === "free") data.premiumUntil = null;
+    }
+
+    if (body.addDays !== undefined) {
+      const days = Number(body.addDays);
+      if (!Number.isInteger(days) || days <= 0 || days > MAX_GRANT_DAYS) {
+        throw new HttpError(
+          400,
+          `addDays must be a whole number of days between 1 and ${MAX_GRANT_DAYS}.`,
+        );
+      }
+      const now = new Date();
+      const from =
+        target.premiumUntil && target.premiumUntil > now ? target.premiumUntil : now;
+      data.premiumUntil = new Date(from.getTime() + days * 86_400_000);
+    }
+  }
+
+  if (body.planNote !== undefined) {
+    const note = String(body.planNote).trim().slice(0, MAX_NOTE);
+    data.planNote = note || null;
+  }
+
+  if (Object.keys(data).length === 0) {
+    throw new HttpError(400, "Nothing to change.");
+  }
+
+  // A date without a plan buys nothing — effectivePlan reads the two together and
+  // "free until next March" is still free. Caught here rather than left as a grant
+  // that appears to have worked and silently didn't.
+  const endPlan = data.plan ?? target.plan;
+  const endUntil = data.premiumUntil !== undefined ? data.premiumUntil : target.premiumUntil;
+  if (endPlan === "free" && endUntil && endUntil > new Date()) {
+    throw new HttpError(400, "Pick a paid plan as well — a date alone changes nothing.");
+  }
+
+  const updated = await prisma.user.update({ where: { id }, data, select: SELECT });
+
+  await audit({
+    actorId,
+    action: data.premiumUntil === null && data.plan === "free" ? "plan.revoke" : "plan.grant",
+    entity: "user",
+    entityId: id,
+    detail: {
+      email: target.email,
+      plan: updated.plan,
+      // Both ends recorded, because "extended by a year" is only checkable against
+      // where it started. This entry plus the note is the entire paper trail behind a
+      // payment, and six months on it is the only answer to "I paid you in March".
+      from: target.premiumUntil?.toISOString() ?? null,
+      to: updated.premiumUntil?.toISOString() ?? null,
+      note: updated.planNote,
+    },
+  });
+
+  return updated;
 }
 
 /**

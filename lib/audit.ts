@@ -30,6 +30,16 @@ export type AuditAction =
    */
   | "user.api-token.create"
   | "user.api-token.revoke"
+  /**
+   * Paid access granted, extended or withdrawn by the owner. There is no checkout, so
+   * these two lines are the payment ledger: the grant records both ends of the date it
+   * moved and the note says what it was paid for. Without them a dispute six months
+   * later has nothing to appeal to but somebody's WhatsApp history.
+   */
+  | "plan.grant"
+  | "plan.revoke"
+  /** The renewal warning, which doubles as its own once-a-day guard. */
+  | "plan.expiring"
   // families
   | "family.create"
   | "family.rename"

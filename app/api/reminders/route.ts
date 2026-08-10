@@ -4,6 +4,7 @@ import { clientId, HttpError, json, readJson } from "@/lib/http";
 import { sanitizeReminderInput } from "@/lib/reminder-logic";
 import { visibleReminderWhere } from "@/lib/ownership";
 import { assertReminderDestination, assertReminderFields } from "@/lib/reminder-scope";
+import { assertReminderRoom } from "@/lib/plan-guard";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -74,6 +75,10 @@ export async function POST(req: NextRequest) {
       // caller asked for exists and is theirs, which is what they wanted to hear.
       if (mine) return mine;
     }
+
+    // After the replay check on purpose: a queued create arriving twice must return
+    // the row it already made, not be refused for a slot it is already occupying.
+    await assertReminderRoom(user);
 
     try {
       return await prisma.reminder.create({

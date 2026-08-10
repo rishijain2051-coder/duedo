@@ -105,6 +105,12 @@ export async function userForApiToken(token: string): Promise<AuthUser | null> {
       isRootAdmin: true,
       status: true,
       accountType: true,
+      // The ingest route enforces the same reminder cap the UI does, so the caller it
+      // builds has to carry the same billing fields a session caller does. Leaving
+      // these out is exactly how a paywall gets bypassed by the one door that doesn't
+      // go through the form.
+      plan: true,
+      premiumUntil: true,
       timezone: true,
       defaultTime: true,
       overdueRepeatMins: true,
