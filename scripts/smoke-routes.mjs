@@ -1321,6 +1321,46 @@ try {
     /addEventListener\(\s*["']notificationclick["']/.test(swSource),
     true,
   );
+
+  // ──────────────────────────────────────────────────────────────────────────────
+  // Anything a page computes from a clock *during render* runs twice, once on each
+  // side, and the two clocks are in different zones. Both of these were written the
+  // obvious way and were wrong for a few hours a year — long enough to break
+  // hydration on New Year's Eve and at the end of every month, short enough that no
+  // amount of ordinary use would ever find them. Pinned to the install's zone, so a
+  // boundary instant has one answer whatever TZ the process runs under.
+  console.log("\n17. Clock-derived render values do not depend on the process timezone");
+  const { copyrightYear, firstOfMonthIn, INSTALL_TIME_ZONE } = await import(
+    "../lib/time.ts"
+  );
+
+  // 19:00 UTC on 31 December is already 00:30 on 1 January in India.
+  const newYearEve = new Date("2026-12-31T19:00:00Z");
+  check("the copyright year is the install's", copyrightYear(newYearEve), "2027");
+  check(
+    "and not the process's",
+    copyrightYear(newYearEve) !== String(newYearEve.getUTCFullYear()),
+    true,
+  );
+
+  // The same boundary at the end of any month, which is twelve times as likely.
+  const monthEnd = new Date("2026-08-31T19:00:00Z");
+  const cursor = firstOfMonthIn(INSTALL_TIME_ZONE, monthEnd);
+  check("the calendar opens on September", cursor.getMonth(), 8);
+  check("of the right year", cursor.getFullYear(), 2026);
+  check(
+    "and disagrees with the UTC month, which is the whole point",
+    cursor.getMonth() !== monthEnd.getUTCMonth(),
+    true,
+  );
+
+  // The rendered footer has to agree with the helper, or the helper is not what runs.
+  const loginHtml = await (await fetch(`${BASE}/login`)).text();
+  check(
+    "the served footer carries that year",
+    loginHtml.includes(`>${copyrightYear()}<`) || loginHtml.includes(copyrightYear()),
+    true,
+  );
 } finally {
   await cleanup();
   await prisma.$disconnect();

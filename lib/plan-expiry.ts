@@ -4,7 +4,7 @@ import { mainAdmin } from "./audit-rotate";
 import { escapeHtml } from "./html";
 import { isMailConfigured, sendMail } from "./mail";
 import { PLANS, effectivePlan, isPlanId } from "./plan";
-import { toDateKey } from "./format";
+import { formatInZone } from "./time";
 
 // Renewal warnings, on the same tick as everything else.
 //
@@ -97,7 +97,7 @@ export async function warnExpiringPlans(
         // Says what actually happens, because the honest answer is reassuring and the
         // imagined one is not. People assume a lapse deletes things.
         body:
-          `Ends ${toDateKey(until, u.timezone)}. Everything you've made stays, and every ` +
+          `Ends ${formatInZone(until, u.timezone, false)}. Everything you've made stays, and every ` +
           `reminder keeps firing — you'd lose email reminders, spending and voice. ` +
           `Open Plans to renew.`,
         kind: "due",
@@ -129,7 +129,7 @@ export async function warnExpiringPlans(
       (u) =>
         `<tr><td>${escapeHtml(u.name)}</td><td>${escapeHtml(u.email)}</td>` +
         `<td>${escapeHtml(isPlanId(u.plan) ? PLANS[u.plan].name : u.plan)}</td>` +
-        `<td>${escapeHtml(toDateKey(u.premiumUntil!, admin.timezone))}</td></tr>`,
+        `<td>${escapeHtml(formatInZone(u.premiumUntil!, admin.timezone, false))}</td></tr>`,
     )
     .join("");
 

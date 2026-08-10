@@ -7,7 +7,12 @@ import { readEscalation, type EscalationTarget } from "./escalation";
 import { contactSendable } from "./external-contacts";
 import { recipientsFor, countOutstandingFor } from "./recipients";
 import { familyIdsFor } from "./families";
-import { formatInZone, formatTimeInZone, humanizeMinutes } from "./time";
+import {
+  INSTALL_TIME_ZONE,
+  formatInZone,
+  formatTimeInZone,
+  humanizeMinutes,
+} from "./time";
 // lib/plan.ts and not lib/plan-guard.ts on purpose: this file reads an entitlement,
 // it never refuses a write, and importing the guard would put a throw within reach of
 // the one code path that must never have one.
@@ -540,7 +545,7 @@ export async function dispatchDueReminders(
         category: r.category?.name ?? null,
         amount: r.amount,
         dueAt: r.dueAt,
-        timeZone: creator?.timezone ?? "Asia/Kolkata",
+        timeZone: creator?.timezone ?? INSTALL_TIME_ZONE,
         kind,
         minutesUntilDue: fire.minutesUntilDue,
       });

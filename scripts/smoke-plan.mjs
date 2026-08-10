@@ -503,6 +503,16 @@ try {
     }),
     1,
   );
+  // Every date a person reads in this app is dd/mm/yyyy. This one was built from
+  // toDateKey, which is the yyyy-mm-dd *key* format, so the notice read "Ends
+  // 2027-08-17" — right date, wrong app.
+  const notice = await prisma.notification.findFirst({
+    where: { userId: paid.id, title: { contains: "ends in" } },
+    select: { body: true },
+  });
+  check("the date in it is dd/mm/yyyy", /Ends \d{2}\/\d{2}\/\d{4}\./.test(notice.body), true);
+  check("and not an ISO key", /\d{4}-\d{2}-\d{2}/.test(notice.body), false);
+
   const warn2 = await tick();
   check("a second tick doesn't warn again", warn2.expiring.warned, 0);
 } finally {

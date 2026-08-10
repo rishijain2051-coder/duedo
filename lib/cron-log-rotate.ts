@@ -2,7 +2,7 @@ import { prisma } from "./db";
 import { mainAdmin } from "./audit-rotate";
 import { toCsv } from "./csv";
 import { sendMail, isMailConfigured } from "./mail";
-import { zonedDayBounds } from "./time";
+import { formatInZone, zonedDayBounds } from "./time";
 import { toDateKey } from "./format";
 
 // Daily rotation of pg_cron's own run log, on exactly the same terms as the audit log:
@@ -131,12 +131,15 @@ export async function rotateCronLogIfDue(
   // Worth stating in the mail rather than leaving to be counted: a run that did not
   // succeed is the only reason to open this file.
   const failed = rows.filter((r) => r.status !== "succeeded").length;
-  const dateLabel = toDateKey(now, admin.timezone);
+  // dd/mm/yyyy for the human, ISO for the filename — see the same split in
+  // lib/audit-rotate.ts. A slash is a path separator, so the two cannot be one value.
+  const fileDate = toDateKey(now, admin.timezone);
+  const readDate = formatInZone(now, admin.timezone, false);
   const appName = process.env.APP_NAME || "DueDo";
 
   const sent = await deliver({
     to: admin.email,
-    subject: `${appName} scheduler log — ${rows.length} runs up to ${dateLabel}${failed ? ` (${failed} not succeeded)` : ""}`,
+    subject: `${appName} scheduler log — ${rows.length} runs up to ${readDate}${failed ? ` (${failed} not succeeded)` : ""}`,
     html: `
       <p>Attached is pg_cron's run history, ${rows.length} run${rows.length === 1 ? "" : "s"}
       up to ${cutoff.toISOString()}.</p>
@@ -148,7 +151,7 @@ export async function rotateCronLogIfDue(
     `,
     attachments: [
       {
-        filename: `scheduler-${dateLabel}.csv`,
+        filename: `scheduler-${fileDate}.csv`,
         content: csv,
         contentType: "text/csv; charset=utf-8",
       },

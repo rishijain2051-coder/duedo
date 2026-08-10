@@ -9,6 +9,7 @@ import { useCached } from "@/lib/cache";
 import { projectReminders, useOutbox } from "@/lib/offline";
 import { api } from "@/services/api";
 import { formatCurrency, formatTime, toDateKey } from "@/lib/format";
+import { INSTALL_TIME_ZONE, firstOfMonthIn } from "@/lib/time";
 import { cn } from "@/lib/utils";
 import type { Reminder } from "@/types";
 
@@ -39,10 +40,18 @@ export default function CalendarPage() {
     () => projectReminders(data ?? NO_REMINDERS, queued, timeZone),
     [data, queued, timeZone],
   );
-  const [cursor, setCursor] = useState(() => {
-    const now = new Date();
-    return new Date(now.getFullYear(), now.getMonth(), 1);
-  });
+  /**
+   * Which month the grid opens on. Pinned to the install's zone rather than read off
+   * the process clock, because this runs during render on both sides: `new Date()`
+   * with getMonth() is the server's month, and for the last five and a half hours of
+   * every month that is not the reader's — the header rendered August against markup
+   * that said September, and the page hydrated against the wrong month.
+   *
+   * Not the *user's* zone, which is deliberate: settings have not loaded during the
+   * first render, so there is nothing to read, and a value that changed once they
+   * arrived would move the grid under someone already looking at it.
+   */
+  const [cursor, setCursor] = useState(() => firstOfMonthIn(INSTALL_TIME_ZONE));
   /**
    * Which day the phone-sized list below the grid is showing.
    *

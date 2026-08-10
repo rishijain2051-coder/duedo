@@ -5,6 +5,16 @@
 // against Intl rather than a fixed +05:30 offset so any zone works — which
 // matters here, because each user picks their own.
 
+/**
+ * The install's own zone, for the few things that belong to the *install* rather than
+ * to a user — see copyrightYear below. Matches the User.timezone default in
+ * prisma/schema.prisma, which cannot import this and so states it again.
+ *
+ * Not a substitute for User.timezone. Anything a person reads about their own
+ * reminders is rendered in their zone, and always should be.
+ */
+export const INSTALL_TIME_ZONE = "Asia/Kolkata";
+
 const WANTED = ["year", "month", "day", "hour", "minute", "second"] as const;
 
 interface Wall {
@@ -247,6 +257,49 @@ export function humanizeMinutes(total: number): string {
   if (d < 7) return `${d} day${d === 1 ? "" : "s"}`;
   const w = Math.round(d / 7);
   return `${w} week${w === 1 ? "" : "s"}`;
+}
+
+/**
+ * The first of "this month" in `timeZone`, as a plain local Date used only for its
+ * year and month.
+ *
+ * For a month grid whose initial position is chosen during render. `new Date()` +
+ * getMonth() reads the *process* clock, so a server in UTC and a reader in India
+ * disagree about which month it is for the last five and a half hours of every one —
+ * the calendar's header then says August on the server and September in the browser,
+ * and the page hydrates against markup for a different month.
+ *
+ * The returned Date is not a meaningful instant and must not be treated as one. Its
+ * year and month are the zone's; its time-of-day and offset are the process's.
+ */
+export function firstOfMonthIn(timeZone: string, now: Date = new Date()): Date {
+  const w = wallClock(now, timeZone);
+  return new Date(w.year, w.month - 1, 1);
+}
+
+/**
+ * The year for the copyright line, pinned to the install's zone.
+ *
+ * `new Date().getFullYear()` is the obvious way to write this and is a hydration bug
+ * for five and a half hours every year. Between 18:30 and midnight UTC on 31 December
+ * the server is still in the old year while a reader in India is already in the new
+ * one, so the server sends 2026, the browser renders 2027, and React throws away the
+ * footer's subtree — on the one night when somebody might actually look at it.
+ *
+ * Pinning the zone is what makes both sides agree, and it is also the more correct
+ * answer: a copyright year belongs to whoever owns the software, not to whichever
+ * timezone the reader happens to be sitting in. Nobody's copyright notice should roll
+ * over at their local midnight.
+ *
+ * Still computed per call rather than at module scope — a value frozen when the
+ * serverless function cold-started would be stale for as long as the instance lived,
+ * and would differ from the browser's for exactly the same reason.
+ */
+export function copyrightYear(now: Date = new Date()): string {
+  return new Intl.DateTimeFormat("en-GB", {
+    timeZone: INSTALL_TIME_ZONE,
+    year: "numeric",
+  }).format(now);
 }
 
 /** The lead offsets the UI offers, in minutes before the due instant. */

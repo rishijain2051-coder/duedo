@@ -1,7 +1,7 @@
 import { prisma } from "./db";
 import { toCsv } from "./csv";
 import { sendMail, isMailConfigured } from "./mail";
-import { zonedDayBounds } from "./time";
+import { formatInZone, zonedDayBounds } from "./time";
 import { toDateKey } from "./format";
 
 // Daily rotation of the audit log: mail the day's entries to the owning admin, then
@@ -147,12 +147,17 @@ export async function rotateAuditLogIfDue(
     ]),
   );
 
-  const dateLabel = toDateKey(now, admin.timezone);
+  // Two forms of the same date, deliberately. The subject is read by a person and so
+  // is dd/mm/yyyy like every other date in the app; the filename cannot be, because
+  // those slashes are path separators. ISO in the filename also sorts correctly in a
+  // mail client, which is what you want of a year of these.
+  const fileDate = toDateKey(now, admin.timezone);
+  const readDate = formatInZone(now, admin.timezone, false);
   const appName = process.env.APP_NAME || "DueDo";
 
   const sent = await deliver({
     to: admin.email,
-    subject: `${appName} audit log — ${rows.length} entries up to ${dateLabel}`,
+    subject: `${appName} audit log — ${rows.length} entries up to ${readDate}`,
     html: `
       <p>Attached is the ${appName} audit log, ${rows.length} entr${rows.length === 1 ? "y" : "ies"}
       up to ${cutoff.toISOString()}.</p>
@@ -162,7 +167,7 @@ export async function rotateAuditLogIfDue(
     `,
     attachments: [
       {
-        filename: `audit-${dateLabel}.csv`,
+        filename: `audit-${fileDate}.csv`,
         content: csv,
         contentType: "text/csv; charset=utf-8",
       },
