@@ -7,12 +7,7 @@ import { readEscalation, type EscalationTarget } from "./escalation";
 import { contactSendable } from "./external-contacts";
 import { recipientsFor, countOutstandingFor } from "./recipients";
 import { familyIdsFor } from "./families";
-import {
-  INSTALL_TIME_ZONE,
-  formatInZone,
-  formatTimeInZone,
-  humanizeMinutes,
-} from "./time";
+import { INSTALL_TIME_ZONE, humanizeMinutes, relativeDayPhrase } from "./time";
 // lib/plan.ts and not lib/plan-guard.ts on purpose: this file reads an entitlement,
 // it never refuses a write, and importing the guard would put a throw within reach of
 // the one code path that must never have one.
@@ -285,25 +280,29 @@ function planFires(r: ReminderRow, now: Date, overdueRepeatMins: number): Fire[]
  * on a shared family reminder those can differ, and a time the reader can't act
  * on is worse than no time.
  */
-function buildCopy(fire: Fire, timeZone: string): { title: string; body: string } {
+function buildCopy(
+  fire: Fire,
+  timeZone: string,
+  now: Date,
+): { title: string; body: string } {
   const { reminder: r, kind, minutesUntilDue } = fire;
   const amount =
     r.amount && r.amount > 0 ? ` · ₹${r.amount.toLocaleString("en-IN")}` : "";
   // Family reminders say which household, since a member may be in several.
   const scope = r.family?.name ? ` [${r.family.name}]` : "";
-  const category = r.category?.name ? ` (${r.category.name})` : "";
+  /** "today at 5:30 am" — what a lock screen is actually read for. */
+  const when = relativeDayPhrase(r.dueAt, timeZone, now);
 
-  if (kind === "lead") {
-    return {
-      title: `${r.title}${scope}`,
-      body: `Due in ${humanizeMinutes(minutesUntilDue)} — ${formatInZone(r.dueAt, timeZone)}${amount}`,
-    };
-  }
-  if (kind === "due") {
-    return {
-      title: `Due now: ${r.title}${scope}`,
-      body: `${formatTimeInZone(r.dueAt, timeZone)}${category}${amount}`,
-    };
+  // The title is the reminder and nothing else. It used to carry the state — "Due
+  // now:", "Still due:" — which pushed the thing itself past the truncation point on
+  // a narrow lock screen, so a glance showed the status of a reminder you could no
+  // longer read the name of. The state belongs in the body, which has the room, and
+  // the state is never lost because there is one notification per reminder: the tag
+  // is `reminder-<id>`, so a nag replaces its predecessor rather than stacking.
+  const title = `${r.title}${scope}`;
+
+  if (kind === "lead" || kind === "due") {
+    return { title, body: `Due ${when}${amount}` };
   }
   // Escalation goes to somebody who is not the person who was supposed to do it — the
   // family head, an admin, or a contact outside the app entirely. Worded like the
@@ -314,15 +313,18 @@ function buildCopy(fire: Fire, timeZone: string): { title: string; body: string 
     const whose = r.assignedTo?.name
       ? `Assigned to ${r.assignedTo.name}`
       : "Nobody has taken it on";
+    // The one case that keeps a prefix in the title. This lands on somebody who was
+    // never expecting it — a family head, an admin, a landlord — and a bare reminder
+    // name reads as one of their own.
     return {
       title: `Still not done: ${r.title}${scope}`,
-      body: `${whose} — overdue by ${humanizeMinutes(-minutesUntilDue)}, was due ${formatInZone(r.dueAt, timeZone)}${amount}`,
+      body: `${whose} — overdue by ${humanizeMinutes(-minutesUntilDue)}, was due ${when}${amount}`,
     };
   }
 
   return {
-    title: `Still due: ${r.title}${scope}`,
-    body: `Overdue by ${humanizeMinutes(-minutesUntilDue)} — was due ${formatInZone(r.dueAt, timeZone)}${amount}`,
+    title,
+    body: `Overdue by ${humanizeMinutes(-minutesUntilDue)} — was due ${when}${amount}`,
   };
 }
 
@@ -602,7 +604,7 @@ export async function dispatchDueReminders(
       deliveredToAnyone = true;
       summary.recipients++;
 
-      const { title, body } = buildCopy(fire, person.timezone);
+      const { title, body } = buildCopy(fire, person.timezone, now);
 
       // The in-app feed records every alert regardless of channel, so nothing is
       // lost when a push fails or email is off.

@@ -260,6 +260,38 @@ export function humanizeMinutes(total: number): string {
 }
 
 /**
+ * When something is due, as a person would say it: "today at 5:30 am", "tomorrow at
+ * 9:00 pm", "on 17/08/2026 at 5:30 am".
+ *
+ * For notification copy. A lock screen is read in a second and "10/08/2026, 5:30 am"
+ * makes you work out whether that is today — which is the only thing you actually
+ * wanted to know. Beyond a day either side the date is the clearer answer, because
+ * "in 6 days" is not something anyone can act on without a calendar.
+ *
+ * Both instants are read in `timeZone`, which on a shared family reminder is the
+ * *recipient's* rather than the creator's — a time the reader cannot act on is worse
+ * than no time at all.
+ */
+export function relativeDayPhrase(
+  instant: Date,
+  timeZone: string,
+  now: Date = new Date(),
+): string {
+  const at = formatTimeInZone(instant, timeZone);
+  const target = dateKey(wallClock(instant, timeZone));
+  const today = wallClock(now, timeZone);
+
+  if (target === dateKey(today)) return `today at ${at}`;
+  // Built by shifting the *wall clock* date rather than adding 24 hours to the
+  // instant, so this stays right across a DST change in zones that have one.
+  const shifted = (days: number) =>
+    dateKey(wallClock(new Date(Date.UTC(today.year, today.month - 1, today.day + days)), "UTC"));
+  if (target === shifted(1)) return `tomorrow at ${at}`;
+  if (target === shifted(-1)) return `yesterday at ${at}`;
+  return `on ${formatInZone(instant, timeZone, false)} at ${at}`;
+}
+
+/**
  * The first of "this month" in `timeZone`, as a plain local Date used only for its
  * year and month.
  *

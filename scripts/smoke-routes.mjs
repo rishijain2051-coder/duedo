@@ -1330,9 +1330,8 @@ try {
   // amount of ordinary use would ever find them. Pinned to the install's zone, so a
   // boundary instant has one answer whatever TZ the process runs under.
   console.log("\n17. Clock-derived render values do not depend on the process timezone");
-  const { copyrightYear, firstOfMonthIn, INSTALL_TIME_ZONE } = await import(
-    "../lib/time.ts"
-  );
+  const { copyrightYear, firstOfMonthIn, relativeDayPhrase, INSTALL_TIME_ZONE } =
+    await import("../lib/time.ts");
 
   // 19:00 UTC on 31 December is already 00:30 on 1 January in India.
   const newYearEve = new Date("2026-12-31T19:00:00Z");
@@ -1386,6 +1385,33 @@ try {
   check("a partial entry yields nothing", textToIso("03/04"), "");
   check("slashes appear as digits are typed", maskDate("0304"), "03/04");
   check("and stop at eight digits", maskDate("030420279999"), "03/04/2027");
+
+  // ──────────────────────────────────────────────────────────────────────────────
+  // Notification copy. A lock screen is read in about a second, and "10/08/2026,
+  // 5:30 am" makes the reader work out whether that is today — which is the only
+  // thing they wanted to know.
+  console.log("\n19. Alert copy says when in words a glance can use");
+  const TZ = "Asia/Kolkata";
+  const noonIST = new Date("2026-08-10T06:30:00Z");
+  const at530 = (offsetDays) => new Date(Date.UTC(2026, 7, 10 + offsetDays, 0, 0, 0));
+
+  check("today", relativeDayPhrase(at530(0), TZ, noonIST), "today at 5:30 am");
+  check("tomorrow", relativeDayPhrase(at530(1), TZ, noonIST), "tomorrow at 5:30 am");
+  check("yesterday", relativeDayPhrase(at530(-1), TZ, noonIST), "yesterday at 5:30 am");
+  // Past a day either side the date is clearer — "in 6 days" cannot be acted on
+  // without a calendar. And it is dd/mm/yyyy, like every other date here.
+  check(
+    "further out falls back to the date",
+    relativeDayPhrase(at530(7), TZ, noonIST),
+    "on 17/08/2026 at 5:30 am",
+  );
+  // Read in the *recipient's* zone. 20:00 UTC is already tomorrow in India, and a
+  // family reminder's reader may not be in the creator's zone at all.
+  check(
+    "and the zone that decides is the reader's",
+    relativeDayPhrase(new Date("2026-08-10T20:00:00Z"), TZ, noonIST),
+    "tomorrow at 1:30 am",
+  );
 } finally {
   await cleanup();
   await prisma.$disconnect();
