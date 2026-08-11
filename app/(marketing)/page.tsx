@@ -1,5 +1,7 @@
 import Link from "next/link";
 import LandingMotion from "./landing-motion";
+import StickyCta from "./sticky-cta";
+import { StructuredData } from "./structured-data";
 
 /**
  * The landing page.
@@ -815,10 +817,23 @@ export default function LandingPage() {
           <b>DueDo</b>
         </div>
         <p>Bills, birthdays, renewals, and the person who said they&apos;d handle it.</p>
+        {/* The only links out of this page that are not calls to action. A landing page
+            with no route to its own policies asks people to trust it on nothing. */}
+        <nav className="foot__links" aria-label="Site">
+          <a href="#how">How it works</a>
+          <a href="#pricing">Pricing</a>
+          <Link href="/privacy">Privacy</Link>
+          <Link href="/terms">Terms</Link>
+          <Link href="/dashboard" prefetch={false}>
+            Open the app
+          </Link>
+        </nav>
         <small>Made for the household that keeps forgetting. © 2026 DueDo.</small>
       </footer>
 
+      <StickyCta />
       <LandingMotion />
+      <StructuredData />
     </>
   );
 }

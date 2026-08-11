@@ -1343,6 +1343,61 @@ try {
   // Presence of the cookie is all the middleware checks, so this also covers the
   // stale-cookie case — /dashboard is where a bad one gets found out.
   check("a signed-in visitor is redirected off the root", (await admin("GET", "/")).status, 307);
+
+  // ────────────────────────────────────────────────────────────────────────────
+  console.log("\n19b. The public pages a stranger and a crawler can reach");
+
+  for (const path of ["/privacy", "/terms", "/thank-you"]) {
+    check(`GET ${path}`, (await fetch(`${BASE}${path}`, { redirect: "manual" })).status, 200);
+  }
+
+  // A wrong URL must answer 404. It answered 500 once: a global app/not-found.tsx has
+  // no root layout to render inside when the app has two of them, so the error page
+  // itself threw. And a pretty 404 served as 200 is a soft 404 — invisible to a person,
+  // and indexed as real content by everything else.
+  const missing = await fetch(`${BASE}/no-such-page-here`, { redirect: "manual" });
+  check("an unrouted URL is a 404", missing.status, 404);
+  const missingBody = await missing.text();
+  check("and it is the custom page, not a stack trace", missingBody.includes("Error 404"), true);
+
+  const robots = await fetch(`${BASE}/robots.txt`);
+  const robotsBody = await robots.text();
+  check("GET /robots.txt", robots.status, 200);
+  // The allowlist only holds while the root is anchored. A bare `Allow: /` is a prefix
+  // that matches every URL on the site and would quietly open the whole app.
+  check("robots anchors the root", robotsBody.includes("Allow: /$"), true);
+  check("robots disallows everything else", robotsBody.includes("Disallow: /"), true);
+  check("robots names the sitemap", robotsBody.includes("/sitemap.xml"), true);
+
+  const sitemap = await fetch(`${BASE}/sitemap.xml`);
+  const sitemapBody = await sitemap.text();
+  check("GET /sitemap.xml", sitemap.status, 200);
+  check("sitemap lists the legal pages", sitemapBody.includes("/privacy"), true);
+  // Arriving at a thank-you page from a search result means the funnel leaked.
+  check("sitemap omits /thank-you", sitemapBody.includes("thank-you"), false);
+
+  // Structured data is worse than none when it describes a page that does not exist,
+  // and a JSON syntax error means the whole block is discarded silently.
+  // Reusing landingHtml from the block above rather than fetching the page twice.
+  const ld = landingHtml.match(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/);
+  check("the landing carries JSON-LD", Boolean(ld), true);
+  let parsed = null;
+  try {
+    parsed = JSON.parse(ld?.[1] ?? "");
+  } catch {
+    /* left null, asserted below */
+  }
+  check("and it parses", parsed !== null, true);
+  check(
+    "and it declares the FAQ that is on the page",
+    (parsed?.["@graph"] ?? []).some((n) => n["@type"] === "FAQPage"),
+    true,
+  );
+
+  // Nothing behind the PIN should ever be indexed.
+  const dash = await (await fetch(`${BASE}/dashboard`)).text();
+  check("authenticated pages are noindex", dash.includes("noindex"), true);
+  check("public pages are not", landingHtml.includes("noindex"), false);
   const manifest = await fetch(`${BASE}/manifest.json`);
   check("GET /manifest.json", manifest.status, 200);
   check("the manifest names the app", (await manifest.json()).name?.length > 0, true);

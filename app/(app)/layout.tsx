@@ -7,8 +7,19 @@ import { ThemeApplier } from "@/components/theme-applier";
 import { THEME_ACCENT_KEY, THEME_MODE_KEY } from "@/lib/theme-keys";
 
 export const metadata: Metadata = {
-  title: "DueDo — Just missed it? Never again.",
+  // Every screen sets its own, so the browser tab and the history entry name the page
+  // rather than the app — six identical "DueDo" entries are unusable when you are
+  // trying to get back to the one you were on.
+  title: {
+    default: "DueDo — Just missed it? Never again.",
+    template: "%s · DueDo",
+  },
   description: "Bills, birthdays, renewals — sorted.",
+  // Nothing behind the PIN belongs in a search index. A crawler that reaches one of
+  // these gets the login screen and would otherwise file it under the wrong URL, so
+  // "DueDo — Reminders" in a result would open a PIN prompt. robots.ts disallows them
+  // all as well; this is the half that survives somebody linking straight to one.
+  robots: { index: false, follow: false },
   manifest: "/manifest.json",
   applicationName: "DueDo",
   appleWebApp: {

@@ -648,6 +648,15 @@ html { caret-color: var(--brand-soft); scrollbar-color: #2a2a36 var(--bg); scrol
 .foot__brand { display: flex; align-items: center; gap: 10px; font-family: var(--display); font-size: 1.08rem }
 .foot p { color: var(--muted); font-size: .92rem }
 .foot small { color: #8b8b9a; font-size: .78rem }
+/* The site's only internal navigation below the fold. Worth having on every page:
+   a legal page reached from a search result is otherwise a dead end, and a crawler
+   that arrives there has nowhere to go next either. */
+.foot__links {
+  display: flex; flex-wrap: wrap; justify-content: center; gap: 8px 22px;
+  font-size: .88rem; color: var(--muted); margin-top: 4px;
+}
+.foot__links a { transition: color .2s ease }
+.foot__links a:hover { color: var(--brand-soft) }
 
 /* ── phones ─────────────────────────────────────────────────── */
 @media (max-width: 720px) {
@@ -685,6 +694,107 @@ html { caret-color: var(--brand-soft); scrollbar-color: #2a2a36 var(--bg); scrol
   .chain__nodes { grid-template-columns: 1fr }
   .tier { padding: 26px 22px 24px }
 }
+
+/* ── sticky CTA (phones only) ─────────────────────────────────
+   Desktop keeps a pinned nav with its own button, so this would be a second copy of
+   something already on screen. Below 720px the nav collapses to a hamburger and there
+   is nothing to tap between the hero and the footer. */
+.sticky-cta { display: none }
+
+@media (max-width: 720px) {
+  .sticky-cta {
+    position: fixed; z-index: 880;
+    left: 12px; right: 12px;
+    /* Above the iPhone home indicator, not under it. */
+    bottom: calc(12px + env(safe-area-inset-bottom));
+    display: flex; align-items: center; justify-content: space-between; gap: 14px;
+    padding: 11px 12px 11px 18px;
+    border: 1px solid var(--line); border-radius: 100px;
+    background: rgba(10,10,17,.86);
+    backdrop-filter: blur(20px) saturate(150%);
+    /* Offset and blur, so it reads as sitting above the page rather than printed on it. */
+    box-shadow: 0 12px 34px rgba(0,0,0,.5);
+    /* Off-screen rather than display:none, so it can animate — and pointer-events off,
+       so an invisible bar cannot swallow a tap meant for the page behind it. */
+    transform: translateY(calc(100% + 24px));
+    opacity: 0;
+    pointer-events: none;
+    transition: transform .42s var(--ease-out), opacity .28s var(--ease-out);
+  }
+  .sticky-cta.is-shown { transform: translateY(0); opacity: 1; pointer-events: auto }
+  .sticky-cta__text { display: grid; gap: 1px; min-width: 0 }
+  .sticky-cta__text strong { font-family: var(--display); font-size: .95rem; font-weight: 700 }
+  .sticky-cta__text span {
+    font-size: .72rem; color: var(--muted);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .sticky-cta .btn { flex: none }
+  /* The footer is the one place it would cover content rather than float over it. */
+  .foot { padding-bottom: 96px }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sticky-cta { transition: opacity .12s linear }
+}
+
+/* ── documents ────────────────────────────────────────────────
+   The legal pages and the thank-you page. Same tokens and same type as the landing,
+   but none of its motion: these exist to be read once, carefully, usually by somebody
+   who is already annoyed about something. */
+.doc {
+  max-width: 74ch;              /* the measure, not a column width — 65-75ch reads */
+  margin: 0 auto;
+  padding: calc(var(--nav-clearance) + 34px) var(--pad) 110px;
+}
+.doc__crumbs {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+  font-family: var(--mono); font-size: .72rem; letter-spacing: .06em;
+  text-transform: uppercase; color: var(--muted); margin-bottom: 26px;
+}
+.doc__crumbs a:hover { color: var(--brand-soft) }
+.doc__crumbs i { font-style: normal; opacity: .45 }
+.doc h1 {
+  font-family: var(--display); font-weight: 800;
+  font-size: clamp(2rem, 4.6vw, 3.1rem);
+  line-height: 1.05; letter-spacing: -.035em; text-wrap: balance;
+}
+.doc__meta {
+  font-family: var(--mono); font-size: .74rem; letter-spacing: .06em;
+  color: var(--muted); margin-top: 14px;
+}
+/* More space above a heading than below it, so a section reads as belonging to the
+   text under it rather than floating between two. */
+.doc h2 {
+  font-family: var(--display); font-weight: 700;
+  font-size: clamp(1.25rem, 2.2vw, 1.6rem);
+  line-height: 1.2; letter-spacing: -.02em;
+  margin: 54px 0 14px;
+}
+.doc h3 {
+  font-family: var(--display); font-weight: 600; font-size: 1.06rem;
+  margin: 30px 0 8px;
+}
+.doc p, .doc li { color: #c9c9d6; font-size: 1.02rem; line-height: 1.72 }
+.doc p + p { margin-top: 15px }
+.doc ul, .doc ol { margin: 15px 0 0 1.15em; display: grid; gap: 9px }
+.doc li::marker { color: var(--brand-soft) }
+.doc a { color: var(--brand-soft); text-decoration: underline; text-underline-offset: 3px }
+.doc a:hover { color: var(--fg) }
+.doc strong { color: var(--fg) }
+.doc__lede { font-size: 1.12rem !important; color: var(--fg) !important; margin-top: 22px }
+
+/* The one thing on these pages that is not prose: a claim worth not burying. */
+.doc__note {
+  margin-top: 28px; padding: 20px 22px;
+  border: 1px solid var(--line); border-left: 1px solid var(--brand);
+  border-radius: 14px; background: var(--glass);
+}
+.doc__note p { font-size: .97rem }
+
+.doc__contact {
+  margin-top: 60px; padding-top: 26px; border-top: 1px solid var(--line);
+}
+.doc__mark { margin: 0 auto; display: block }
 
 /* ── start states ─────────────────────────────────────────────
    All gated behind .anim, which the inline script in the layout adds before first

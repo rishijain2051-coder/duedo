@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Check, Mail, MessageCircle, Minus } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { useApp } from "@/components/app-context";
@@ -73,6 +74,7 @@ function Value({ v }: { v: string | boolean }) {
 
 export default function UpgradePage() {
   const { settings, timeZone } = useApp();
+  const router = useRouter();
   // planSpec, not a bare index: a settings blob cached by an older build has no `plan`
   // at all, and that first paint must not take the page down.
   const current: PlanId = planSpec(settings?.plan).id;
@@ -91,6 +93,20 @@ export default function UpgradePage() {
   }
 
   const canContact = Boolean(WHATSAPP || CONTACT_EMAIL);
+
+  /**
+   * Sends this tab to the thank-you page while the message opens in a new one.
+   *
+   * Without it the CTA is a dead end: WhatsApp takes over, and coming back you are
+   * looking at the same pricing table you just acted on, with nothing to say the
+   * request went anywhere. Since the plan is switched on by hand, there is no state
+   * the app can observe to tell you — so the page that says what happens next, and by
+   * when, has to be the thing that acknowledges it.
+   *
+   * Not preventing the default: the link still opens the message. This only moves the
+   * tab being left behind.
+   */
+  const acknowledge = () => router.push("/thank-you");
 
   return (
     <div className="mx-auto max-w-4xl space-y-4 py-2">
@@ -160,6 +176,7 @@ export default function UpgradePage() {
                     href={reach(id)}
                     target="_blank"
                     rel="noopener noreferrer"
+                    onClick={acknowledge}
                     className={`${BTN} w-full bg-primary text-primary-foreground shadow hover:bg-primary/90`}
                   >
                     {WHATSAPP ? (
@@ -192,6 +209,7 @@ export default function UpgradePage() {
               href={reach("family")}
               target="_blank"
               rel="noopener noreferrer"
+              onClick={acknowledge}
               className={`${BTN} border border-border bg-transparent shadow-sm hover:bg-accent hover:text-accent-foreground`}
             >
               Talk to us

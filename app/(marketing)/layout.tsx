@@ -1,10 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import {
-  Bricolage_Grotesque,
-  Schibsted_Grotesk,
-  Newsreader,
-  JetBrains_Mono,
-} from "next/font/google";
+import { FONT_VARS } from "../fonts";
 import "./landing.css";
 
 /**
@@ -28,36 +23,6 @@ import "./landing.css";
  * ways is four designs nobody signed off.
  */
 
-const display = Bricolage_Grotesque({
-  subsets: ["latin"],
-  weight: ["400", "600", "800"],
-  variable: "--font-display",
-  display: "swap",
-});
-
-const body = Schibsted_Grotesk({
-  subsets: ["latin"],
-  weight: ["400", "500", "600"],
-  variable: "--font-body",
-  display: "swap",
-});
-
-// Italic only — it sets about six accent words on the whole page.
-const serif = Newsreader({
-  subsets: ["latin"],
-  style: ["italic"],
-  weight: ["300", "400"],
-  variable: "--font-serif",
-  display: "swap",
-});
-
-const mono = JetBrains_Mono({
-  subsets: ["latin"],
-  weight: ["400", "600"],
-  variable: "--font-mono",
-  display: "swap",
-});
-
 /**
  * `metadataBase` is the setting that earns its place here: it makes `openGraph.images`
  * and `canonical` absolute. Most scrapers drop a relative og:image rather than
@@ -74,7 +39,13 @@ const DESCRIPTION =
 
 export const metadata: Metadata = {
   metadataBase: new URL(process.env.APP_URL ?? "https://duedo.vercel.app"),
-  title: "DueDo · never miss a bill, a birthday, or a renewal",
+  // `default` for the landing itself, `template` for everything under it — so
+  // /privacy is "Privacy Policy · DueDo" and never a bare "Privacy Policy", which is
+  // what a search result would otherwise show with nothing to say whose it is.
+  title: {
+    default: "DueDo · never miss a bill, a birthday, or a renewal",
+    template: "%s · DueDo",
+  },
   description: DESCRIPTION,
   alternates: { canonical: "/" },
   openGraph: {
@@ -131,11 +102,7 @@ export default function MarketingLayout({
     // hydrates, so the server HTML and the live DOM are *meant* to differ here. It
     // suppresses the warning for this element's own attributes only — a genuine
     // mismatch anywhere inside still reports.
-    <html
-      lang="en"
-      suppressHydrationWarning
-      className={`${display.variable} ${body.variable} ${serif.variable} ${mono.variable}`}
-    >
+    <html lang="en" suppressHydrationWarning className={FONT_VARS}>
       <head>
         <script dangerouslySetInnerHTML={{ __html: ANIM_GATE }} />
       </head>
