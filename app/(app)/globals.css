@@ -126,19 +126,11 @@ body {
 }
 
 /*
- * The wordmark paints its gradient through the text. In forced-colors mode the
- * browser drops background images, and `color: transparent` would leave nothing
- * behind — an invisible app name. Fall back to the system colour.
+ * The .wordmark forced-colors fallback lived here. It existed because the app name was
+ * painted as a gradient through transparent text, which forced-colors renders as
+ * nothing at all — so the rule put the colour back. The name is plain now and the mark
+ * beside it carries the brand, so there is no gradient left to rescue.
  */
-@media (forced-colors: active) {
-  .wordmark {
-    -webkit-background-clip: border-box;
-    background-clip: border-box;
-    background-image: none;
-    color: CanvasText;
-    forced-color-adjust: none;
-  }
-}
 
 /*
  * Honour "reduce motion". The button press/hover scale and the spinners are

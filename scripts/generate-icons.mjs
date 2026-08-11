@@ -21,18 +21,35 @@ const OUT = "public/icons";
  */
 const GLYPH = "M143 392 V120 H233 a136 136 0 0 1 0 272 H143";
 
-/** @param {number} inset  Padding as a fraction, for the maskable variant's safe zone. */
-function svg(inset = 0) {
+/**
+ * The tile gradient, blue into violet.
+ *
+ * The violet end is the brand's, not this script's: it is what assets/logo.svg strokes
+ * the letter with and what the marketing site's own favicon fills its tile with. This
+ * file used to stop at #60a5fa, a lighter blue, so the product's icon and the brand
+ * mark were two different objects at a glance. One palette.
+ */
+const FROM = "#2563eb";
+const TO = "#8b5cf6";
+
+/**
+ * @param {number} inset   Padding as a fraction, for the maskable variant's safe zone.
+ * @param {number} radius  Corner radius in the 512 box. Only the tab icon takes one —
+ *   every other consumer applies its own mask, and rounding a tile that iOS or Android
+ *   is about to round again leaves the corners cut out of the shape twice.
+ */
+function svg(inset = 0, radius = 0) {
   const s = 1 - inset * 2;
   const t = `translate(${512 * inset} ${512 * inset}) scale(${s})`;
+  const rx = radius ? ` rx="${radius}"` : "";
   return `<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
   <defs>
     <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#2563eb"/>
-      <stop offset="100%" stop-color="#60a5fa"/>
+      <stop offset="0%" stop-color="${FROM}"/>
+      <stop offset="100%" stop-color="${TO}"/>
     </linearGradient>
   </defs>
-  <rect width="512" height="512" fill="url(#g)"/>
+  <rect width="512" height="512"${rx} fill="url(#g)"/>
   <g transform="${t}" stroke="#ffffff" stroke-width="56" stroke-linecap="round" stroke-linejoin="round" fill="none">
     <path d="${GLYPH}"/>
   </g>
@@ -70,5 +87,10 @@ for (const { name, size, source } of targets) {
 // never linked, which is how app/favicon.ico survived the DueDo rename untouched and
 // went on showing the old "P" in every browser tab while every icon here had changed.
 // One source, generated, linked from one place.
-await writeFile("public/icons/icon.svg", svg(0));
+//
+// Rounded, unlike every PNG above: this one is drawn as-is in a browser tab and in a
+// bookmark list, with nothing applying a mask on top. 112 of 512 is the radius the
+// marketing site's favicon uses, kept the same so the tab looks identical whichever
+// of the two a visitor happens to be on.
+await writeFile("public/icons/icon.svg", svg(0, 112));
 console.log("icon.svg");

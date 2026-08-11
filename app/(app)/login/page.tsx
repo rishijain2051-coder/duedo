@@ -16,6 +16,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Field, Input } from "@/components/ui/form";
 import { Credit } from "@/components/credit";
+import { Mark } from "@/components/brand";
 import { lastEmail, rememberEmail, setCacheOwner } from "@/lib/cache";
 import { useClientOnly } from "@/lib/client-only";
 import { api } from "@/services/api";
@@ -252,9 +253,11 @@ export default function LoginPage() {
     <div className="flex min-h-screen w-full flex-col items-center justify-center gap-4 bg-background p-4">
       <Card className="w-full max-w-sm">
         <CardHeader className="space-y-1 pb-6 text-center">
-          <CardTitle className="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-primary to-primary-soft">
-            DueDo
-          </CardTitle>
+          {/* The mark gets its one proper outing here — this is the screen a stranger
+              lands on, and it is the only place in the app with room to show it at a
+              size where the countdown arc is legible rather than a smudge. */}
+          <Mark size={56} className="mx-auto mb-1" />
+          <CardTitle className="text-3xl font-bold">DueDo</CardTitle>
           {/* The tagline sits here and nowhere else inside the app. This is the one
               screen a stranger sees before they know what the thing is; past the lock
               screen it would be decoration on a page they came to do something on. */}

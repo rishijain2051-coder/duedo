@@ -1,0 +1,56 @@
+<!--
+  DueDo mark.
+
+  Built on the app's own glyph (scripts/generate-icons.mjs): a stem at x=143 with a
+  true semicircular bowl, r=136, half the 272 of vertical travel. Kept identical so
+  the site and the PWA icon are the same letter.
+
+  What is added is the meaning: the bowl is wrapped in a dashed countdown arc with a
+  travelling dot, so the mark reads as a deadline closing in rather than just a D.
+  Animated by js/main.js via stroke-dashoffset; static here so it still works as a
+  favicon with no script.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="DueDo">
+  <defs>
+    <linearGradient id="dd-stroke" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#93c5fd"/>
+      <stop offset="45%" stop-color="#3b82f6"/>
+      <stop offset="100%" stop-color="#8b5cf6"/>
+    </linearGradient>
+
+    <linearGradient id="dd-ring" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0%" stop-color="#8b5cf6" stop-opacity="0.15"/>
+      <stop offset="60%" stop-color="#60a5fa" stop-opacity="0.9"/>
+      <stop offset="100%" stop-color="#93c5fd"/>
+    </linearGradient>
+
+    <filter id="dd-glow" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="14" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Countdown arc, concentric with the bowl (centre 233,256 r=136) at r=186. -->
+  <g class="dd-orbit" fill="none" stroke="url(#dd-ring)" stroke-linecap="round">
+    <circle cx="233" cy="256" r="186" stroke-width="10"
+            stroke-dasharray="4 22" opacity="0.55"/>
+    <path class="dd-arc" d="M233 70 a186 186 0 0 1 0 372"
+          stroke-width="16" stroke-dasharray="584" stroke-dashoffset="150"/>
+  </g>
+
+  <!-- The letter. -->
+  <g filter="url(#dd-glow)">
+    <path class="dd-glyph"
+          d="M143 392 V120 H233 a136 136 0 0 1 0 272 H143"
+          fill="none" stroke="url(#dd-stroke)" stroke-width="58"
+          stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+
+  <!-- The deadline, travelling the arc. -->
+  <circle class="dd-dot" cx="419" cy="256" r="19" fill="#e0edff"/>
+  <circle class="dd-dot-halo" cx="419" cy="256" r="19" fill="none"
+          stroke="#93c5fd" stroke-width="6" opacity="0.5"/>
+</svg>

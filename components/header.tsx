@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { Bell, LogOut, Menu, UserCircle } from "lucide-react";
 import { useApp } from "@/components/app-context";
+import { Mark } from "@/components/brand";
 
 export function Header({ onMenuToggle }: { onMenuToggle?: () => void }) {
   // No request of its own. This used to fetch up to 100 notification rows — every
@@ -30,8 +31,10 @@ export function Header({ onMenuToggle }: { onMenuToggle?: () => void }) {
         >
           <Menu className="h-6 w-6" />
         </button>
-        <span className="wordmark bg-gradient-to-r from-primary to-primary-soft bg-clip-text text-lg font-bold text-transparent md:hidden">
-          DueDo
+        {/* Same treatment as the sidebar: the mark is the colour, the name is plain. */}
+        <span className="flex items-center gap-2 md:hidden">
+          <Mark size={22} />
+          <span className="text-lg font-bold">DueDo</span>
         </span>
         <div className="hidden md:flex items-center gap-2 text-sm">
           <UserCircle className="h-5 w-5 text-muted-foreground" />

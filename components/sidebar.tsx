@@ -18,6 +18,7 @@ import {
 import { cn } from "@/lib/utils";
 import { useApp } from "@/components/app-context";
 import { Credit } from "@/components/credit";
+import { Mark } from "@/components/brand";
 
 // No "Family" entry: a family's shared list isn't a page of its own. Reminders and
 // Spending carry the Mine/family switcher (components/scope-tabs.tsx); Calendar and
@@ -116,21 +117,25 @@ function NavLinks({ onLogout }: { onLogout?: () => void }) {
   );
 }
 
+/**
+ * The mark carries the colour; the name is plain.
+ *
+ * It used to be the other way round — no mark, and "DueDo" painted with a gradient
+ * through transparent text. That needed a forced-colors fallback to stay visible at
+ * all, and it spent the brand's only colour moment on a word rather than on the
+ * letter drawn for it. With the real mark beside it, a second gradient on the text
+ * competes with the first and neither reads.
+ */
 function Wordmark({ small }: { small?: boolean }) {
   return (
-    <div>
-      <h1
-        className={cn(
-          // .wordmark carries the forced-colors fallback: the gradient is painted
-          // through transparent text, and forced-colors drops background images,
-          // which would otherwise leave the app name invisible.
-          "wordmark bg-gradient-to-r from-primary to-primary-soft bg-clip-text font-bold text-transparent",
-          small ? "text-xl" : "text-2xl",
-        )}
-      >
-        DueDo
-      </h1>
-      <p className="text-xs text-muted-foreground mt-1">Bills, birthdays, renewals — sorted</p>
+    <div className="flex items-start gap-2.5">
+      <Mark size={small ? 28 : 34} className="mt-0.5 shrink-0" />
+      <div className="min-w-0">
+        <h1 className={cn("font-bold", small ? "text-xl" : "text-2xl")}>DueDo</h1>
+        <p className="text-xs text-muted-foreground mt-1">
+          Bills, birthdays, renewals — sorted
+        </p>
+      </div>
     </div>
   );
 }
