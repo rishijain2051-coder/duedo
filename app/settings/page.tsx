@@ -72,9 +72,16 @@ import {
  * It carries a placeholder rather than a key, which is what makes one link safe for
  * everyone: a shortcut holding one person's key would file everybody's reminders into
  * that one account.
+ *
+ * The catch is that the app's own URL is baked *inside* the signed shortcut, so this
+ * constant is coupled to the domain even though it doesn't look it. Moving domain means
+ * building a new shortcut, re-sharing it, and replacing this id — an env var cannot
+ * reach in and change it. The link from before the DueDo rename kept resolving and
+ * installing perfectly, and every reminder it captured went to a host that no longer
+ * existed. Nothing here can detect that; DEPLOY.md carries it as a migration step.
  */
 const SHORTCUT_LINK =
-  "https://www.icloud.com/shortcuts/ede3aa13f3ab4d25a7d4c12b3dd757fc";
+  "https://www.icloud.com/shortcuts/4797a31447cc41e68c94b1d7e3df272e";
 
 const OVERDUE_CHOICES = [
   { minutes: 15, label: "Every 15 minutes" },

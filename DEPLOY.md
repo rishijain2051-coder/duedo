@@ -276,7 +276,28 @@ select "ranAt", considered, error from "DispatchRun" order by "ranAt" desc limit
 The admin health page runs both of these checks itself and says so in plain words —
 it is the easier way to do this step, and the only way to notice later.
 
-**5. Delete the old Vercel project.** Only after step 4 passes. Two projects on the
+**5. Re-share the Siri shortcut.** The app's URL is baked *inside* the signed shortcut,
+so `SHORTCUT_LINK` in [app/settings/page.tsx](app/settings/page.tsx) is coupled to the
+domain even though it reads like a constant. Nothing detects this: the old iCloud link
+keeps resolving, still installs without a warning, and posts every captured reminder at
+a host that no longer exists.
+
+Edit the shortcut on a phone, point **Get Contents of URL** at
+`https://<new-domain>/api/ingest/reminder`, leave the `Bearer <key_goes_here>`
+placeholder alone — a link carrying a real key would file everybody's reminders into
+one account — then share it and paste the new id into `SHORTCUT_LINK`.
+
+To check a link before shipping it, its record is public and the workflow inside is an
+uncompressed plist:
+
+```bash
+curl -s https://www.icloud.com/shortcuts/api/records/<id>
+```
+
+Take `fields.shortcut.value.downloadURL`, substitute anything for `${f}`, and grep the
+2 kB result for the host and for `duedo_` — the second must find nothing.
+
+**6. Delete the old Vercel project.** Only after step 4 passes. Two projects on the
 same database is not harmful — the dispatcher is idempotent — but it is two things to
 keep in your head.
 
