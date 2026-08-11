@@ -50,6 +50,15 @@ export default function AdminHealthPage() {
 
   const stale = data.lastRunMinutesAgo === null || data.lastRunMinutesAgo > 10;
 
+  // pg_cron marks a tick "succeeded" the moment net.http_post queues the request, so
+  // the tick status cannot say the app was reached — this install ran 3,580 successful
+  // ticks against a deleted deployment. Only the HTTP reply settles it. A null status
+  // means pg_net has nothing on file (it keeps a few hours), which is unknown rather
+  // than broken; the Scheduler flag above already covers "nothing has run".
+  const callStatus = data.scheduler.lastCallStatus;
+  const callAnswered = callStatus !== null && callStatus >= 200 && callStatus < 300;
+  const callBroken = callStatus !== null && !callAnswered;
+
   return (
     <div className="space-y-4">
       <Card>
@@ -110,16 +119,20 @@ export default function AdminHealthPage() {
             }
           />
           <Flag
-            ok={data.scheduler.jobScheduled && data.scheduler.jobActive}
+            ok={data.scheduler.jobScheduled && data.scheduler.jobActive && !callBroken}
             label="pg_cron job"
             hint={
               !data.scheduler.readable
                 ? "Could not read the cron catalogs — this says nothing about whether the job works."
                 : !data.scheduler.jobScheduled
                   ? "No job named duedo-dispatch. Run scripts/pg-cron-setup.sql."
-                  : data.scheduler.jobActive
-                    ? `Active. Last tick ${data.scheduler.lastTickStatus ?? "unknown"}.`
-                    : "Scheduled but inactive — it will never fire."
+                  : !data.scheduler.jobActive
+                    ? "Scheduled but inactive — it will never fire."
+                    : callBroken
+                      ? `Firing, but the app answers ${callStatus}. pg_cron calls that a success either way — it only reports that the request was queued.`
+                      : callAnswered
+                        ? `Active, and the app answered ${callStatus}.`
+                        : "Active."
             }
           />
         </CardContent>
@@ -134,6 +147,24 @@ export default function AdminHealthPage() {
           <p className="mt-1 text-xs">
             This is the database&rsquo;s own error, before the app was reached — so no
             dispatch run was recorded for it.
+          </p>
+        </div>
+      )}
+
+      {/* The failure this page previously could not describe. Postgres fired the job and
+          recorded a success; the app was never reached. The body is the actionable part —
+          "DEPLOYMENT_NOT_FOUND" is what named the cause when a rename left the job
+          pointed at a deleted deployment. */}
+      {callBroken && (
+        <div className="rounded-md border border-destructive/40 bg-destructive/10 px-4 py-2 text-sm text-red-700 dark:text-red-400">
+          <p className="font-medium">The scheduled call is not reaching the app</p>
+          <p className="mt-1 whitespace-pre-wrap break-words font-mono text-xs">
+            HTTP {callStatus}
+            {data.scheduler.lastCallBody ? `\n${data.scheduler.lastCallBody}` : ""}
+          </p>
+          <p className="mt-1 text-xs">
+            Check the URL inside the pg_cron job against APP_URL, and that CRON_SECRET
+            matches on both sides. Re-running scripts/pg-cron-setup.sql repoints it.
           </p>
         </div>
       )}

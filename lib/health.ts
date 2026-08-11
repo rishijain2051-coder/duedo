@@ -24,6 +24,10 @@ interface SchedulerState {
   lastTickAt: Date | null;
   lastTickStatus: string | null;
   lastTickError: string | null;
+  /** null when pg_net has no response on file — not the same as "failed". */
+  lastCallAt: Date | null;
+  lastCallStatus: number | null;
+  lastCallBody: string | null;
 }
 
 /**
@@ -35,6 +39,14 @@ interface SchedulerState {
  * `net.http_post` with nothing anywhere in the app to say so. The dispatcher was
  * never reached, so there was no DispatchRun row to record a failure — the only
  * symptom was a stale "last ran" and a red flag with no explanation.
+ *
+ * The second failure mode is worse, because pg_cron calls it a success. `net.http_post`
+ * only *queues* the request and returns a row id, so `cron.job_run_details.status` says
+ * "succeeded" as soon as the statement runs — it cannot know what the app replied, or
+ * whether anything answered at all. This install spent 3,580 consecutive ticks marked
+ * succeeded while every one of them got `404 DEPLOYMENT_NOT_FOUND` from a Vercel project
+ * that had been deleted in a rename. The tick status is therefore reported but never
+ * trusted on its own; `net._http_response` is where the truth is.
  *
  * Everything here is best-effort. The cron catalogs need privileges the app's role
  * may not keep forever, so a failure sets `readable: false` rather than breaking
@@ -50,6 +62,9 @@ async function schedulerState(): Promise<SchedulerState> {
     lastTickAt: null,
     lastTickStatus: null,
     lastTickError: null,
+    lastCallAt: null,
+    lastCallStatus: null,
+    lastCallBody: null,
   };
 
   try {
@@ -74,6 +89,35 @@ async function schedulerState(): Promise<SchedulerState> {
     `;
     const tick = ticks[0];
 
+    // What the app actually replied. There is no url or jobid on this table, so this
+    // cannot be joined to the job — it is simply the most recent outbound call pg_net
+    // made, and the dispatch job is the only thing in this database that calls it.
+    //
+    // pg_net expires these after a few hours (measured: 360 rows, a six-hour window at
+    // a call a minute), so an absent row means "nothing called recently", which is
+    // already covered by the staleness check above. It must not read as a failure.
+    //
+    // Caught separately from the cron catalogs on purpose: `net` is a different schema
+    // with its own grants, and losing it must not blank out the job facts next to it —
+    // those are the ones that say whether anything is scheduled at all.
+    let call: {
+      status_code: number | null;
+      content: string | null;
+      error_msg: string | null;
+      created: Date;
+    } | undefined;
+    try {
+      const calls = await prisma.$queryRaw<NonNullable<typeof call>[]>`
+        select status_code, content, error_msg, created
+        from net._http_response
+        order by created desc
+        limit 1
+      `;
+      call = calls[0];
+    } catch {
+      call = undefined;
+    }
+
     return {
       readable: true,
       pgCronInstalled: names.has("pg_cron"),
@@ -85,6 +129,15 @@ async function schedulerState(): Promise<SchedulerState> {
       // Only the failure text is surfaced; a success message is just "1 row".
       lastTickError:
         tick && tick.status !== "succeeded" ? (tick.return_message?.trim() ?? null) : null,
+      lastCallAt: call?.created ?? null,
+      lastCallStatus: call?.status_code ?? null,
+      // A transport failure (DNS, TLS, timeout) leaves status_code null and the reason
+      // in error_msg; an HTTP failure puts the reason in the body. Whichever exists is
+      // the actionable sentence — "DEPLOYMENT_NOT_FOUND" is what named the real cause
+      // here. Truncated because a Next.js error page is a screenful of HTML.
+      lastCallBody: call
+        ? ((call.error_msg ?? call.content)?.trim().slice(0, 300) || null)
+        : null,
     };
   } catch {
     return blank;

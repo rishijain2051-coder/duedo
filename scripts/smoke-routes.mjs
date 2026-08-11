@@ -1245,6 +1245,22 @@ try {
   const adminHealth = await admin("GET", "/api/admin/health");
   check("health run list is short", adminHealth.data?.runs?.length <= 3, true);
   check("health reports failingDevices", Array.isArray(adminHealth.data?.failingDevices), true);
+  // The scheduler's tick status is not evidence the app was reached — net.http_post
+  // queues the request, so pg_cron records "succeeded" against a dead deployment. This
+  // install did exactly that 3,580 times. The page needs the HTTP reply to tell the
+  // difference, so assert the field is carried rather than what it holds: a scratch run
+  // has no control over what pg_net last saw, and null is a legitimate answer.
+  check(
+    "health carries what the app replied, not just what pg_cron did",
+    "lastCallStatus" in (adminHealth.data?.scheduler ?? {}),
+    true,
+  );
+  check(
+    "and the reply is a status code or nothing",
+    adminHealth.data?.scheduler?.lastCallStatus === null ||
+      typeof adminHealth.data?.scheduler?.lastCallStatus === "number",
+    true,
+  );
   check("admin family list", (await admin("GET", "/api/admin/families")).status, 200);
   check(
     "admin audit list is short by default",

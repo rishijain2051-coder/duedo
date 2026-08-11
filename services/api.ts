@@ -288,8 +288,17 @@ export interface AdminHealth {
     jobScheduled: boolean;
     jobActive: boolean;
     lastTickAt: string | null;
+    /**
+     * Whether Postgres ran the statement — NOT whether the app was reached.
+     * net.http_post queues the request and returns immediately, so this reads
+     * "succeeded" even when nothing answers. Use lastCallStatus for that.
+     */
     lastTickStatus: string | null;
     lastTickError: string | null;
+    /** What the app actually replied. Null when pg_net has nothing on file. */
+    lastCallAt: string | null;
+    lastCallStatus: number | null;
+    lastCallBody: string | null;
   };
   runs: DispatchRunRow[];
   /** Devices with consecutive send failures, worth chasing. */

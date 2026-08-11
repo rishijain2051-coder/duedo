@@ -84,7 +84,21 @@ select cron.schedule(
 --   vacuum (analyze) cron.job_run_details;
 
 -- ------------------------------------------------------- if reminders go silent
--- The failure this has actually hit: `pg_net` disappearing from the database. The
+-- The failure this has actually hit twice, and the more dangerous of the two, because
+-- Postgres calls it a success: the URL above going stale. net.http_post only QUEUES the
+-- request, so cron.job_run_details records `succeeded` as soon as the statement runs —
+-- it never learns what came back. After the rename this job spent 3,580 consecutive
+-- "successful" ticks getting
+--
+--   404  The deployment could not be found on Vercel.  DEPLOYMENT_NOT_FOUND
+--
+-- from the deleted project, while no reminder was sent for sixteen hours. The only
+-- place the truth exists is net._http_response, which is why the verification section
+-- below reads that table and not the run log. The admin health page now checks it on
+-- every load and says so. A 401 there means CRON_SECRET differs between Supabase and
+-- Vercel; a 404 means this file was re-run with the wrong domain, or not re-run at all.
+--
+-- The other failure: `pg_net` disappearing from the database. The
 -- job keeps firing every minute and fails instantly with
 --
 --   ERROR:  schema "net" does not exist

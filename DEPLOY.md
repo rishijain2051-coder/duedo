@@ -252,18 +252,29 @@ enough. Nothing below matters if this doesn't work.
 with the new domain. It unschedules **both** the old `prosys-dispatch` and any previous
 `duedo-dispatch` before scheduling, so it is safe to run twice.
 
-**4. Confirm the scheduler actually fired.** This is the step to not skip:
+**4. Confirm the app was actually reached.** This is the step to not skip, and
+`cron.job_run_details` is **not** how to do it. `net.http_post` queues the request and
+returns, so the tick is marked `succeeded` whether or not anything answered — this
+install once ran 3,580 consecutive "successful" ticks against a deleted deployment.
+The reply is what settles it:
 
 ```sql
-select jobname, status, return_message, start_time
-from cron.job_run_details d
-join cron.job j using (jobid)
-order by start_time desc limit 5;
+select status_code, left(content, 120) as content, created
+from net._http_response
+order by created desc limit 5;
 ```
 
-A row from the last minute with `status = 'succeeded'`. If the old job is still listed,
-it is firing at a domain that no longer exists — every minute, forever — and the admin
-health page will report no scheduler at all, because it looks for `duedo-dispatch`.
+A row from the last minute with `status_code = 200`. `404` with
+`DEPLOYMENT_NOT_FOUND` means the job is still pointed at the old project; `401` means
+`CRON_SECRET` differs between Supabase and Vercel. Then confirm the app agrees, since
+that is the row the rest of the product reads:
+
+```sql
+select "ranAt", considered, error from "DispatchRun" order by "ranAt" desc limit 3;
+```
+
+The admin health page runs both of these checks itself and says so in plain words —
+it is the easier way to do this step, and the only way to notice later.
 
 **5. Delete the old Vercel project.** Only after step 4 passes. Two projects on the
 same database is not harmful — the dispatcher is idempotent — but it is two things to
