@@ -74,12 +74,13 @@ export default function RootLayout({
       <head>
         <script dangerouslySetInnerHTML={{ __html: THEME_BOOTSTRAP }} />
       </head>
-      {/* The horizontal insets are here rather than on each page: with
-          viewportFit=cover a notched phone held sideways puts ~47px of unusable
-          screen down one edge, and padding the shell once covers the header, the
-          sidebar and every page at the same time. Overlays are `fixed`, so they
-          escape this and carry their own — see Modal and MobileNav. */}
-      <body className="flex h-app-shell overflow-hidden bg-background pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] text-foreground">
+      {/* Deliberately plain. The one-viewport flex shell that the app runs inside used
+          to live here, which was fine while every route was the app — it now sits on a
+          wrapper in AppFrame instead, because the root is a landing page that needs the
+          document itself to scroll. `overflow-hidden` on body would have stopped it
+          dead, and scroll-driven motion and `position: sticky` both need a scrolling
+          document rather than a scrolling div. */}
+      <body className="bg-background text-foreground">
         <ThemeApplier />
         <AppFrame>{children}</AppFrame>
       </body>

@@ -24,7 +24,7 @@ import { Credit } from "@/components/credit";
 // Categories show every list at once and label which one each row belongs to. Family
 // administration lives in Settings, account approval in Admin.
 const NAV = [
-  { href: "/", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/reminders", label: "Reminders", icon: ListTodo },
   { href: "/calendar", label: "Calendar", icon: CalendarIcon },
   { href: "/categories", label: "Categories", icon: Folder },
@@ -40,8 +40,9 @@ const NAV = [
 function NavLinks({ onLogout }: { onLogout?: () => void }) {
   const pathname = usePathname();
   const { isAdmin } = useApp();
-  const isActive = (href: string) =>
-    href === "/" ? pathname === "/" : pathname.startsWith(href);
+  // No special case for "/" any more: the dashboard moved to /dashboard when the root
+  // became the public landing page, and every nav href is now a distinct prefix.
+  const isActive = (href: string) => pathname.startsWith(href);
 
   return (
     <>

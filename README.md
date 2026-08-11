@@ -26,6 +26,35 @@ A **single Next.js 15 app** (this repo) containing both the UI and the API:
 
 One origin → one server, one deploy, no CORS.
 
+### Two root layouts
+
+`app/` splits into two route groups, each with its own `<html>` and `<body>`:
+
+| | |
+| --- | --- |
+| `app/(marketing)` | `/` only — the public landing page. Dark, GSAP and Lenis, four display faces. |
+| `app/(app)` | everything behind a PIN: `/dashboard`, `/reminders`, `/settings`, `/admin`… |
+
+The split is structural, not stylistic. The landing carries ~75 KB of motion library
+and four font families no signed-in screen has any use for, and its stylesheet owns
+`body`, `*`, `::selection` and the scrollbar — rules that would otherwise land on every
+authenticated page. With separate documents the app *cannot* load them and the landing
+cannot load Tailwind, so neither is a matter of remembering to be careful. Confirmed on
+the built output: `gsap` appears in the marketing chunk and in zero app chunks.
+
+The cost is that moving between the groups is a full page load. That is the right trade
+for a link somebody follows once.
+
+Two consequences worth knowing:
+
+- **The dashboard is `/dashboard`.** It used to be `/`. `middleware.ts` matches `/` and
+  nothing else, and redirects to `/dashboard` when the session cookie is present — so
+  the landing stays a static document for the visitors it was written for.
+- **The manifest's `start_url` is `/dashboard`.** An installed PWA must never launch
+  into the marketing page, and a redirect at `/` would break launching offline: the
+  service worker deliberately does not cache a redirected response, so there would be
+  nothing to answer with.
+
 ## Two kinds of account
 
 Chosen at signup, switchable later either way:

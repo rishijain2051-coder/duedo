@@ -39,7 +39,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             <p className="text-sm font-medium">Admins only</p>
             <p className="mt-0.5 text-xs text-muted-foreground">
               This area manages every account on the install.{" "}
-              <Link href="/" className="text-primary underline">
+              <Link href="/dashboard" className="text-primary underline">
                 Back to your reminders
               </Link>
             </p>

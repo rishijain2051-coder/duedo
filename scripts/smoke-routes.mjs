@@ -1302,7 +1302,10 @@ try {
   console.log("\n19. Page shells render without a session");
 
   for (const path of [
+    // "/" is the public landing page, so 200 here is the whole point rather than a
+    // shell that happens to render. /dashboard is where the old "/" went.
     "/",
+    "/dashboard",
     "/login",
     "/reminders",
     "/calendar",
@@ -1319,6 +1322,27 @@ try {
     const res = await fetch(`${BASE}${path}`, { redirect: "manual" });
     check(`GET ${path}`, res.status, 200);
   }
+
+  // The root is the marketing page, and it has to reach a stranger — no session, no
+  // redirect, no PIN prompt. A 200 alone would not catch the regression that matters:
+  // if the app's own root layout ever took "/" back, this would still answer 200 while
+  // greeting every visitor with a lock screen.
+  const landing = await fetch(`${BASE}/`, { redirect: "manual" });
+  const landingHtml = await landing.text();
+  check(
+    "the root serves the landing page, not the app",
+    landingHtml.includes("Everything you owe"),
+    true,
+  );
+  check(
+    "and it does not mount the app shell",
+    landingHtml.includes("Unlock with Face ID"),
+    false,
+  );
+  // The other half of that deal: somebody who already has an account is sent past it.
+  // Presence of the cookie is all the middleware checks, so this also covers the
+  // stale-cookie case — /dashboard is where a bad one gets found out.
+  check("a signed-in visitor is redirected off the root", (await admin("GET", "/")).status, 307);
   const manifest = await fetch(`${BASE}/manifest.json`);
   check("GET /manifest.json", manifest.status, 200);
   check("the manifest names the app", (await manifest.json()).name?.length > 0, true);

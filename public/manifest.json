@@ -2,7 +2,7 @@
   "name": "DueDo — Just missed it? Never again.",
   "short_name": "DueDo",
   "description": "Bills, birthdays, renewals — sorted.",
-  "start_url": "/",
+  "start_url": "/dashboard",
   "scope": "/",
   "display": "standalone",
   "background_color": "#0a0f1a",

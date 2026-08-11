@@ -279,7 +279,9 @@ async function openApp(url) {
       return;
     }
   }
-  if (self.clients.openWindow) await self.clients.openWindow(url || "/");
+  // /dashboard, not "/": the root is the public landing page, and a notification that
+  // opened the marketing pitch instead of the app would be the one moment it must not.
+  if (self.clients.openWindow) await self.clients.openWindow(url || "/dashboard");
 }
 
 async function refreshBadge() {

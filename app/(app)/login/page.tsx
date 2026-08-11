@@ -51,8 +51,12 @@ export default function LoginPage() {
   /** Set when a correct PIN was refused only because the address isn't confirmed. */
   const [needsVerification, setNeedsVerification] = useState(false);
 
+  // /dashboard, not "/": the root is the public landing page now, and sending a
+  // freshly signed-in person there would bounce them through the middleware redirect
+  // for no reason — or show them the marketing pitch for a product they just signed
+  // into, if their cookie hadn't been written yet.
   const goToApp = useCallback(() => {
-    router.replace("/");
+    router.replace("/dashboard");
     router.refresh();
   }, [router]);
 

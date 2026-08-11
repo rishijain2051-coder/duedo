@@ -1,0 +1,744 @@
+/* ═══════════════════════════════════════════════════════════════
+   DueDo — marketing site
+
+   Palette and accent presets mirror app/globals.css so the site and
+   the product are recognisably the same thing.
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ── tokens ─────────────────────────────────────────────────── */
+:root {
+  --bg:        #06060a;
+  --bg-2:      #0a0a11;
+  --bg-3:      #101018;
+  --fg:        #f4f4f5;
+  --muted:     #9b9baa;
+  --line:      rgba(255,255,255,.09);
+  --glass:     rgba(255,255,255,.035);
+  --glass-2:   rgba(255,255,255,.06);
+
+  --brand:      #3b82f6;
+  --brand-soft: #60a5fa;
+  --hot:        #f43f5e;
+
+  /* Fed by next/font in the layout, so the faces are self-hosted: no request to
+     fonts.gstatic.com, no third party seeing who reads this page, and no layout
+     shift, because Next reserves the metrics before the face arrives.
+
+     The faces were chosen against a blocklist and should not casually go back:
+     Inter, Roboto, Geist, Instrument Sans, Plus Jakarta and Space Grotesk are all
+     overused, and Instrument Serif and Fraunces are the two default AI serifs. */
+  --display: var(--font-display), system-ui, sans-serif;
+  --body:    var(--font-body), system-ui, sans-serif;
+  --serif:   var(--font-serif), Georgia, serif;
+  --mono:    var(--font-mono), ui-monospace, monospace;
+
+  --pad: clamp(20px, 5vw, 96px);
+  /* How far an anchor target sits below the fixed nav. Mirrored by NAV_CLEARANCE
+     in js/main.js, which needs the same figure as a number. */
+  --nav-clearance: 92px;
+
+  /* Strong curves. The built-in CSS easings are too weak to read as intentional.
+     ease-out for anything entering, ease-in-out for on-screen movement and for
+     anything that loops (an ease-out loop stutters at the turn). */
+  --ease-out:    cubic-bezier(.23, 1, .32, 1);
+  --ease-in-out: cubic-bezier(.77, 0, .175, 1);
+  --ease:        var(--ease-out);
+}
+
+/* Accent presets, matching the app's own [data-accent] blocks in app/globals.css.
+   There is no switcher on the site: change data-accent on <html> to retheme it. */
+[data-accent="blue"]    { --brand:#3b82f6; --brand-soft:#60a5fa; }
+[data-accent="violet"]  { --brand:#8b5cf6; --brand-soft:#a78bfa; }
+[data-accent="emerald"] { --brand:#10b981; --brand-soft:#34d399; }
+[data-accent="rose"]    { --brand:#f43f5e; --brand-soft:#fb7185; }
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--body);
+  font-size: 16px;
+  line-height: 1.6;
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+html.lenis { height: auto; }
+.lenis.lenis-smooth { scroll-behavior: auto !important; }
+
+/* What makes a plain `href="#how"` land below the fixed nav rather than under it.
+   `NAV_CLEARANCE` in js/main.js mirrors this value; this is what works when no JS
+   runs at all, which is the only guarantee an in-page link should rest on. */
+:target, section[id], main[id] { scroll-margin-top: var(--nav-clearance); }
+
+a { color: inherit; text-decoration: none; }
+em.serif { font-family: var(--serif); font-style: italic; font-weight: 400; }
+
+/* ── browser surfaces ───────────────────────────────────────────
+   The parts nobody draws still carry the design: selection, the caret,
+   the scrollbar, the focus ring, and the numerals in tabular data all
+   ship with defaults that belong to no design system. */
+::selection { background: var(--brand); color: #fff; }
+html { caret-color: var(--brand-soft); scrollbar-color: #2a2a36 var(--bg); scrollbar-width: thin; }
+::-webkit-scrollbar { width: 11px; height: 11px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb {
+  background: #26262f; border-radius: 100px; border: 3px solid var(--bg);
+}
+::-webkit-scrollbar-thumb:hover { background: #34343f; }
+
+:focus-visible {
+  outline: 2px solid var(--brand-soft);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
+/* Figures line up in columns, which is the whole point of money on a page. */
+.num { font-variant-numeric: tabular-nums; font-feature-settings: "tnum" 1; }
+
+.skip {
+  position: fixed; top: 10px; left: 10px; z-index: 10001;
+  padding: 11px 18px; border-radius: 100px;
+  background: var(--brand); color: #fff; font-weight: 600; font-size: .88rem;
+  transform: translateY(-160%);
+  transition: transform .22s var(--ease-out);
+}
+.skip:focus-visible { transform: translateY(0); }
+
+/* ── shared type ────────────────────────────────────────────── */
+.h2 {
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: clamp(2.05rem, 4.8vw, 3.7rem);
+  line-height: 1.04;
+  letter-spacing: -.035em;
+  text-wrap: balance;
+}
+.lead {
+  color: var(--muted);
+  font-size: clamp(1rem, 1.5vw, 1.16rem);
+  max-width: 66ch;
+  margin-top: 20px;
+}
+.section-head { padding: 0 var(--pad); margin-bottom: clamp(46px, 7vw, 96px); }
+.section-head--center { text-align: center; }
+.section-head--center .lead { margin-inline: auto; }
+
+/* ── grain + progress ───────────────────────────────────────── */
+.grain {
+  position: fixed; inset: 0; z-index: 9998; pointer-events: none;
+  opacity: .035; mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)'/%3E%3C/svg%3E");
+  animation: grain 6s steps(5) infinite;
+}
+@keyframes grain {
+  0%,100% { transform: translate(0,0) }
+  20% { transform: translate(-3%,2%) }  40% { transform: translate(2%,-3%) }
+  60% { transform: translate(-2%,-2%) } 80% { transform: translate(3%,1%) }
+}
+
+.progress {
+  position: fixed; top: 0; left: 0; height: 2px; width: 100%;
+  transform: scaleX(0); transform-origin: 0 50%;
+  background: linear-gradient(90deg, var(--brand), var(--brand-soft), var(--hot));
+  z-index: 9999;
+}
+
+/* ── nav ────────────────────────────────────────────────────── */
+.nav {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 900;
+  display: flex; align-items: center; justify-content: space-between; gap: 24px;
+  padding: 15px var(--pad); min-height: 64px; max-height: 78px;
+  transition: background .35s var(--ease-out), backdrop-filter .35s var(--ease-out), border-color .35s;
+  border-bottom: 1px solid transparent;
+}
+.nav.is-stuck {
+  background: rgba(6,6,10,.74);
+  backdrop-filter: blur(18px) saturate(150%);
+  border-bottom-color: var(--line);
+}
+/* min-height, not just the mark's 28px: a 30px tap target misses on touch. */
+.nav__brand { display: flex; align-items: center; gap: 10px; min-height: 44px; padding-right: 6px }
+.nav__mark { width: 28px; height: 28px; display: block }
+.nav__mark svg { width: 100%; height: 100% }
+.nav__word { font-family: var(--display); font-weight: 800; font-size: 1.16rem; letter-spacing: -.02em }
+.nav__links { display: flex; gap: 28px; font-size: .91rem; color: var(--muted); white-space: nowrap }
+.nav__links a { position: relative; transition: color .2s ease }
+.nav__links a::after {
+  content: ""; position: absolute; left: 0; bottom: -5px; height: 1px; width: 100%;
+  background: var(--brand-soft); transform: scaleX(0); transform-origin: 0 50%;
+  transition: transform .28s var(--ease-out);
+}
+.nav__right { display: flex; align-items: center; gap: 12px }
+
+/* ── mobile menu ─────────────────────────────────────────────
+   The links used to be display:none below 980px with nothing in their
+   place, so four sections were unreachable on a phone. Same single list,
+   re-hosted as a panel: visibility (not opacity) does the hiding, so the
+   links leave the tab order when closed instead of being invisible and
+   still focusable. */
+.nav__toggle {
+  --bar: 1.5px;   /* line thickness */
+  --box: 20px;    /* 44px tall minus 12px padding top and bottom */
+  display: none; width: 44px; height: 44px; padding: 12px 10px;
+  align-content: space-between; justify-items: stretch;
+  background: none; border: 0; cursor: pointer;
+}
+.nav__toggle span {
+  display: block; height: var(--bar); background: var(--fg); border-radius: 2px;
+  transition: transform .28s var(--ease-out), opacity .18s linear;
+}
+/* Each outer line has to travel to the middle line's centre, which with
+   space-between is (box - bar) / 2 = 9.25px, not the 6.5px that was here. That
+   left the two strokes 5.5px apart and the X visibly unclosed. Derived rather
+   than hardcoded so changing the padding or thickness cannot break it again. */
+.nav.is-open .nav__toggle span:nth-child(1) {
+  transform: translateY(calc((var(--box) - var(--bar)) / 2)) rotate(45deg);
+}
+.nav.is-open .nav__toggle span:nth-child(2) { opacity: 0 }
+.nav.is-open .nav__toggle span:nth-child(3) {
+  transform: translateY(calc((var(--bar) - var(--box)) / 2)) rotate(-45deg);
+}
+
+@media (max-width: 980px) {
+  .nav__toggle { display: grid }
+  .nav__links {
+    /* absolute, not fixed. `top: 100%` on a fixed box resolves against the
+       viewport, which would drop this panel to the bottom of the screen; it only
+       landed under the nav because .nav.is-open happens to set backdrop-filter,
+       and that makes .nav a containing block for fixed descendants. Measured:
+       70px under a backdrop-filtered parent, 900px under a plain one. Absolute
+       positioning gets the same result from .nav merely being positioned, so a
+       decorative blur is no longer load-bearing. */
+    position: absolute; top: 100%; left: 0; right: 0;
+    display: grid; gap: 2px; padding: 10px var(--pad) 22px;
+    background: rgba(8,8,13,.96); backdrop-filter: blur(20px) saturate(150%);
+    border-bottom: 1px solid var(--line);
+    /* visibility is not interpolated, it flips. Transitioning it leaves the
+       panel reporting hidden while it fades in; instead it turns on instantly
+       when opening and waits out the fade when closing. */
+    visibility: hidden; opacity: 0; transform: translateY(-10px);
+    transition: opacity .26s var(--ease-out), transform .26s var(--ease-out),
+                visibility 0s linear .26s;
+  }
+  .nav__links a { padding: 15px 0; font-size: 1.06rem; color: var(--fg); min-height: 48px; display: flex; align-items: center }
+  .nav__links a::after { display: none }
+  .nav.is-open { background: rgba(6,6,10,.9); backdrop-filter: blur(18px) }
+  .nav.is-open .nav__links {
+    visibility: visible; opacity: 1; transform: translateY(0);
+    transition: opacity .26s var(--ease-out), transform .26s var(--ease-out), visibility 0s;
+  }
+}
+
+/* ── buttons ────────────────────────────────────────────────── */
+.btn {
+  position: relative; display: inline-flex; align-items: center; justify-content: center;
+  padding: 13px 26px; border-radius: 100px; overflow: hidden; isolation: isolate;
+  font-weight: 600; font-size: .94rem; white-space: nowrap; cursor: pointer;
+  background: var(--brand); color: #fff; border: 1px solid transparent;
+  transition: transform .16s var(--ease-out), box-shadow .3s var(--ease-out);
+  will-change: transform;
+}
+.btn span { position: relative; z-index: 2 }
+.btn::before {
+  content: ""; position: absolute; inset: 0; z-index: 1;
+  background: linear-gradient(115deg, var(--brand-soft), var(--brand) 55%, var(--hot));
+  transform: translateY(101%);
+  transition: transform .22s var(--ease-out);
+}
+/* Press feedback on anything pressable. Nothing in the world moves without being touched. */
+.btn:active { transform: scale(.975) }
+.btn--sm { padding: 9px 18px; font-size: .86rem }
+.btn--lg { padding: 17px 32px; font-size: 1rem }
+.btn--ghost { background: transparent; border-color: var(--line); color: var(--fg) }
+.btn--ghost::before { background: var(--glass-2) }
+
+/* Hover motion is gated: a touch tap fires a false hover and leaves the state stuck. */
+@media (hover: hover) and (pointer: fine) {
+  .nav__links a:hover { color: var(--fg) }
+  .nav__links a:hover::after { transform: scaleX(1) }
+  .btn:hover::before { transform: translateY(0) }
+  .btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 12px 34px -14px color-mix(in oklab, var(--brand) 60%, transparent);
+  }
+  .btn:active { transform: scale(.975) }
+}
+
+/* ── HERO ───────────────────────────────────────────────────── */
+.hero {
+  position: relative; min-height: 100svh; display: grid; place-items: center;
+  padding: 112px var(--pad) 104px; overflow: hidden; text-align: center;
+}
+.aurora { position: absolute; inset: -20%; z-index: 0; filter: blur(94px); opacity: .5 }
+.aurora__blob { position: absolute; border-radius: 50%; mix-blend-mode: screen }
+.aurora__blob.a { width: 46vw; height: 46vw; left: 4%;  top: 2%;  background: var(--brand);      animation: drift 21s var(--ease-in-out) infinite alternate }
+.aurora__blob.b { width: 40vw; height: 40vw; right: 2%; top: 16%; background: var(--brand-soft); animation: drift 26s var(--ease-in-out) infinite alternate-reverse }
+.aurora__blob.c { width: 34vw; height: 34vw; left: 32%; bottom: 0; background: #8b5cf6;          animation: drift 31s var(--ease-in-out) infinite alternate }
+@keyframes drift {
+  0%   { transform: translate3d(0,0,0) scale(1) }
+  50%  { transform: translate3d(8vw,-6vh,0) scale(1.16) }
+  100% { transform: translate3d(-6vw,6vh,0) scale(.92) }
+}
+.hero__inner { position: relative; z-index: 3; max-width: 940px }
+.hero__mark { width: clamp(76px, 10vw, 116px); height: clamp(76px, 10vw, 116px); margin: 0 auto 28px }
+.hero__mark svg { width: 100%; height: 100% }
+
+.hero__title {
+  font-family: var(--display); font-weight: 800;
+  font-size: clamp(2.6rem, 7.4vw, 6rem);
+  line-height: .98; letter-spacing: -.04em; margin-bottom: 24px;
+}
+/* balance, per line rather than on the whole headline. Each .line is already a
+   hard break the copy chose; balance decides only what happens when one of them is
+   too wide to hold, which is every phone. Without it 375px gives you
+   "Everything you / owe," and "before it owes / you." — two orphans, and the second
+   drops a full stop onto a line of its own. overflow:hidden is the mask the word
+   reveal animates behind, and it is why this cannot be set on .hero__title itself. */
+.hero__title .line {
+  display: block; overflow: hidden; padding-bottom: .08em;
+  text-wrap: balance;
+}
+.hero__title em.serif { color: var(--brand-soft); line-height: 1.1; padding-bottom: .06em }
+
+/* splitWords() wraps each word in a plain <span>, and a non-replaced inline box
+   discards transforms outright — measured GSAP writing translate(0%,118%) through
+   883 frames of the intro while the headline never moved a pixel, so the mask on
+   .line had nothing to mask. inline-block is what makes the reveal real.
+   Scoped to the hero: the manifesto's spans animate colour, which inline honours,
+   and inline-block there would break the balanced wrapping of that paragraph. */
+.hero__title .w,
+.hero__title em.serif { display: inline-block }
+
+.hero__sub { color: var(--muted); font-size: clamp(1.02rem, 1.7vw, 1.22rem); max-width: 52ch; margin: 0 auto 34px }
+.hero__cta { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap }
+
+/* drifting notifications */
+.floaters { position: absolute; inset: 0; z-index: 2; pointer-events: none }
+.notif {
+  position: absolute; width: 264px; text-align: left;
+  padding: 15px 17px; border-radius: 16px;
+  background: rgba(18,18,26,.74); border: 1px solid var(--glass-2);
+  backdrop-filter: blur(14px);
+  box-shadow: 0 24px 56px -22px rgba(0,0,0,.85);
+}
+.notif header { display: flex; align-items: center; gap: 7px; font-family: var(--mono); font-size: 9.5px; letter-spacing: .1em; text-transform: uppercase; color: #7d7d8f; margin-bottom: 8px }
+.notif__dot { width: 6px; height: 6px; border-radius: 50%; background: var(--brand-soft) }
+.notif__dot.is-late { background: var(--hot) }
+.notif strong { display: block; font-size: .95rem; margin-bottom: 2px }
+.notif p { font-size: .82rem; color: var(--muted) }
+.notif__actions { display: flex; gap: 7px; margin-top: 11px }
+.notif__actions button {
+  flex: 1; padding: 7px; border-radius: 9px; border: 1px solid var(--glass-2);
+  background: var(--glass); color: var(--fg); font: 600 .74rem var(--body);
+}
+.notif--b { border-color: color-mix(in oklab, var(--brand) 24%, transparent) }
+.notif--c { border-color: color-mix(in oklab, var(--hot) 28%, transparent) }
+.notif:nth-child(1) { left: 3%;  top: 27% }
+.notif:nth-child(2) { right: 3%; top: 19% }
+.notif:nth-child(3) { right: 8%; bottom: 14% }
+
+/* Below the width that fits cards beside the copy, the notification stops
+   floating and joins the flow. It used to be display:none, which threw away
+   the clearest picture of what the product actually does, on the device the
+   product actually runs on. One card, in flow, under the buttons. */
+@media (max-width: 1180px) {
+  .floaters { position: static; display: grid; justify-items: center; margin-top: 24px }
+  .notif { position: static; width: min(300px, 100%) }
+  .notif--b, .notif--c { display: none }
+}
+
+.scroll-hint {
+  position: absolute; bottom: 26px; left: 50%; translate: -50% 0; z-index: 3;
+  width: 24px; height: 40px; border: 1px solid var(--line); border-radius: 20px;
+  display: grid; place-items: start center; padding-top: 7px;
+}
+.scroll-hint i { width: 3px; height: 8px; border-radius: 2px; background: var(--brand-soft); animation: wheel 1.8s var(--ease-in-out) infinite }
+@keyframes wheel { 0% { opacity:0; transform: translateY(0) } 40% { opacity:1 } 100% { opacity:0; transform: translateY(16px) } }
+
+/* ── TICKER ─────────────────────────────────────────────────── */
+.ticker { padding: 24px 0; border-block: 1px solid var(--line); background: var(--bg-2); overflow: hidden }
+.ticker__row { display: flex; width: max-content }
+.ticker__set {
+  display: flex; align-items: center; gap: 22px; padding-right: 22px;
+  font-family: var(--display); font-weight: 600;
+  font-size: clamp(1.4rem, 3.2vw, 2.4rem); letter-spacing: -.02em; white-space: nowrap;
+}
+.ticker__set b { color: var(--brand); font-size: .7em }
+/* Outlined, but never invisible. `color: transparent` with an unsupported
+   -webkit-text-stroke erases the word entirely, so the fill is only dropped
+   inside @supports, where the stroke is guaranteed to replace it. */
+.ticker__set .hollow {
+  color: rgba(255,255,255,.34);
+  font-family: var(--serif); font-style: italic; font-weight: 400;
+}
+@supports (-webkit-text-stroke: 1px currentColor) {
+  .ticker__set .hollow {
+    -webkit-text-stroke: 1px rgba(255,255,255,.26);
+    color: transparent;
+  }
+}
+
+/* ── MANIFESTO ──────────────────────────────────────────────── */
+.manifesto { padding: clamp(84px, 14vw, 176px) var(--pad); max-width: 1120px; margin: 0 auto }
+.manifesto__text {
+  font-family: var(--display); font-weight: 600;
+  font-size: clamp(1.45rem, 3.6vw, 2.9rem);
+  line-height: 1.26; letter-spacing: -.028em; text-wrap: balance;
+}
+/* The unlit state is still text somebody may be reading, so it clears 3:1 for
+   large type rather than sitting at the 1.6:1 that looked better and wasn't. */
+.manifesto__text .w { color: #5e5e6e; transition: color .3s var(--ease-out) }
+.manifesto__text .w.on { color: var(--fg) }
+.manifesto__text em.serif { color: var(--brand-soft) }
+
+/* ── LADDER ─────────────────────────────────────────────────── */
+.ladder { padding: clamp(56px, 8vw, 104px) 0 clamp(76px, 11vw, 140px) }
+.ladder__track {
+  list-style: none; display: flex; align-items: flex-end; gap: clamp(6px, 1.4vw, 20px);
+  padding: 0 var(--pad); margin-bottom: clamp(52px, 8vw, 92px);
+  overflow-x: auto; scrollbar-width: none;
+}
+.ladder__track::-webkit-scrollbar { display: none }
+.step { flex: 1 0 auto; min-width: 74px; text-align: center; opacity: .24; transition: opacity .45s var(--ease-out) }
+.step.on { opacity: 1 }
+.step__t { display: block; font-family: var(--mono); font-size: clamp(.62rem,1vw,.74rem); letter-spacing: .06em; color: var(--muted); margin-bottom: 12px }
+.step i {
+  display: block; height: clamp(28px, 6vw, 62px); border-radius: 6px;
+  background: linear-gradient(180deg, var(--brand-soft), var(--brand));
+  transform: scaleY(.14); transform-origin: 50% 100%; transition: transform .55s var(--ease-out);
+}
+.step.on i { transform: scaleY(1) }
+.step--due .step__t { color: var(--fg); font-weight: 600 }
+.step--due i { height: clamp(48px, 9vw, 102px); background: linear-gradient(180deg,#fff, var(--brand-soft)) }
+.step--nag i { background: repeating-linear-gradient(45deg, var(--hot), var(--hot) 5px, transparent 5px, transparent 10px) }
+
+/* Rule-separated spec strip. Deliberately not three matching cards. */
+.specs { padding: 0 var(--pad); display: grid; gap: 0; border-top: 1px solid var(--line) }
+.specs__item { padding: 26px 0; border-bottom: 1px solid var(--line); display: grid; gap: 6px }
+.specs__item dt { font-family: var(--display); font-size: clamp(1.06rem,1.7vw,1.32rem); font-weight: 600 }
+.specs__item dd { color: var(--muted); max-width: 68ch }
+@media (min-width: 860px) {
+  .specs__item { grid-template-columns: minmax(0,.9fr) minmax(0,1.1fr); gap: 40px; align-items: baseline }
+}
+
+/* ── STACK CARDS ────────────────────────────────────────────── */
+.stack { padding: clamp(56px,8vw,100px) 0 0 }
+.stack__cards { padding: 0 var(--pad) }
+.card {
+  position: sticky; top: 14vh;
+  max-width: 860px; margin: 0 auto clamp(24px,4vw,42px);
+  padding: clamp(30px, 4.4vw, 58px);
+  border-radius: 26px; border: 1px solid var(--glass-2);
+  background: linear-gradient(160deg, var(--bg-3), var(--bg-2) 60%, #0c0c14);
+  box-shadow: 0 36px 84px -40px rgba(0,0,0,.95);
+  overflow: hidden; will-change: transform;
+}
+.card::before {
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  background: radial-gradient(540px 250px at 82% -8%, color-mix(in oklab, var(--brand) 17%, transparent), transparent 70%);
+}
+.card h3 {
+  font-family: var(--display); font-weight: 800;
+  font-size: clamp(1.45rem, 3vw, 2.35rem); line-height: 1.08;
+  letter-spacing: -.03em; margin-bottom: 16px; text-wrap: balance;
+}
+.card p { color: var(--muted); font-size: clamp(.96rem,1.3vw,1.06rem); max-width: 66ch }
+.tags { list-style: none; display: flex; flex-wrap: wrap; gap: 8px; margin-top: 24px }
+.tags li {
+  font-size: .78rem; padding: 6px 13px; border-radius: 100px;
+  border: 1px solid color-mix(in oklab, var(--brand) 30%, transparent);
+  color: var(--brand-soft); background: color-mix(in oklab, var(--brand) 8%, transparent);
+}
+
+/* ── ESCALATION ─────────────────────────────────────────────── */
+.chase { position: relative; padding: clamp(100px,14vw,190px) 0 clamp(76px,11vw,130px); overflow: hidden }
+.chase__glow {
+  position: absolute; left: 50%; top: 12%; translate: -50% 0;
+  width: 76vw; height: 46vw; border-radius: 50%; filter: blur(120px); opacity: .16;
+  background: radial-gradient(circle, var(--hot), transparent 62%);
+}
+.chain { position: relative; padding: 0 var(--pad); margin-top: clamp(28px,4vw,56px) }
+.chain__wire { position: absolute; left: var(--pad); right: var(--pad); top: 40px; width: calc(100% - var(--pad)*2); height: 120px }
+.chain__wire path { stroke-dasharray: 1000; stroke-dashoffset: 1000 }
+.chain__nodes { list-style: none; display: grid; grid-template-columns: repeat(4,1fr); gap: 18px; position: relative; z-index: 2 }
+.chain__nodes li {
+  padding: 26px 22px; border-radius: 20px; text-align: center;
+  border: 1px solid var(--line); background: rgba(10,10,17,.88);
+  /* Start state set in initChain(), not here. See the note on .reveal. */
+}
+.chain__nodes li.is-out { border-color: color-mix(in oklab, var(--hot) 40%, transparent) }
+.chain__when {
+  display: inline-block; font-family: var(--mono); font-size: .66rem; letter-spacing: .1em;
+  color: var(--brand-soft); margin-bottom: 12px;
+  padding: 4px 10px; border-radius: 100px; background: color-mix(in oklab, var(--brand) 12%, transparent);
+}
+.is-out .chain__when { color: #fda4af; background: color-mix(in oklab, var(--hot) 14%, transparent) }
+.chain__nodes strong { display: block; font-family: var(--display); font-size: 1.14rem; font-weight: 700; margin-bottom: 7px }
+.chain__nodes p { font-size: .85rem; color: var(--muted) }
+.chase__foot { max-width: 64ch; margin: clamp(48px,7vw,78px) auto 0; padding: 0 var(--pad); text-align: center; color: var(--muted) }
+.chase__foot strong { color: var(--fg) }
+@media (max-width: 860px) {
+  .chain__nodes { grid-template-columns: 1fr 1fr }
+  .chain__wire { display: none }
+}
+
+/* ── SPENDING ───────────────────────────────────────────────── */
+.money {
+  display: grid; grid-template-columns: 1fr 1fr; gap: clamp(40px,6vw,80px);
+  align-items: center; padding: clamp(66px,10vw,140px) var(--pad);
+}
+.money__list { list-style: none; margin-top: 30px; display: grid; gap: 13px }
+.money__list li { padding-left: 26px; position: relative; color: var(--muted) }
+.money__list li::before {
+  content: ""; position: absolute; left: 0; top: .62em; width: 9px; height: 9px;
+  border-radius: 3px; background: var(--brand);
+}
+.money__list span { color: var(--fg); font-weight: 600 }
+
+.chart { border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); padding: 26px 0 }
+.chart__cap { display: flex; align-items: baseline; justify-content: space-between; padding-bottom: 22px }
+.chart__cap span { font-family: var(--mono); font-size: .74rem; letter-spacing: .08em; color: var(--muted) }
+.chart__cap strong { font-family: var(--display); font-size: clamp(1.7rem,3.2vw,2.4rem); font-weight: 800; letter-spacing: -.035em }
+.bars { display: grid; gap: 16px }
+.bar { display: grid; gap: 7px }
+/* scaleX so the fill never touches layout. */
+.bar i {
+  display: block; height: 8px; border-radius: 100px; width: 100%;
+  transform: scaleX(0); transform-origin: 0 50%;
+  background: linear-gradient(90deg, var(--brand), var(--brand-soft));
+}
+.bar span { display: flex; justify-content: space-between; font-size: .85rem; color: var(--muted) }
+.bar b { color: var(--fg); font-size: .82rem; font-weight: 500 }
+.chart__foot { display: flex; gap: 40px; margin-top: 26px; padding-top: 20px; border-top: 1px solid var(--line) }
+.chart__foot span { display: block; font-family: var(--mono); font-size: .68rem; letter-spacing: .08em; color: var(--muted); margin-bottom: 5px }
+.chart__foot strong { font-size: 1.14rem; font-family: var(--display) }
+.chart__foot .is-up { color: #34d399 }
+@media (max-width: 900px) { .money { grid-template-columns: 1fr } }
+
+/* ── PRICING ────────────────────────────────────────────────── */
+.pricing { padding: clamp(66px,10vw,140px) var(--pad) }
+.tiers { display: grid; grid-template-columns: repeat(4,1fr); gap: 18px; align-items: start }
+.tier {
+  position: relative; padding: 32px 26px 28px; border-radius: 22px;
+  border: 1px solid var(--line); background: var(--glass);
+  transform-style: preserve-3d; will-change: transform;
+  transition: border-color .35s var(--ease-out), background .35s var(--ease-out);
+}
+.tier h3 { font-family: var(--display); font-size: 1.26rem; font-weight: 700; margin-bottom: 14px }
+.tier__price { font-family: var(--display); font-size: clamp(2.2rem,3.6vw,2.9rem); font-weight: 800; letter-spacing: -.04em; line-height: 1 }
+.tier__price span { font-size: .5em; vertical-align: super; margin-right: 2px; color: var(--muted) }
+.tier__price small { display: block; font-family: var(--mono); font-size: .68rem; font-weight: 400; letter-spacing: .06em; color: var(--muted); margin-top: 8px }
+.tier__price--talk { font-size: clamp(1.6rem,2.6vw,2rem) }
+.tier__tag { color: var(--muted); font-size: .88rem; margin: 18px 0 22px; min-height: 3.2em }
+.tier ul { list-style: none; display: grid; gap: 11px; margin-bottom: 26px; font-size: .9rem; color: var(--muted) }
+.tier li { padding-left: 22px; position: relative }
+.tier li::before {
+  content: ""; position: absolute; left: 0; top: .58em; width: 8px; height: 8px;
+  border-radius: 2px; background: color-mix(in oklab, var(--brand) 70%, transparent);
+}
+.tier li b { color: var(--fg) }
+.tier .btn { width: 100% }
+
+.tier--hot {
+  border-color: color-mix(in oklab, var(--brand) 55%, transparent);
+  background: linear-gradient(170deg, color-mix(in oklab, var(--brand) 12%, transparent), var(--glass));
+  box-shadow: 0 26px 70px -42px color-mix(in oklab, var(--brand) 62%, transparent);
+}
+.tier__flag {
+  position: absolute; top: -11px; left: 26px;
+  font-size: .68rem; font-weight: 600;
+  padding: 5px 12px; border-radius: 100px; background: var(--brand); color: #fff;
+}
+.tier--ent { background: transparent; border-style: dashed }
+@media (hover: hover) and (pointer: fine) {
+  .tier:hover { border-color: color-mix(in oklab, var(--brand) 44%, transparent); background: var(--glass-2) }
+}
+@media (max-width: 1080px) { .tiers { grid-template-columns: 1fr 1fr } }
+@media (max-width: 620px)  { .tiers { grid-template-columns: 1fr } .tier__tag { min-height: 0 } }
+
+/* ── GET THE APP ────────────────────────────────────────────── */
+.get { padding: clamp(60px,9vw,120px) var(--pad) clamp(36px,5vw,64px) }
+/* Asymmetric: the live one is the offer, the other two are notices. */
+.platforms {
+  display: grid; grid-template-columns: 1.55fr 1fr; gap: 18px;
+  max-width: 1000px; margin: 0 auto; align-items: stretch;
+}
+.plat {
+  display: grid; gap: 14px; align-content: start;
+  padding: 30px 26px; border-radius: 22px;
+  border: 1px solid var(--line); background: var(--glass);
+  transition: border-color .35s var(--ease-out), background .35s var(--ease-out), transform .16s var(--ease-out);
+}
+.plat__icon { width: 34px; height: 34px; color: var(--brand-soft) }
+.plat__icon svg { width: 100%; height: 100% }
+.plat__body { display: grid; gap: 6px }
+.plat strong { font-family: var(--display); font-size: 1.3rem; font-weight: 700 }
+.plat__meta { font-size: .9rem; color: var(--muted); max-width: 46ch }
+.plat__badge {
+  justify-self: start; font-size: .68rem; font-weight: 600;
+  padding: 6px 13px; border-radius: 100px;
+  border: 1px solid var(--line); color: var(--muted);
+}
+.plat__badge--live { border-color: transparent; color: #fff; background: var(--brand) }
+
+.plat--live { border-color: color-mix(in oklab, var(--brand) 46%, transparent) }
+.plat--live:active { transform: scale(.99) }
+@media (hover: hover) and (pointer: fine) {
+  .plat--live:hover {
+    border-color: var(--brand-soft); background: var(--glass-2); transform: translateY(-3px);
+    box-shadow: 0 22px 52px -28px color-mix(in oklab, var(--brand) 58%, transparent);
+  }
+}
+
+.plat__soon { display: grid; gap: 18px }
+/* Pending, not disabled. A blanket opacity took this text to 2.56:1, which is
+   unreadable rather than understated; the dashed border and the badge already
+   say "not yet", so the state is carried by those and the colour stays legible. */
+.plat--mini {
+  grid-template-columns: auto 1fr auto; align-items: center; gap: 16px;
+  padding: 22px; border-style: dashed;
+}
+.plat--mini .plat__icon { width: 26px; height: 26px; color: #71718040 }
+.plat--mini strong { font-size: 1.04rem; color: var(--muted); font-weight: 600 }
+.plat--mini .plat__meta { font-size: .8rem; color: #8b8b9a }
+.plat--mini .plat__badge { color: #8b8b9a }
+@media (max-width: 780px) { .platforms { grid-template-columns: 1fr } }
+
+/* ── FAQ ────────────────────────────────────────────────────── */
+.faq { padding: clamp(66px,10vw,130px) var(--pad); max-width: 900px; margin: 0 auto }
+.qa { border-top: 1px solid var(--line) }
+.qa:last-child { border-bottom: 1px solid var(--line) }
+.qa summary {
+  display: flex; align-items: center; justify-content: space-between; gap: 20px;
+  padding: 25px 0; cursor: pointer; list-style: none;
+  font-family: var(--display); font-weight: 600; font-size: clamp(1.02rem,1.8vw,1.28rem);
+  transition: color .2s ease;
+}
+.qa summary::-webkit-details-marker { display: none }
+.qa summary i { position: relative; flex: 0 0 16px; height: 16px }
+.qa summary i::before, .qa summary i::after {
+  content: ""; position: absolute; inset: 0; margin: auto; background: var(--brand-soft);
+  transition: transform .3s var(--ease-out);
+}
+.qa summary i::before { width: 16px; height: 1.5px }
+.qa summary i::after  { width: 1.5px; height: 16px }
+.qa[open] summary i::after { transform: rotate(90deg) }
+.qa p { color: var(--muted); padding-bottom: 27px; max-width: 70ch }
+@media (hover: hover) and (pointer: fine) { .qa summary:hover { color: var(--brand-soft) } }
+
+/* ── CTA + footer ───────────────────────────────────────────── */
+.cta { position: relative; text-align: center; padding: clamp(84px,13vw,168px) var(--pad); overflow: hidden }
+.cta__aurora {
+  position: absolute; left: 50%; bottom: -40%; translate: -50% 0;
+  width: 120vw; height: 90vw; border-radius: 50%; filter: blur(110px); opacity: .26;
+  background: radial-gradient(circle, var(--brand), transparent 60%);
+}
+/* Solid, not gradient-filled text: the weight and the scale carry it, and the
+   aurora behind supplies the colour. */
+.cta__word {
+  position: relative; font-family: var(--display); font-weight: 800; color: var(--fg);
+  font-size: clamp(3.6rem, 16vw, 12rem); line-height: .86; letter-spacing: -.04em;
+  margin-bottom: 30px;
+}
+.cta__row { position: relative; display: flex; gap: 14px; justify-content: center; flex-wrap: wrap }
+
+.foot { border-top: 1px solid var(--line); padding: 42px var(--pad); display: grid; gap: 12px; justify-items: center; text-align: center }
+.foot__brand { display: flex; align-items: center; gap: 10px; font-family: var(--display); font-size: 1.08rem }
+.foot p { color: var(--muted); font-size: .92rem }
+.foot small { color: #8b8b9a; font-size: .78rem }
+
+/* ── phones ─────────────────────────────────────────────────── */
+@media (max-width: 720px) {
+  /* Tightened so the in-flow notification fits without pushing the buttons
+     below the fold. Measured, not guessed: the CTA has to stay above 100svh. */
+  .hero { padding: 84px var(--pad) 76px }
+  .hero__mark { width: 62px; height: 62px; margin-bottom: 16px }
+  .hero__sub { margin-bottom: 26px }
+  .hero__cta { gap: 10px }
+  .hero__cta .btn { flex: 1 1 auto; min-width: 0 }
+
+  /* The track scrolls sideways with the scrollbar hidden, so the edge fade is
+     the only thing telling anyone there is more of it. */
+  .ladder__track {
+    mask-image: linear-gradient(90deg, #000 76%, rgba(0,0,0,.15) 100%);
+    padding-right: calc(var(--pad) + 26px);
+  }
+
+  .nav .btn--sm { min-height: 44px }
+
+  /* Dropped on phones for two reasons: it occupied 746-786px, which the in-flow
+     notification card now overlaps, and a scroll cue earns less on a touch
+     screen than the space it costs. */
+  .scroll-hint { display: none }
+
+  .specs__item { padding: 22px 0 }
+  .card { border-radius: 20px }
+  .chart__foot { gap: 26px }
+  .cta { padding: 72px var(--pad) 84px }
+}
+
+@media (max-width: 560px) {
+  /* Two columns left ~158px per node, which is not enough for a label,
+     a heading and a line of body copy. */
+  .chain__nodes { grid-template-columns: 1fr }
+  .tier { padding: 26px 22px 24px }
+}
+
+/* ── start states ─────────────────────────────────────────────
+   All gated behind .anim, which the inline script in the layout adds before first
+   paint and removes again after 3s if the motion layer never claims it. That
+   ordering is what stops the flash: hiding these from JS instead meant you watched
+   each one appear, vanish and animate back in. Unconditional CSS would be worse
+   still, stranding the page blank whenever the animation never runs. */
+.anim .reveal { opacity: 0; transform: translateY(20px) }
+.anim .hero__sub, .anim .hero__cta { opacity: 0; transform: translateY(18px) }
+.anim .chain__nodes li { opacity: 0; transform: translateY(22px) }
+.anim .notif { opacity: 0 }
+
+/* ── reduced motion ─────────────────────────────────────────────
+   Fewer and gentler, not zero: opacity and colour still carry meaning,
+   so only movement and the infinite loops go. */
+@media (prefers-reduced-motion: reduce) {
+  .grain, .aurora__blob, .scroll-hint i { animation: none !important }
+  .card { position: static }
+  .btn:hover, .plat--live:hover, .tier:hover { transform: none !important }
+  .step i { transform: scaleY(1) !important }
+  .bar i { transform: scaleX(1) !important }
+  * { transition-duration: .12s !important }
+}
+
+/* ── reduced transparency ───────────────────────────────────────
+   A separate preference from reduced motion, and people who set it are usually
+   telling you that layered translucency is hard for them to read through — not
+   that they dislike it. So the answer is opaque surfaces, not fewer surfaces:
+   every layer keeps its place in the hierarchy and stops competing with whatever
+   is sliding underneath it. Raise the background to solid and drop the blur;
+   never do one without the other, because an unblurred 3.5%-white panel over a
+   moving aurora is less legible than either. */
+@media (prefers-reduced-transparency: reduce) {
+  .nav.is-stuck, .nav.is-open { background: var(--bg); backdrop-filter: none }
+  .nav__links { background: var(--bg-2) !important; backdrop-filter: none !important }
+  .notif { background: var(--bg-3); backdrop-filter: none }
+  .card, .tier, .qa, .chart, .plat { background: var(--bg-2) }
+  /* The decorative wash is the thing being read through. */
+  .grain, .aurora, .chase__glow, .cta__aurora { display: none }
+}
+
+/* ── forced colours ─────────────────────────────────────────────
+   Windows high-contrast replaces the palette outright and drops background
+   images, which takes every gradient on this page with it: the mark, the buttons,
+   the chain wire and the bars all render from gradients and would otherwise go
+   blank rather than turn monochrome. Give each one a border or a system colour to
+   fall back to, and delete the decorative layers entirely — they carry no meaning
+   and in forced colours they are a grey rectangle over the content. */
+@media (forced-colors: active) {
+  .grain, .aurora, .chase__glow, .cta__aurora, .progress { display: none }
+  .btn, .card, .tier, .notif, .plat, .chart, .qa { border: 1px solid currentColor }
+  .btn { forced-color-adjust: none; background: ButtonFace; color: ButtonText }
+  /* The mark and the wire are strokes, so a plain currentColor keeps their shape
+     where the gradient would have vanished. */
+  .glyph, .arc, .chain__wire path { stroke: currentColor !important }
+  .bar i, .step i { forced-color-adjust: none; background: Highlight }
+}
