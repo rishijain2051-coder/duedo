@@ -4,7 +4,7 @@ import * as React from "react";
 import { CalendarDays } from "lucide-react";
 import { Input } from "@/components/ui/form";
 // Pure, and in lib/ so a smoke suite can run the real parser — see lib/date-text.ts.
-import { isoToText, maskDate, textToIso } from "@/lib/date-text";
+import { editDate, isoToText, textToIso } from "@/lib/date-text";
 
 /**
  * A date field that is always dd/mm/yyyy, whatever the browser thinks.
@@ -15,10 +15,10 @@ import { isoToText, maskDate, textToIso } from "@/lib/date-text";
  * merely untidy: 08/10 is a real date under both readings, two months apart, with
  * nothing on screen to say which one was meant.
  *
- * So the visible control is a text input this file formats, and the native picker is
- * kept behind a button. Keeping it matters — on a phone the wheel picker is the fast
- * way to enter a date, and hand-rolling a calendar to replace it would be a worse
- * control than the one the OS already ships.
+ * So the visible control is a text input this file formats, and the native picker sits
+ * transparently over the calendar button beside it. Keeping the native one matters —
+ * on a phone the wheel picker is the fast way to enter a date, and hand-rolling a
+ * calendar to replace it would be a worse control than the one the OS already ships.
  *
  * `value` and `onChange` speak yyyy-mm-dd throughout, so nothing outside this file
  * knows the display format changed.
@@ -35,7 +35,6 @@ export function DateField({
   id?: string;
 }) {
   const [text, setText] = React.useState(() => isoToText(value));
-  const picker = React.useRef<HTMLInputElement>(null);
 
   /**
    * Follows `value` when it is changed from outside — opening the form prefills
@@ -49,11 +48,22 @@ export function DateField({
     setText((current) => (textToIso(current) === value ? current : isoToText(value)));
   }, [value]);
 
-  function type(next: string) {
-    const masked = maskDate(next);
-    setText(masked);
+  /**
+   * Applies one edit and puts the caret back where the typist expects it.
+   *
+   * The DOM is written directly before `setText`, rather than waiting for the render
+   * to land. A controlled input re-rendering with a new value drops the caret at the
+   * end, and setting it afterwards from an effect means one painted frame with the
+   * caret in the wrong place — visible as a jump on every keystroke. Writing both
+   * together, then telling React the same string, leaves nothing for it to correct.
+   */
+  function edit(el: HTMLInputElement) {
+    const { text: next, caret } = editDate(text, el.value, el.selectionStart ?? el.value.length);
+    el.value = next;
+    el.setSelectionRange(caret, caret);
+    setText(next);
     // "" while incomplete, so a half-typed date can never be submitted as a whole one.
-    onChange(textToIso(masked));
+    onChange(textToIso(next));
   }
 
   return (
@@ -65,45 +75,58 @@ export function DateField({
         placeholder="dd/mm/yyyy"
         maxLength={10}
         value={text}
-        onChange={(e) => type(e.target.value)}
+        onChange={(e) => edit(e.currentTarget)}
         // Paste arrives as one event and lands in onChange already; this only stops
         // the browser's own autofill offering a differently-formatted date.
         autoComplete="off"
       />
-      <button
-        type="button"
-        aria-label="Pick a date"
-        onClick={() => {
-          const el = picker.current;
-          if (!el) return;
-          // showPicker() is the only way to open the native calendar from a button.
-          // Firefox has no such method, and Safari can throw if the call is not
-          // treated as user-initiated — falling back to focus at least reaches the
-          // control rather than doing nothing.
-          try {
-            (el as HTMLInputElement & { showPicker?: () => void }).showPicker?.();
-          } catch {
-            el.focus();
-          }
-        }}
-        className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md border border-border bg-background shadow-sm transition-colors hover:bg-accent hover:text-accent-foreground sm:h-10 sm:w-10"
-      >
-        <CalendarDays className="h-4 w-4" />
-      </button>
-      {/* The OS picker, kept for its value on a phone and never shown. `sr-only` and
-          not `hidden`: a display:none input cannot be given a picker to show. */}
-      <input
-        ref={picker}
-        type="date"
-        tabIndex={-1}
-        aria-hidden
-        className="sr-only"
-        value={value}
-        onChange={(e) => {
-          setText(isoToText(e.target.value));
-          onChange(e.target.value);
-        }}
-      />
+      {/*
+        The native date input, laid transparently over a drawn button rather than
+        hidden beside one.
+
+        It used to be `sr-only` with a real <button> calling showPicker(). That button
+        did nothing at all on Firefox and on Safari before 16.4, because neither has
+        showPicker — and `showPicker?.()` on a missing method returns undefined rather
+        than throwing, so the catch that was meant to rescue it never ran. A control
+        that silently does nothing is worse than no control.
+
+        Putting the input itself under the pointer removes the dependency entirely:
+        a tap opens the OS picker because that is what tapping a date input does.
+        showPicker() is still called on top, because desktop Chrome and Edge open the
+        calendar from that and not from a click — and there it is a genuine user
+        gesture, which is the one condition it actually needs.
+      */}
+      <div className="relative h-11 w-11 shrink-0 sm:h-10 sm:w-10">
+        <span
+          aria-hidden="true"
+          className="pointer-events-none flex h-full w-full items-center justify-center rounded-md border border-border bg-background text-foreground shadow-sm"
+        >
+          <CalendarDays className="h-4 w-4" />
+        </span>
+        <input
+          type="date"
+          aria-label="Pick a date"
+          // Not in the tab order: the text field beside it is the control a keyboard
+          // reaches, and it accepts the same date typed out.
+          tabIndex={-1}
+          className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+          value={value}
+          onClick={(e) => {
+            try {
+              (
+                e.currentTarget as HTMLInputElement & { showPicker?: () => void }
+              ).showPicker?.();
+            } catch {
+              // Already focused by the click that got us here, which is what opens
+              // the picker on a phone.
+            }
+          }}
+          onChange={(e) => {
+            setText(isoToText(e.target.value));
+            onChange(e.target.value);
+          }}
+        />
+      </div>
     </div>
   );
 }

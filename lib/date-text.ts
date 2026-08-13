@@ -54,3 +54,68 @@ export function maskDate(raw: string): string {
     .filter((p) => p.length > 0)
     .join("/");
 }
+
+const digitsOf = (s: string) => s.replace(/\D/g, "");
+
+/**
+ * Where the caret belongs after `n` digits of a formatted date.
+ *
+ * Steps over a slash rather than resting before it, so the next digit typed lands in
+ * the next field instead of pushing against the separator.
+ */
+function caretAfterDigits(text: string, n: number): number {
+  if (n <= 0) return 0;
+  let seen = 0;
+  for (let i = 0; i < text.length; i++) {
+    if (/\d/.test(text[i])) {
+      seen++;
+      if (seen === n) {
+        return text[i + 1] === "/" ? i + 2 : i + 1;
+      }
+    }
+  }
+  return text.length;
+}
+
+/**
+ * One edit of the date field: the new text, and where the caret should sit.
+ *
+ * A date has eight slots and always the same shape, so typing into the middle of one
+ * means *replacing* a digit, not pushing the rest along. Insertion is what this used
+ * to do, and it made the field unusable for the thing people most often want from it —
+ * fixing a single wrong digit. With the caret after the "2" of 25/12/2026, typing 3
+ * gave 23/51/2202: every later digit shifted right, the year lost its last figure, and
+ * month 51 is not a month, so textToIso() returned "" and the reminder could no longer
+ * be saved. Nothing on screen explained why.
+ *
+ * The caret came back too. A controlled input re-renders with a fresh value and the
+ * browser drops the caret at the end, so every keystroke threw it back to the year —
+ * which is why the corruption above could not simply be typed over.
+ *
+ * Overwrite applies only when a single digit lands on a slot that already had one.
+ * Everything else — appending, deleting, pasting, selecting a range and replacing it —
+ * takes the plain path, because those all mean what they say.
+ */
+export function editDate(
+  prev: string,
+  raw: string,
+  caret: number,
+): { text: string; caret: number } {
+  const prevDigits = digitsOf(prev);
+  const rawDigits = digitsOf(raw);
+  // Digits at or before the caret: with a single insertion, the last of them is the
+  // one just typed, so its index is the slot it landed in.
+  const upToCaret = digitsOf(raw.slice(0, caret)).length;
+  const slot = upToCaret - 1;
+
+  const overwrote =
+    rawDigits.length === prevDigits.length + 1 && slot >= 0 && slot < prevDigits.length;
+
+  const digits = overwrote
+    ? prevDigits.slice(0, slot) + rawDigits[slot] + prevDigits.slice(slot + 1)
+    : rawDigits.slice(0, 8);
+
+  const text = maskDate(digits);
+  const at = overwrote ? slot + 1 : Math.min(upToCaret, digitsOf(text).length);
+  return { text, caret: caretAfterDigits(text, at) };
+}

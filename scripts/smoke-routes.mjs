@@ -1462,7 +1462,7 @@ try {
   // the one field where a date is entered showed 08/10/2026 while every date it
   // produced read 10/08/2026. Both are real dates, two months apart.
   console.log("\n18. The date field is dd/mm/yyyy, and refuses days that don't exist");
-  const { isoToText, textToIso, maskDate } = await import("../lib/date-text.ts");
+  const { isoToText, textToIso, maskDate, editDate } = await import("../lib/date-text.ts");
 
   check("stored date renders dd/mm/yyyy", isoToText("2027-04-03"), "03/04/2027");
   check("and reads back the same way", textToIso("03/04/2027"), "2027-04-03");
@@ -1480,6 +1480,30 @@ try {
   check("a partial entry yields nothing", textToIso("03/04"), "");
   check("slashes appear as digits are typed", maskDate("0304"), "03/04");
   check("and stop at eight digits", maskDate("030420279999"), "03/04/2027");
+
+  // Correcting one digit. This is what the field is used for more than anything else
+  // and it was broken: the edit was applied as an insertion, so with the caret after
+  // the 2 of 25/12/2026, typing 3 pushed every later digit right and gave 23/51/2202 —
+  // month 51, which textToIso refuses, so the reminder quietly could not be saved. The
+  // caret was thrown to the end on every keystroke as well, so it could not be typed
+  // over either. Eight slots, one date shape: a digit landing on an occupied slot
+  // replaces it. The second argument is what the browser hands over, caret and all.
+  check("typing over a digit replaces it", editDate("25/12/2026", "235/12/2026", 2).text, "23/12/2026");
+  check("and the date stays valid", textToIso(editDate("25/12/2026", "235/12/2026", 2).text), "2026-12-23");
+  check("the month can be corrected too", editDate("23/12/2026", "23/102/2026", 5).text, "23/10/2026");
+  check("and the year", editDate("23/10/2026", "23/10/20276", 10).text, "23/10/2027");
+  // The caret has to land after the digit just typed, stepping over a separator rather
+  // than resting in front of it, or the next keystroke goes into the wrong field.
+  // Both of these overwrite the last digit of a segment, so the caret has to come to
+  // rest *after* the separator. Left in front of it, the next digit typed re-enters
+  // the segment just finished instead of starting the next one.
+  check("the caret steps over the slash", editDate("25/12/2026", "235/12/2026", 2).caret, 3);
+  check("at the end of the month too", editDate("25/12/2026", "25/132/2026", 5).caret, 6);
+
+  // Everything that is not a single digit landing on an occupied slot still inserts.
+  check("appending is unchanged", editDate("25/1", "25/12", 5).text, "25/12");
+  check("backspacing is unchanged", editDate("25/12/2026", "25/12/202", 9).text, "25/12/202");
+  check("pasting a whole date is unchanged", editDate("", "03/04/2027", 10).text, "03/04/2027");
 
   // ──────────────────────────────────────────────────────────────────────────────
   // Notification copy. A lock screen is read in about a second, and "10/08/2026,
