@@ -97,10 +97,11 @@ interface Box {
  * "Off the screen entirely" rather than "fully visible", because an element taller
  * than the viewport can never be the latter and would scroll forever chasing it.
  *
- * `moved` is called after each scroll. Scrolling changes where the element is, and
- * something has to re-read that or the ring stays where the element used to be — a
- * lag the frame loop hides on a tab that is being drawn, and does not hide at all on
- * one that isn't. Telling it directly is both cheaper and true everywhere.
+ * `moved` is called after each scroll, because scrolling changes where the element is
+ * and the ring has to be told. The frame loop would catch it too, one frame later;
+ * doing it here puts the ring in the right place on the *first* frame after the scroll
+ * instead of sliding into it — which matters most for the instant scroll a
+ * reduced-motion reader gets, where there is no slide for the lag to hide behind.
  */
 function bringIntoView(el: HTMLElement, moved: () => void) {
   const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
