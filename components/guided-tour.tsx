@@ -96,16 +96,23 @@ interface Box {
  *
  * "Off the screen entirely" rather than "fully visible", because an element taller
  * than the viewport can never be the latter and would scroll forever chasing it.
+ *
+ * `moved` is called after each scroll. Scrolling changes where the element is, and
+ * something has to re-read that or the ring stays where the element used to be — a
+ * lag the frame loop hides on a tab that is being drawn, and does not hide at all on
+ * one that isn't. Telling it directly is both cheaper and true everywhere.
  */
-function bringIntoView(el: HTMLElement) {
+function bringIntoView(el: HTMLElement, moved: () => void) {
   const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
   el.scrollIntoView({ block: "center", behavior: reduced ? "auto" : "smooth" });
+  moved();
   if (reduced) return;
   window.setTimeout(() => {
     const r = el.getBoundingClientRect();
     if (r.bottom < 0 || r.top > window.innerHeight) {
       el.scrollIntoView({ block: "center", behavior: "auto" });
     }
+    moved();
   }, 400);
 }
 
@@ -124,7 +131,7 @@ const sameBox = (a: Box | null, b: Box | null) =>
 export function GuidedTourProvider({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { settings, isFamilyAccount } = useApp();
+  const { settings, families } = useApp();
 
   const [tourId, setTourId] = useState<string | null>(null);
   const [index, setIndex] = useState(0);
@@ -149,12 +156,13 @@ export function GuidedTourProvider({ children }: { children: React.ReactNode }) 
     () =>
       tour
         ? stepsFor(tour, {
-            family: isFamilyAccount,
+            // Membership, not the declared account type — see TourContext.
+            family: families.length > 0,
             spending: plan.limits.spending,
             voice: plan.limits.voice,
           })
         : [],
-    [tour, isFamilyAccount, plan],
+    [tour, families.length, plan],
   );
   const step = steps[index] ?? null;
   const last = index >= steps.length - 1;
@@ -284,14 +292,22 @@ export function GuidedTourProvider({ children }: { children: React.ReactNode }) 
       const el = document.querySelector<HTMLElement>(
         `[data-tour="${CSS.escape(step.anchor as string)}"]`,
       );
-      if (el) {
+      // Present but occupying nothing counts as absent, and this is not a
+      // hypothetical: the Mine/family switch is built from the list of families you
+      // are in, so on an account that has joined none the wrapper is a real element
+      // nought pixels tall. Ringing it draws a 12px sliver around empty space and
+      // says something confident about a control that is not on the screen. Keeps
+      // polling rather than giving up at once, because a card that is still fetching
+      // also measures zero for a moment.
+      const rect = el?.getBoundingClientRect();
+      if (el && rect && rect.width > 0 && rect.height > 0) {
         setAnchorEl(el);
         // Measured here and now, not left to the frame loop below. A tab in the
         // background has its render step suspended, so requestAnimationFrame never
         // fires there — and a tour whose first frame never came would sit invisible
         // behind a dimmed screen, which is the worst of both.
         measure(el);
-        bringIntoView(el);
+        bringIntoView(el, () => measure(el));
         return;
       }
       // ~2.5s. Long enough for a fetch on a slow connection, short enough that a step

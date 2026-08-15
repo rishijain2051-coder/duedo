@@ -51,8 +51,16 @@ export interface Tour {
   steps: TourStep[];
 }
 
-/** What a step can be gated on. Resolved from the plan before it reaches here. */
+/** What a step can be gated on. Resolved before it reaches here. */
 export interface TourContext {
+  /**
+   * Belongs to at least one family — not merely "chose the family account type".
+   *
+   * The two are different, and the difference is visible: the Mine/family switch is
+   * built from the list of families you are in, so an account that ticked the box and
+   * has not yet created or joined one renders nothing at all there. Gating on the
+   * declared type put a spotlight around a nought-pixel-tall element.
+   */
   family: boolean;
   spending: boolean;
   voice: boolean;
