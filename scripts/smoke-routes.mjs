@@ -18,6 +18,7 @@
 // Needs the dev server running (npm run dev). Seeds three accounts and one family,
 // then deletes them again.
 
+import { readFileSync } from "node:fs";
 import { PrismaClient } from "@prisma/client";
 import { Pool } from "pg";
 import { PrismaPg } from "@prisma/adapter-pg";
@@ -1571,7 +1572,7 @@ try {
   // advert, and there is no way to notice it by clicking through the tour on an
   // account that happens to have everything.
   console.log("\n20. The walkthrough only shows what this account can actually use");
-  const { stepsFor } = await import("../lib/walkthrough.ts");
+  const { introSteps: stepsFor } = await import("../lib/walkthrough.ts");
 
   const soloFree = {
     name: "Rishi Jain",
@@ -1654,8 +1655,12 @@ try {
     voice: true,
     free: false,
   });
-  // A link mid-tour closes the tour to go somewhere, which is not what Next promised.
-  check("only the closing step links away", everything.filter((s) => s.link).map((s) => s.id), ["done"]);
+  // Handing over mid-read would end the read, which is not what Next promised.
+  check(
+    "only the closing step hands over to a tour",
+    everything.filter((s) => s.startsTour).map((s) => s.id),
+    ["done"],
+  );
   check(
     "every step has a title and something to say",
     everything.every(
@@ -1664,6 +1669,88 @@ try {
     true,
   );
   check("and the ids are unique", new Set(everything.map((s) => s.id)).size, everything.length);
+
+  // ──────────────────────────────────────────────────────────────────────────────
+  // The guided tours point at real controls by `data-tour`, and this is the assertion
+  // that makes anchoring a tour to the UI safe at all: every anchor a tour names has
+  // to still exist on the page that owns it. Renaming or removing an element without
+  // it is otherwise invisible — the tour keeps running, the step is quietly skipped,
+  // and the one person who would notice is a brand-new user who does not yet know
+  // what they were supposed to be shown.
+  console.log("\n21. Every guided tour points at something that exists");
+  const tours = await import("../lib/tours.ts");
+
+  check("there is a tour for each page of the app", tours.TOURS.length, 7);
+  check(
+    "the intro dialog hands over to a tour that exists",
+    Boolean(tours.tourById(everything.at(-1).startsTour)),
+    true,
+  );
+  check("and the run starts on the dashboard", tours.FIRST_TOUR, "dashboard");
+  check(
+    "every 'next' names a real tour",
+    tours.TOURS.filter((t) => t.next && !tours.tourById(t.next)).map((t) => t.id),
+    [],
+  );
+  check(
+    "the chain reaches every tour exactly once",
+    (() => {
+      const seen = [];
+      let at = tours.tourById(tours.FIRST_TOUR);
+      while (at && !seen.includes(at.id)) {
+        seen.push(at.id);
+        at = at.next ? tours.tourById(at.next) : undefined;
+      }
+      return seen.length;
+    })(),
+    tours.TOURS.length,
+  );
+
+  for (const { path, anchors } of tours.anchorsByPath()) {
+    const source = readFileSync(new URL(`../app/(app)${path}/page.tsx`, import.meta.url), "utf8");
+    const missing = anchors.filter((a) => !source.includes(`data-tour="${a}"`));
+    check(`every anchor ${path} names is on that page`, missing, []);
+  }
+
+  const everyone = { family: true, spending: true, voice: true };
+  const nobody = { family: false, spending: false, voice: false };
+  const stepIds = (id, ctx) => tours.stepsFor(tours.tourById(id), ctx).map((s) => s.id);
+
+  check(
+    "a solo account is not shown the Mine/family switch",
+    stepIds("reminders", nobody).includes("scope"),
+    false,
+  );
+  check("a family account is", stepIds("reminders", everyone).includes("scope"), true);
+  check(
+    "an account without spending is not shown the spend tile",
+    stepIds("dashboard", nobody).includes("spend"),
+    false,
+  );
+  check(
+    "nor walked through a Siri shortcut it cannot use",
+    stepIds("settings", nobody).includes("siri"),
+    false,
+  );
+  check("and one that can, is", stepIds("settings", everyone).includes("siri"), true);
+  // A tour with nothing left in it would open an empty spotlight.
+  check(
+    "no tour empties out on the barest account",
+    tours.TOURS.filter((t) => tours.stepsFor(t, nobody).length === 0).map((t) => t.id),
+    [],
+  );
+  check(
+    "every step has a title, a body and an id",
+    tours.TOURS.every((t) =>
+      t.steps.every((s) => s.id && s.title.length > 0 && s.body.length > 0),
+    ),
+    true,
+  );
+  check(
+    "and the pages they claim are the pages they are found on",
+    tours.TOURS.filter((t) => tours.tourForPath(t.path)?.id !== t.id).map((t) => t.id),
+    [],
+  );
 } finally {
   await cleanup();
   await prisma.$disconnect();

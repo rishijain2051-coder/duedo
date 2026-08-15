@@ -154,7 +154,7 @@ export default function InsightsPage() {
       ) : !d ? null : (
         <>
           <div className="grid gap-2 md:gap-4 lg:grid-cols-3">
-            <Card className="min-w-0">
+            <Card className="min-w-0" data-tour="spend-month">
               <CardHeader className="p-3 pb-1 md:p-6 md:pb-2">
                 <CardTitle className="text-xs font-medium md:text-sm">
                   This month
@@ -204,7 +204,7 @@ export default function InsightsPage() {
             </Card>
           </div>
 
-          <Card>
+          <Card data-tour="spend-categories">
             <CardHeader>
               <CardTitle className="text-sm">By category</CardTitle>
             </CardHeader>

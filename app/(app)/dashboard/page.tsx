@@ -99,7 +99,7 @@ export default function DashboardPage() {
         {/* ?new=1 opens the form on arrival — the same shortcut the Home Screen icon
             uses. Plain /reminders landed you on the list to press New a second time,
             which is not what a button labelled "Add Reminder" says it does. */}
-        <Link href="/reminders?new=1" className="shrink-0">
+        <Link href="/reminders?new=1" className="shrink-0" data-tour="dash-add">
           <Button>
             <span className="md:hidden">Add</span>
             <span className="hidden md:inline">Add Reminder</span>
@@ -117,7 +117,7 @@ export default function DashboardPage() {
           four numbers. Spend joins them rather than sitting in a full-width card of
           its own below — it is one more number, and it was breaking the rhythm to
           say so. */}
-      <div className="grid grid-cols-2 gap-2 md:gap-4 lg:grid-cols-5">
+      <div className="grid grid-cols-2 gap-2 md:gap-4 lg:grid-cols-5" data-tour="dash-kpis">
         {kpis.map((k) => (
           <Card key={k.label} className="min-w-0">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 p-3 pb-1 md:p-6 md:pb-2">
@@ -133,7 +133,7 @@ export default function DashboardPage() {
             </CardContent>
           </Card>
         ))}
-        <Card className="col-span-2 min-w-0 lg:col-span-1">
+        <Card className="col-span-2 min-w-0 lg:col-span-1" data-tour="dash-spend">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 p-3 pb-1 md:p-6 md:pb-2">
             <CardTitle className="truncate text-xs font-medium md:text-sm">
               Spent this month
@@ -153,7 +153,7 @@ export default function DashboardPage() {
           overflow-hidden clips it away. The titles below wrap rather than being cut
           to one line, which keeps min-content down to the longest single word. */}
       <div className="grid gap-3 md:gap-4 lg:grid-cols-7">
-        <Card className="min-w-0 lg:col-span-4">
+        <Card className="min-w-0 lg:col-span-4" data-tour="dash-upcoming">
           <CardHeader>
             <CardTitle>Upcoming</CardTitle>
           </CardHeader>

@@ -1,13 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import Link from "next/link";
 import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
 import { useApp } from "@/components/app-context";
+import { useGuidedTour } from "@/components/guided-tour";
 import { api } from "@/services/api";
 import { planSpec } from "@/lib/plan";
-import { stepsFor } from "@/lib/walkthrough";
+import { introSteps } from "@/lib/walkthrough";
 
 /**
  * The walkthrough a new account gets on its first authenticated load.
@@ -58,6 +58,7 @@ export function forgetWalkthrough() {
 
 export function Walkthrough() {
   const { user, settings } = useApp();
+  const tour = useGuidedTour();
   // Assume hidden until the settings say otherwise — the same idiom as PushPrompt,
   // and it is what stops the dialog flashing over a shell that is still loading.
   const [dismissed, setDismissed] = useState(true);
@@ -86,7 +87,7 @@ export function Walkthrough() {
   const plan = planSpec(settings?.plan);
   const steps = useMemo(
     () =>
-      stepsFor({
+      introSteps({
         name: user?.name ?? settings?.name ?? "",
         accountType: settings?.accountType ?? "solo",
         email: plan.limits.email,
@@ -201,12 +202,17 @@ export function Walkthrough() {
                 Back
               </Button>
             )}
-            {last && current.link ? (
-              // The end of the tour is the one place a link belongs: there is nothing
-              // after it to interrupt. Marks the tour seen on the way out.
-              <Link href={current.link.href} onClick={dismiss}>
-                <Button>{current.link.label}</Button>
-              </Link>
+            {last && current.startsTour ? (
+              // The end of the read is where the doing begins. Marks this dialog seen
+              // on the way out, so finishing it here counts the same as pressing Close.
+              <Button
+                onClick={() => {
+                  dismiss();
+                  tour.start(current.startsTour as string);
+                }}
+              >
+                Show me around
+              </Button>
             ) : (
               <Button onClick={() => (last ? dismiss() : setStep((n) => n + 1))}>
                 {last ? "Done" : "Next"}

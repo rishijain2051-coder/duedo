@@ -116,7 +116,7 @@ export default function CategoriesPage() {
     <div className="flex-1 space-y-4 p-4 md:p-8">
       <div className="flex items-center justify-between gap-2">
         <h2 className="text-2xl md:text-3xl font-bold tracking-tight">Categories</h2>
-        <Button onClick={openCreate}>
+        <Button onClick={openCreate} data-tour="cat-new">
           <FolderPlus className="mr-2 h-4 w-4" /> Add Category
         </Button>
       </div>
@@ -132,7 +132,10 @@ export default function CategoriesPage() {
           <Loader2 className="mr-2 h-5 w-5 animate-spin" /> Loading…
         </div>
       ) : (
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+        <div
+          className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"
+          data-tour="cat-list"
+        >
           {categories.map((c) => (
             <Card key={c.id} className="group relative overflow-hidden">
               <div

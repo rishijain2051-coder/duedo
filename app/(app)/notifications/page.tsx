@@ -90,7 +90,10 @@ export default function NotificationsPage() {
 
   return (
     <div className="flex-1 space-y-4 p-4 md:p-8">
-      <div className="flex items-center justify-between gap-2">
+      {/* The tour points at the row, not at "Mark all read" — that button only exists
+          while something is unread, and an anchor that comes and goes is a step that
+          silently disappears. */}
+      <div className="flex items-center justify-between gap-2" data-tour="notif-unread">
         <div className="min-w-0">
           <h2 className="text-xl md:text-3xl font-bold tracking-tight">
             Notifications
@@ -115,7 +118,7 @@ export default function NotificationsPage() {
           <Loader2 className="mr-2 h-5 w-5 animate-spin" /> Loading…
         </div>
       ) : items.length === 0 ? (
-        <Card>
+        <Card data-tour="notif-list">
           <CardContent className="flex flex-col items-center gap-2 py-12 text-muted-foreground">
             <Bell className="h-8 w-8" />
             <p>No notifications yet.</p>
@@ -126,7 +129,7 @@ export default function NotificationsPage() {
           </CardContent>
         </Card>
       ) : (
-        <div className="space-y-2">
+        <div className="space-y-2" data-tour="notif-list">
           {items.map((n) => {
             const style = KIND_STYLE[n.kind] ?? FALLBACK_STYLE;
             const Icon = style.icon;

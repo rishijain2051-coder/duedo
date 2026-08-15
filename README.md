@@ -167,26 +167,46 @@ Sessions are stored in the database, so **Settings → Security** can list every
 active login and sign any of them out, and an optional inactivity timeout is
 enforced server-side rather than merely honoured by the browser.
 
-## First run
+## Learning the app
 
-A new account gets a **stepped walkthrough** on its first authenticated load — adding a
-reminder, the nudges that follow it, where notifications arrive, and what each screen is
-for. **Skip is on every step**, and it counts exactly the same as finishing, because a
-first run that won't take no for an answer is one people close without reading. What
-makes that affordable is **Settings → Walkthrough**, which puts it back.
+Two things, and the difference between them is that one is read and the other is done.
 
-Two things it deliberately isn't. It isn't anchored to real UI elements: the navigation
-is a sidebar on a laptop and a drawer on a phone, so spotlights would need authoring
-twice and would keep working right up until a class name changed, then point at the
-wrong corner with nothing to say they were wrong. And it isn't the same tour for
-everyone — [`lib/walkthrough.ts`](lib/walkthrough.ts) filters the steps against the
-account, so a solo account is never walked through the family list and nobody is shown
-around a feature their plan doesn't include. That last one is the difference between a
-walkthrough and an advert, and it is asserted in the smoke suite rather than trusted.
+**The introduction** ([`lib/walkthrough.ts`](lib/walkthrough.ts)) is a stepped dialog on
+a new account's first authenticated load: what a reminder is, the nudges that chase it,
+where notifications arrive, what each screen is for. About a minute.
 
-"Seen" lives on the account (`User.tourSeenAt`), not in the browser, so finishing it on
-a laptop doesn't make it run again on the phone. A local copy is kept as well, purely so
-a failed PATCH or a day-old cached shell can't re-ask somebody who already answered.
+**The guided tours** ([`lib/tours.ts`](lib/tours.ts)) are one per page. They dim the
+screen, put a ring around a real control, and explain that control standing on the page
+it lives on — the Mine/family switch, the date field, "If it's still not done", the
+timezone, the passkey. The copy is allowed to be concrete because of it: an electricity
+bill on the 5th, ₹2,400, rather than "your item" and "a value". Finishing one offers the
+next, so the seven of them chain into a single run from Dashboard to Settings; the **?**
+in the header starts whichever one belongs to the page you are already on.
+
+**Skip is on every step of both**, and it counts exactly the same as finishing, because
+a first run that won't take no for an answer is one people close without reading. What
+makes that affordable is **Settings → Walkthrough**, which puts either back.
+
+Three things worth knowing about how the tours are built:
+
+- **Steps point at `data-tour="…"`, never at a class name.** A class is a styling
+  decision anybody may change; an attribute is a contract, it is greppable, and the
+  smoke suite reads `lib/tours.ts` and checks that every anchor a tour names still
+  exists in the page that owns it. Without that, renaming an element leaves the tour
+  running, the step silently skipped, and the only person who would notice is the new
+  user who never learns what they were meant to be shown.
+- **The dim layer is four rectangles, not one sheet with a hole in it.** A sheet with a
+  `clip-path` still swallows the click, so the highlighted button would be lit up and
+  dead — and "press this" is the one instruction a tutorial must not lie about.
+- **Neither tour is the same for everyone.** Both filter their steps against the
+  account, so a solo account is never walked through the family list and nobody is
+  toured around a feature their plan doesn't include. That is the difference between a
+  walkthrough and an advert, and it is asserted rather than trusted.
+
+"Seen" for the introduction lives on the account (`User.tourSeenAt`), not in the
+browser, so finishing it on a laptop doesn't make it run again on the phone. A local
+copy is kept as well, purely so a failed PATCH or a day-old cached shell can't re-ask
+somebody who already answered.
 
 ## Spending
 

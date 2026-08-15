@@ -1,15 +1,20 @@
 "use client";
 
 import Link from "next/link";
-import { Bell, LogOut, Menu, UserCircle } from "lucide-react";
+import { Bell, CircleQuestionMark, LogOut, Menu, UserCircle } from "lucide-react";
 import { useApp } from "@/components/app-context";
 import { Mark } from "@/components/brand";
+import { useGuidedTour, useTourForCurrentPage } from "@/components/guided-tour";
 
 export function Header({ onMenuToggle }: { onMenuToggle?: () => void }) {
   // No request of its own. This used to fetch up to 100 notification rows — every
   // column of each — to render one digit, and after that a /badge call the shell was
   // already making. The count now comes from the bootstrap payload via context.
   const { user, logout, unreadNotifications: unread } = useApp();
+  // Only the pages that have one offer it, so the button is never a promise of help
+  // that isn't there.
+  const tour = useTourForCurrentPage();
+  const { start, stop, running } = useGuidedTour();
 
   return (
     // The height is the bar *plus* the notch inset, not a fixed total.
@@ -44,6 +49,20 @@ export function Header({ onMenuToggle }: { onMenuToggle?: () => void }) {
       </div>
 
       <div className="flex items-center gap-1 md:gap-2">
+        {/* "Show me this page". Sits beside the bell rather than buried in Settings,
+            because the moment somebody wants it is the moment they are looking at a
+            screen they don't understand — which is not a moment they will spend
+            hunting through a settings list. Mis-tapping it costs a keystroke. */}
+        {tour && (
+          <button
+            onClick={() => (running ? stop() : start(tour.id))}
+            aria-label={running ? "End the tour" : `Show me the ${tour.label} page`}
+            title={running ? "End the tour" : "Show me this page"}
+            className="flex h-11 w-11 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground md:h-9 md:w-9"
+          >
+            <CircleQuestionMark className="h-5 w-5" />
+          </button>
+        )}
         <Link
           href="/notifications"
           // -mr-2 mirrors the hamburger's -ml-2, so both tap targets sit 9px from

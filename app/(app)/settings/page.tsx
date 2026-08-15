@@ -34,6 +34,8 @@ import { Credit } from "@/components/credit";
 import { FamilySettings } from "@/components/family-settings";
 import { ExternalContactsCard } from "@/components/external-contacts";
 import { forgetWalkthrough } from "@/components/walkthrough";
+import { useGuidedTour } from "@/components/guided-tour";
+import { FIRST_TOUR } from "@/lib/tours";
 import {
   api,
   type ActiveLogin,
@@ -182,6 +184,7 @@ export default function SettingsPage() {
     setThemeMode,
     setAccent,
   } = useApp();
+  const tour = useGuidedTour();
 
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -529,7 +532,7 @@ export default function SettingsPage() {
       )}
 
       {/* ---------------- Your account ---------------- */}
-      <Card>
+      <Card data-tour="set-account">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <UserCog className="h-5 w-5" /> Your account
@@ -694,7 +697,7 @@ export default function SettingsPage() {
       </Card>
 
       {/* ---------------- How you're reminded ---------------- */}
-      <Card>
+      <Card data-tour="set-channels">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Bell className="h-5 w-5" /> How you&apos;re reminded
@@ -968,7 +971,7 @@ export default function SettingsPage() {
       <ExternalContactsCard onNotice={flash} onError={setError} />
 
       {/* ---------------- Security ---------------- */}
-      <Card>
+      <Card data-tour="set-security">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <ShieldCheck className="h-5 w-5" /> Security
@@ -1167,7 +1170,7 @@ export default function SettingsPage() {
       {/* ---------------- Version ---------------- */}
       {/* Siri capture. Sits above App version because it is something to set up once,
           not something to check. */}
-      <Card>
+      <Card data-tour="set-siri">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Mic className="h-5 w-5" /> Add by voice
@@ -1285,25 +1288,34 @@ export default function SettingsPage() {
           with a title would make more of it than it is. It exists so that Skip on the
           first-run tour costs nothing: a walkthrough you can only ever be shown once
           has to be sat through, which is why people close them without reading. */}
-      <Card>
+      <Card data-tour="set-walkthrough">
         <CardContent className="flex flex-wrap items-center justify-between gap-3 p-4">
           <div className="min-w-0">
             <p className="flex items-center gap-2 font-medium">
               <Compass className="h-5 w-5" /> Walkthrough
             </p>
+            {/* Two things, and the difference between them is worth one sentence:
+                one is read, the other is done. */}
             <p className="text-sm text-muted-foreground">
-              The minute-long tour of the app — adding a reminder, the nudges that
-              follow it, and where everything lives.
+              The introduction is the minute-long read. The guided tour walks each page
+              in turn and lights up the real buttons as it explains them — and the ?
+              button in the header starts it on whichever page you are already looking
+              at.
             </p>
           </div>
-          <Button
-            variant="outline"
-            onClick={replayWalkthrough}
-            disabled={busy !== null}
-          >
-            {busy === "tour" && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            Show it again
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant="outline"
+              onClick={replayWalkthrough}
+              disabled={busy !== null}
+            >
+              {busy === "tour" && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Introduction
+            </Button>
+            <Button onClick={() => tour.start(FIRST_TOUR)} disabled={busy !== null}>
+              Show me around
+            </Button>
+          </div>
         </CardContent>
       </Card>
 

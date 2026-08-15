@@ -534,6 +534,7 @@ export default function RemindersPage() {
           disabled={noCategories}
           className="shrink-0"
           aria-label="New reminder"
+          data-tour="rem-new"
         >
           <Plus className="h-4 w-4 sm:mr-2" />
           <span className="hidden sm:inline">New Reminder</span>
@@ -562,7 +563,11 @@ export default function RemindersPage() {
         </div>
       )}
 
-      <ScopeTabs />
+      {/* Wrapped rather than given the attribute, because ScopeTabs is shared with
+          Spending and the anchor belongs to this page's tour, not to the component. */}
+      <div data-tour="rem-scope">
+        <ScopeTabs />
+      </div>
 
       {scope !== "mine" && activeFamily && (
         <p className="text-xs text-muted-foreground">
@@ -570,7 +575,7 @@ export default function RemindersPage() {
         </p>
       )}
 
-      <div className="flex flex-wrap gap-2 pb-1">
+      <div className="flex flex-wrap gap-2 pb-1" data-tour="rem-filters">
         {STATUS_FILTERS.map((f) => (
           <button
             key={f}
@@ -769,7 +774,7 @@ export default function RemindersPage() {
             <Button type="button" variant="outline" onClick={() => setFormOpen(false)}>
               Cancel
             </Button>
-            <Button type="submit" disabled={saving} aria-label={editingId ? "Save changes" : "Create reminder"}>
+            <Button type="submit" disabled={saving} aria-label={editingId ? "Save changes" : "Create reminder"} data-tour="form-save">
               {saving ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
@@ -785,7 +790,7 @@ export default function RemindersPage() {
             </Button>
           </div>
 
-          <Field label="Title *">
+          <Field label="Title *" data-tour="form-title">
             {/* Mirrors the server's cap (lib/reminder-logic.ts), so the field stops
                 accepting text instead of the save quietly shortening it. */}
             <Input
@@ -797,7 +802,7 @@ export default function RemindersPage() {
             />
           </Field>
           <div className="grid sm:grid-cols-2 gap-4">
-            <Field label="Due date *">
+            <Field label="Due date *" data-tour="form-date">
               {/* Not <Input type="date">. That renders in the browser's locale, so on
                   an en-US machine this one field read 08/10/2026 while every other date
                   in the app read 10/08/2026 — two real dates, two months apart, with
@@ -841,7 +846,7 @@ export default function RemindersPage() {
             </Field>
           </div>
 
-          <div>
+          <div data-tour="form-lead">
             <p className="text-sm font-medium mb-1.5">Remind me before</p>
             <div className="grid grid-cols-2 gap-2">
               {LEAD_OFFSET_OPTIONS.map((o) => {
@@ -928,7 +933,7 @@ export default function RemindersPage() {
             </div>
           )}
 
-          <div className="border-t border-border pt-4">
+          <div className="border-t border-border pt-4" data-tour="form-escalate">
             <EscalationEditor
               isFamily={Boolean(form.familyId)}
               steps={form.escalation}

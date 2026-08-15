@@ -111,7 +111,7 @@ export default function CalendarPage() {
     <div className="flex-1 space-y-4 p-4 md:p-8">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <h2 className="text-xl md:text-3xl font-bold tracking-tight">Calendar</h2>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2" data-tour="cal-nav">
           <Button
             variant="outline"
             size="icon"
@@ -137,7 +137,7 @@ export default function CalendarPage() {
         </div>
       </div>
 
-      <Card>
+      <Card data-tour="cal-grid">
         <CardContent className="p-0">
           <div className="grid grid-cols-7 border-b border-border">
             {DAYS_FULL.map((d, i) => (

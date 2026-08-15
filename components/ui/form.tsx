@@ -67,12 +67,19 @@ Select.displayName = "Select";
 export function Field({
   label,
   children,
+  "data-tour": dataTour,
 }: {
   label: string;
   children: React.ReactNode;
+  /**
+   * Anchor for a guided tour (lib/tours.ts). Taken as a prop rather than left to the
+   * caller to wrap in a div: a Field is often a grid child, and an extra wrapper
+   * around one silently drops it out of the grid it was laid out in.
+   */
+  "data-tour"?: string;
 }) {
   return (
-    <div>
+    <div data-tour={dataTour}>
       <Label>{label}</Label>
       {children}
     </div>

@@ -7,22 +7,27 @@
 // and an advert. Import-free, so the suite can load it directly.
 
 /** One line of a short list, where a list says it better than a sentence does. */
-export interface TourPoint {
+export interface IntroPoint {
   name: string;
   what: string;
 }
 
-export interface TourStep {
+export interface IntroStep {
   /** Stable. The dialog picks an icon from it, and the suite asserts on it. */
   id: string;
   title: string;
   body: string[];
-  points?: TourPoint[];
+  points?: IntroPoint[];
   /**
-   * Only the closing step carries one. A link in the middle of a tour closes the
-   * tour to go somewhere, which is not what "Next" led anyone to expect.
+   * Hands over to a guided tour of this id (lib/tours.ts) when pressed.
+   *
+   * Only the closing step carries one. This dialog is the read; the tour is the doing,
+   * and offering the doing halfway through the read would end the read.
+   *
+   * A bare string rather than an import, because this file stays import-free so a
+   * suite can load it — which is also where the two are checked against each other.
    */
-  link?: { href: string; label: string };
+  startsTour?: string;
 }
 
 /**
@@ -32,7 +37,7 @@ export interface TourStep {
  * to hold a second copy of what each plan includes — lib/plan.ts stays the only place
  * that decides, and the tour cannot drift from it.
  */
-export interface TourContext {
+export interface IntroContext {
   /** First name. "" is fine — the greeting drops it rather than saying "Welcome, ". */
   name: string;
   accountType: "solo" | "family";
@@ -54,10 +59,10 @@ function repeatPhrase(mins: number): string {
   return `every ${mins} minutes`;
 }
 
-export function stepsFor(ctx: TourContext): TourStep[] {
+export function introSteps(ctx: IntroContext): IntroStep[] {
   const first = ctx.name.trim().split(/\s+/)[0] ?? "";
 
-  const steps: TourStep[] = [
+  const steps: IntroStep[] = [
     {
       id: "welcome",
       title: first ? `Welcome, ${first}` : "Welcome to DueDo",
@@ -156,7 +161,10 @@ export function stepsFor(ctx: TourContext): TourStep[] {
         what: "add a passkey in Settings and the PIN becomes the fallback",
       },
     ],
-    link: { href: "/reminders?new=1", label: "Add your first reminder" },
+    // Straight into the guided tour rather than into the reminder form. The tour's
+    // second stop is that form, with each field explained as it is reached — so this
+    // is the same destination with somebody walking beside you.
+    startsTour: "dashboard",
   });
 
   return steps;
