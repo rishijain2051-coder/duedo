@@ -599,6 +599,38 @@ try {
     undefined,
   );
 
+  // The walkthrough's one bit of server state. A fresh account has never seen it, and
+  // null is precisely what puts it on screen — so if this ever came back as a date by
+  // default, nobody would be shown the tour and nothing would look broken.
+  check("a fresh account has not seen the walkthrough", settings.data?.tourSeenAt, null);
+  check(
+    "skipping or finishing it is accepted",
+    (await member("PATCH", "/api/settings", { tourSeen: true })).status,
+    200,
+  );
+  const seenAt = (await member("GET", "/api/settings")).data?.tourSeenAt;
+  check("and is recorded as a date", typeof seenAt, "string");
+  // The replay control in Settings sends this. Without it, Skip would be permanent
+  // and the only honest thing to do would be to refuse to let anyone skip.
+  check(
+    "and it can be put back on screen",
+    (await member("PATCH", "/api/settings", { tourSeen: false })).status,
+    200,
+  );
+  check(
+    "which is null again, not a second date",
+    (await member("GET", "/api/settings")).data?.tourSeenAt,
+    null,
+  );
+  // The shell reads /api/bootstrap, not /api/settings. These two have disagreed
+  // before — plan and premiumUntil went into one and not the other, and a paid
+  // account saw a paywall — so every field the shell branches on is asserted on both.
+  check(
+    "and bootstrap says the same thing",
+    (await member("GET", "/api/bootstrap")).data?.settings?.tourSeenAt,
+    null,
+  );
+
   // ────────────────────────────────────────────────────────────────────────────
   console.log("\n11. Reminder validation and personal CRUD");
 
@@ -1531,6 +1563,107 @@ try {
     relativeDayPhrase(new Date("2026-08-10T20:00:00Z"), TZ, noonIST),
     "tomorrow at 1:30 am",
   );
+
+  // ──────────────────────────────────────────────────────────────────────────────
+  // The first-run walkthrough. The failure worth catching is not a broken dialog —
+  // it is a correct one that walks a solo account through the family list, or shows a
+  // Free account around a feature it cannot use. That turns an introduction into an
+  // advert, and there is no way to notice it by clicking through the tour on an
+  // account that happens to have everything.
+  console.log("\n20. The walkthrough only shows what this account can actually use");
+  const { stepsFor } = await import("../lib/walkthrough.ts");
+
+  const soloFree = {
+    name: "Rishi Jain",
+    accountType: "solo",
+    email: false,
+    spending: false,
+    voice: false,
+    free: true,
+    overdueRepeatMins: 60,
+  };
+  const ids = (ctx) => stepsFor(ctx).map((s) => s.id);
+
+  check("a solo account on Free gets six steps", ids(soloFree), [
+    "welcome",
+    "add",
+    "escalate",
+    "delivery",
+    "screens",
+    "done",
+  ]);
+  check("never the family list", ids(soloFree).includes("family"), false);
+  check("never a voice feature it hasn't got", ids(soloFree).includes("voice"), false);
+  check(
+    "a family account is told about the shared list",
+    ids({ ...soloFree, accountType: "family" }).includes("family"),
+    true,
+  );
+  check("and a paid one about Siri", ids({ ...soloFree, voice: true }).includes("voice"), true);
+  check(
+    "the closing step is last however many there are",
+    ids({ ...soloFree, accountType: "family", voice: true }).at(-1),
+    "done",
+  );
+
+  const screens = (ctx) =>
+    stepsFor(ctx)
+      .find((s) => s.id === "screens")
+      .points.map((p) => p.name);
+  check("Spending is off the map without it", screens(soloFree).includes("Spending"), false);
+  check("and on it with", screens({ ...soloFree, spending: true }).includes("Spending"), true);
+
+  const delivery = (ctx) =>
+    stepsFor(ctx)
+      .find((s) => s.id === "delivery")
+      .body.join(" ");
+  check("email isn't promised to an account without it", delivery(soloFree).includes("An email goes out"), false);
+  check("and is to one with it", delivery({ ...soloFree, email: true }).includes("An email goes out"), true);
+
+  // Stating this account's own repeat gap, not a number from the defaults. Someone who
+  // has set it to two hours and is then told "every hour" has been told something false
+  // by the screen that exists to explain the app.
+  const escalate = (mins) =>
+    stepsFor({ ...soloFree, overdueRepeatMins: mins })
+      .find((s) => s.id === "escalate")
+      .body.join(" ");
+  check("an hourly repeat is said in words", escalate(60).includes("every hour"), true);
+  check("so is a two-hourly one", escalate(120).includes("every 2 hours"), true);
+  check("and an odd gap keeps its minutes", escalate(45).includes("every 45 minutes"), true);
+
+  check("the greeting uses the first name", stepsFor(soloFree)[0].title, "Welcome, Rishi");
+  check(
+    "and drops it rather than trailing a comma",
+    stepsFor({ ...soloFree, name: "" })[0].title,
+    "Welcome to DueDo",
+  );
+
+  const closing = (ctx) => stepsFor(ctx).at(-1).body.join(" ");
+  check("Free is told where the paid features are", closing(soloFree).includes("paid plans"), true);
+  check(
+    "and somebody already paying is not sold to again",
+    closing({ ...soloFree, free: false }).includes("paid plans"),
+    false,
+  );
+
+  const everything = stepsFor({
+    ...soloFree,
+    accountType: "family",
+    email: true,
+    spending: true,
+    voice: true,
+    free: false,
+  });
+  // A link mid-tour closes the tour to go somewhere, which is not what Next promised.
+  check("only the closing step links away", everything.filter((s) => s.link).map((s) => s.id), ["done"]);
+  check(
+    "every step has a title and something to say",
+    everything.every(
+      (s) => s.title.length > 0 && (s.body.length > 0 || (s.points?.length ?? 0) > 0),
+    ),
+    true,
+  );
+  check("and the ids are unique", new Set(everything.map((s) => s.id)).size, everything.length);
 } finally {
   await cleanup();
   await prisma.$disconnect();

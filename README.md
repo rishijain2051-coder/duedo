@@ -167,6 +167,27 @@ Sessions are stored in the database, so **Settings → Security** can list every
 active login and sign any of them out, and an optional inactivity timeout is
 enforced server-side rather than merely honoured by the browser.
 
+## First run
+
+A new account gets a **stepped walkthrough** on its first authenticated load — adding a
+reminder, the nudges that follow it, where notifications arrive, and what each screen is
+for. **Skip is on every step**, and it counts exactly the same as finishing, because a
+first run that won't take no for an answer is one people close without reading. What
+makes that affordable is **Settings → Walkthrough**, which puts it back.
+
+Two things it deliberately isn't. It isn't anchored to real UI elements: the navigation
+is a sidebar on a laptop and a drawer on a phone, so spotlights would need authoring
+twice and would keep working right up until a class name changed, then point at the
+wrong corner with nothing to say they were wrong. And it isn't the same tour for
+everyone — [`lib/walkthrough.ts`](lib/walkthrough.ts) filters the steps against the
+account, so a solo account is never walked through the family list and nobody is shown
+around a feature their plan doesn't include. That last one is the difference between a
+walkthrough and an advert, and it is asserted in the smoke suite rather than trusted.
+
+"Seen" lives on the account (`User.tourSeenAt`), not in the browser, so finishing it on
+a laptop doesn't make it run again on the phone. A local copy is kept as well, purely so
+a failed PATCH or a day-old cached shell can't re-ask somebody who already answered.
+
 ## Spending
 
 Reminders carry an amount, so completing them records what you paid. **Spending** shows

@@ -457,7 +457,12 @@ export const api = {
           | "pushOptIn"
           | "accountType"
         >
-      > & { currentPin?: string; newPin?: string },
+      > & {
+        currentPin?: string;
+        newPin?: string;
+        /** true records the walkthrough as seen; false puts it back on screen. */
+        tourSeen?: boolean;
+      },
     ) => request<Settings>("/settings", { method: "PATCH", body: JSON.stringify(data) }),
     testEmail: () =>
       request<{ sent: boolean; to: string; message: string }>(

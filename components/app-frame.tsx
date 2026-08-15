@@ -10,6 +10,7 @@ import { UpdateBanner } from "@/components/update-banner";
 import { PlanUpgraded } from "@/components/plan-upgraded";
 import { OfflineBar } from "@/components/offline-bar";
 import { OutboxBar } from "@/components/outbox-bar";
+import { Walkthrough } from "@/components/walkthrough";
 
 export function AppFrame({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -60,6 +61,10 @@ export function AppFrame({ children }: { children: React.ReactNode }) {
           </div>
         </main>
       </div>
+      {/* Outside the shell rather than inside it, because it is a fixed overlay and
+          not page content — nesting it in the scroll container would only suggest it
+          scrolls. Renders nothing at all for an account that has already seen it. */}
+      <Walkthrough />
     </AppProvider>
   );
 }

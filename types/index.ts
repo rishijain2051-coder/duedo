@@ -93,6 +93,12 @@ export interface Settings {
   /** Delivery channels, chosen per account. */
   emailOptIn: boolean;
   pushOptIn: boolean;
+  /**
+   * When the walkthrough was last finished or skipped, ISO. Null means it has never
+   * been seen, which is what puts it on screen. Read-only from the client's side —
+   * it is set by PATCHing `tourSeen`, not by writing this.
+   */
+  tourSeenAt: string | null;
   pinSet: boolean;
   passkeyCount: number;
   /** Server-side facts, not preferences. */

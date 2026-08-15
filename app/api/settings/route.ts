@@ -88,6 +88,14 @@ export async function PATCH(req: NextRequest) {
     if (body.emailOptIn !== undefined) data.emailOptIn = Boolean(body.emailOptIn);
     if (body.pushOptIn !== undefined) data.pushOptIn = Boolean(body.pushOptIn);
 
+    // The walkthrough, as a verb rather than a timestamp: true is "I have seen it",
+    // false is "show it to me again". The client never sends a date of its own — a
+    // stopped clock or a phone set to next year would otherwise decide whether a
+    // future version of the tour counts as already seen.
+    if (body.tourSeen !== undefined) {
+      data.tourSeenAt = body.tourSeen ? new Date() : null;
+    }
+
     if (body.accountType !== undefined) {
       const next = body.accountType === "family" ? "family" : "solo";
       // Switching back to solo is refused while memberships exist: the family

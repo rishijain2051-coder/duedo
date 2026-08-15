@@ -29,6 +29,7 @@ export const SETTINGS_SELECT = {
   idleTimeoutMins: true,
   emailOptIn: true,
   pushOptIn: true,
+  tourSeenAt: true,
   password_hash: true,
 } as const;
 
@@ -47,6 +48,7 @@ export type SettingsRow = {
   idleTimeoutMins: number;
   emailOptIn: boolean;
   pushOptIn: boolean;
+  tourSeenAt: Date | null;
   password_hash: string | null;
 };
 
@@ -79,6 +81,11 @@ export function shapeSettings(u: SettingsRow, extras: SettingsExtras): Settings 
     idleTimeoutMins: u.idleTimeoutMins,
     emailOptIn: u.emailOptIn,
     pushOptIn: u.pushOptIn,
+    // Null is what makes the walkthrough appear, so this has to travel on the
+    // bootstrap payload — the shell reads that, not /api/settings, and a first-run
+    // dialog that waits for a second request is a dialog that lands after you have
+    // already started reading the page underneath it.
+    tourSeenAt: u.tourSeenAt?.toISOString() ?? null,
     pinSet: Boolean(u.password_hash),
     ...extras,
   };

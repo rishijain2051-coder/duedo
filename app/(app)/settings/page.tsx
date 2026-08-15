@@ -7,6 +7,7 @@ import {
   Bell,
   BellRing,
   Clock,
+  Compass,
   Download,
   Loader2,
   Mail,
@@ -32,6 +33,7 @@ import { useApp } from "@/components/app-context";
 import { Credit } from "@/components/credit";
 import { FamilySettings } from "@/components/family-settings";
 import { ExternalContactsCard } from "@/components/external-contacts";
+import { forgetWalkthrough } from "@/components/walkthrough";
 import {
   api,
   type ActiveLogin,
@@ -261,6 +263,20 @@ export default function SettingsPage() {
     } finally {
       setBusy(null);
     }
+  }
+
+  /**
+   * Puts the walkthrough back on screen.
+   *
+   * The local mirror has to be cleared first. It is checked alongside the server
+   * value — that is what stops a failed PATCH re-asking someone who already skipped —
+   * so clearing tourSeenAt on its own would refresh the settings, satisfy half the
+   * condition, and change nothing on screen. A button that reports success and does
+   * nothing is worse than no button.
+   */
+  async function replayWalkthrough() {
+    forgetWalkthrough();
+    await save("tour", { tourSeen: false }, "Walkthrough restarted.");
   }
 
   async function togglePush() {
@@ -1261,6 +1277,33 @@ export default function SettingsPage() {
               cannot read them, sign in, or reach anything else.
             </p>
           )}
+        </CardContent>
+      </Card>
+
+      {/* ---------------- Walkthrough ---------------- */}
+      {/* One row, no header — it is a single button, and giving it a card of its own
+          with a title would make more of it than it is. It exists so that Skip on the
+          first-run tour costs nothing: a walkthrough you can only ever be shown once
+          has to be sat through, which is why people close them without reading. */}
+      <Card>
+        <CardContent className="flex flex-wrap items-center justify-between gap-3 p-4">
+          <div className="min-w-0">
+            <p className="flex items-center gap-2 font-medium">
+              <Compass className="h-5 w-5" /> Walkthrough
+            </p>
+            <p className="text-sm text-muted-foreground">
+              The minute-long tour of the app — adding a reminder, the nudges that
+              follow it, and where everything lives.
+            </p>
+          </div>
+          <Button
+            variant="outline"
+            onClick={replayWalkthrough}
+            disabled={busy !== null}
+          >
+            {busy === "tour" && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            Show it again
+          </Button>
         </CardContent>
       </Card>
 

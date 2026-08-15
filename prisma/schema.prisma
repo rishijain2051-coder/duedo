@@ -125,6 +125,16 @@ model User {
   emailOptIn Boolean @default(true)
   pushOptIn  Boolean @default(true)
 
+  /// When this account last finished or skipped the walkthrough. Null means it has
+  /// not been seen, which is the whole of the "show it once" rule.
+  ///
+  /// On the account rather than in localStorage because the app is installed per
+  /// device: a tour finished on a laptop would otherwise run again on the phone, and
+  /// again on the tablet, which is the difference between an introduction and a nag.
+  /// A timestamp rather than a boolean so a later version of the tour can ask "seen
+  /// before what date" without another column.
+  tourSeenAt DateTime? @db.Timestamptz
+
   approvedAt DateTime? @db.Timestamptz
   createdAt  DateTime  @default(now()) @db.Timestamptz
   updatedAt  DateTime  @updatedAt @db.Timestamptz
